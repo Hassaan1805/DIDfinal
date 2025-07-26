@@ -1,0 +1,31 @@
+{
+  "name": "shared",
+  "version": "1.0.0",
+  "description": "Shared utilities and types for Decentralized Trust Platform",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "jest",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "ethers": "^6.7.1",
+    "ethr-did": "^2.3.9",
+    "did-jwt": "^7.4.7",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.1.6",
+    "@types/node": "^20.4.5",
+    "@types/uuid": "^9.0.3",
+    "jest": "^29.6.2",
+    "@types/jest": "^29.5.3",
+    "ts-jest": "^29.1.1",
+    "rimraf": "^5.0.1"
+  },
+  "keywords": ["DID", "blockchain", "utilities", "TypeScript"],
+  "author": "DecentralizedTrustPlatform Team",
+  "license": "MIT"
+}

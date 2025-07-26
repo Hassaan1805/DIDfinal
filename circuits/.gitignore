@@ -1,0 +1,69 @@
+# Circuit compilation artifacts
+build/
+*.r1cs
+*.wasm
+*.sym
+*.c
+*.cpp
+*.dat
+*.json.bak
+
+# Trusted setup files
+*.ptau
+*.zkey
+pot*
+powersOfTau*
+
+# Generated verification files
+verification_key.json
+verifier.sol
+
+# Test artifacts
+test_results.json
+test_input.json
+proof.json
+public.json
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Circuit-specific ignores
+circuit_js/
+circuit_cpp/
+witness.wtns
+input.json
+output.json

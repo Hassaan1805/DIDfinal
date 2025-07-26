@@ -1,0 +1,36 @@
+{
+  "name": "decentralized-trust-platform",
+  "version": "1.0.0",
+  "description": "Decentralized Enterprise Trust Platform - A next-generation DID-based authentication and authorization system",
+  "private": true,
+  "workspaces": [
+    "contracts",
+    "backend",
+    "portal",
+    "wallet",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "concurrently \"yarn workspace contracts dev\" \"yarn workspace backend dev\" \"yarn workspace portal dev\"",
+    "build": "yarn workspaces run build",
+    "test": "yarn workspaces run test",
+    "clean": "yarn workspaces run clean",
+    "setup": "yarn install && yarn workspace contracts compile",
+    "start:ganache": "ganache-cli --deterministic --accounts 10 --host 0.0.0.0 --port 7545"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.13",
+    "concurrently": "^8.2.2",
+    "ganache-cli": "^6.12.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "DecentralizedTrustPlatform Team",
+  "license": "MIT",
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  }
+}

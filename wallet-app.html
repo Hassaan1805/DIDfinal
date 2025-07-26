@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DID Wallet - QR Scanner</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        
+        .header {
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        .wallet-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            color: #333;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .scan-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 10px;
+            transition: transform 0.2s;
+        }
+        
+        .scan-button:hover {
+            transform: translateY(-2px);
+        }
+        
+        .scan-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .input-field {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            margin: 10px 0;
+            box-sizing: border-box;
+        }
+        
+        .input-field:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: left;
+        }
+        
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        .challenge-data {
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔐 DID Wallet</h1>
+            <p>Decentralized Identity Authentication</p>
+        </div>
+        
+        <div class="wallet-card">
+            <h2>QR Code Authentication</h2>
+            
+            <div id="step1">
+                <p>1. Scan QR code from the portal or paste the data below:</p>
+                <textarea id="qrData" class="input-field" placeholder="Paste QR code data here..." rows="6"></textarea>
+                <button class="scan-button" onclick="parseQRData()">📷 Parse QR Data</button>
+                <button class="scan-button" onclick="getLatestChallenge()" style="background: #28a745;">🔄 Get Latest Challenge</button>
+            </div>
+            
+            <div id="step2" style="display: none;">
+                <h3>Challenge Details</h3>
+                <div id="challengeInfo"></div>
+                <button class="scan-button" onclick="signChallenge()">✍️ Sign Challenge</button>
+                <button class="scan-button" onclick="resetForm()" style="background: #6c757d;">🔄 Reset</button>
+            </div>
+            
+            <div id="step3" style="display: none;">
+                <h3>Authentication Response</h3>
+                <div id="authResult"></div>
+                <button class="scan-button" onclick="resetForm()">🔄 New Authentication</button>
+            </div>
+            
+            <div id="result"></div>
+        </div>
+        
+        <div class="wallet-card">
+            <h3>How it works:</h3>
+            <p style="text-align: left; font-size: 14px;">
+                1. 📱 Scan or paste QR code from the portal<br>
+                2. 🔑 Sign the challenge with your wallet<br>
+                3. 📤 Send signed response to the backend<br>
+                4. ✅ Receive authentication token
+            </p>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <script>
+        let currentChallenge = null;
+        let wallet = null;
+
+        // Initialize or create wallet
+        function initWallet() {
+            const storedPrivateKey = localStorage.getItem('walletPrivateKey');
+            if (storedPrivateKey) {
+                wallet = new ethers.Wallet(storedPrivateKey);
+            } else {
+                wallet = ethers.Wallet.createRandom();
+                localStorage.setItem('walletPrivateKey', wallet.privateKey);
+            }
+            console.log('Wallet initialized:', wallet.address);
+        }
+
+        async function getLatestChallenge() {
+            try {
+                showResult('Fetching latest challenge...', 'info');
+                
+                const response = await fetch('http://localhost:3001/api/auth/challenge');
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('qrData').value = data.data.qrCodeData;
+                    parseQRData();
+                    showResult('Latest challenge loaded successfully!', 'success');
+                } else {
+                    showResult('Failed to fetch challenge: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showResult('Failed to fetch challenge: ' + error.message, 'error');
+                console.error('Fetch challenge error:', error);
+            }
+        }
+
+        function parseQRData() {
+            const qrDataInput = document.getElementById('qrData');
+            const qrData = qrDataInput.value.trim();
+            
+            if (!qrData) {
+                showResult('Please enter QR code data', 'error');
+                return;
+            }
+            
+            try {
+                const challengeData = JSON.parse(qrData);
+                
+                if (!challengeData.challengeId || !challengeData.challenge) {
+                    throw new Error('Invalid challenge data');
+                }
+                
+                currentChallenge = challengeData;
+                
+                document.getElementById('step1').style.display = 'none';
+                document.getElementById('step2').style.display = 'block';
+                
+                document.getElementById('challengeInfo').innerHTML = `
+                    <div class="challenge-data">
+                        <strong>Challenge ID:</strong> ${challengeData.challengeId}<br>
+                        <strong>Challenge:</strong> ${challengeData.challenge}<br>
+                        <strong>API URL:</strong> ${challengeData.apiUrl || 'http://localhost:3001'}<br>
+                        <strong>Expires in:</strong> ${challengeData.expiresIn} seconds
+                    </div>
+                `;
+                
+                showResult('Challenge parsed successfully!', 'success');
+                
+            } catch (error) {
+                showResult('Invalid QR code data: ' + error.message, 'error');
+            }
+        }
+
+        async function signChallenge() {
+            if (!currentChallenge) {
+                showResult('No challenge to sign', 'error');
+                return;
+            }
+            
+            if (!wallet) {
+                initWallet();
+            }
+            
+            try {
+                showResult('Signing challenge...', 'info');
+                
+                // Create the message to sign
+                const message = `Challenge: ${currentChallenge.challenge}\\nChallenge ID: ${currentChallenge.challengeId}`;
+                
+                // Sign the message
+                const signature = await wallet.signMessage(message);
+                
+                // Create the authentication payload
+                const authPayload = {
+                    challengeId: currentChallenge.challengeId,
+                    signature: signature,
+                    address: wallet.address,
+                    message: message
+                };
+                
+                // Send to backend
+                const apiUrl = currentChallenge.apiUrl || 'http://localhost:3001';
+                const response = await fetch(`${apiUrl}/api/auth/verify`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(authPayload)
+                });
+                
+                const result = await response.json();
+                
+                document.getElementById('step2').style.display = 'none';
+                document.getElementById('step3').style.display = 'block';
+                
+                if (response.ok && result.success) {
+                    document.getElementById('authResult').innerHTML = `
+                        <div class="success">
+                            ✅ Authentication Successful!<br>
+                            <strong>Token:</strong> ${result.token ? result.token.substring(0, 20) + '...' : 'Generated'}<br>
+                            <strong>User Address:</strong> ${wallet.address}<br>
+                            <strong>Signature:</strong> ${signature.substring(0, 20)}...
+                        </div>
+                    `;
+                    showResult('Authentication completed successfully!', 'success');
+                } else {
+                    document.getElementById('authResult').innerHTML = `
+                        <div class="error">
+                            ❌ Authentication Failed<br>
+                            <strong>Error:</strong> ${result.error || 'Unknown error'}
+                        </div>
+                    `;
+                    showResult('Authentication failed: ' + (result.error || 'Unknown error'), 'error');
+                }
+                
+            } catch (error) {
+                console.error('Sign challenge error:', error);
+                showResult('Failed to sign challenge: ' + error.message, 'error');
+            }
+        }
+
+        function resetForm() {
+            document.getElementById('step1').style.display = 'block';
+            document.getElementById('step2').style.display = 'none';
+            document.getElementById('step3').style.display = 'none';
+            document.getElementById('qrData').value = '';
+            document.getElementById('result').innerHTML = '';
+            currentChallenge = null;
+        }
+
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = `<div class="result ${type}">${message}</div>`;
+        }
+
+        // Initialize wallet on page load
+        window.onload = function() {
+            initWallet();
+            showResult(`Wallet ready: ${wallet.address}`, 'info');
+        };
+    </script>
+</body>
+</html>
