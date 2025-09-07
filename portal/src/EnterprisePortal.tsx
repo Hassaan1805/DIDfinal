@@ -22,12 +22,13 @@ const EnterprisePortal: React.FC<EnterprisePortalProps> = ({
       const timestamp = Date.now();
       const challenge = Math.random().toString(36).substring(7);
       const authData = {
-        type: 'DID_AUTH_REQUEST',
+        type: 'did_auth',
         timestamp,
         challenge,
         domain: 'decentralized-trust-platform.local',
         callbackUrl: `http://localhost:5174/auth/callback`,
-        requestId: `auth_${timestamp}_${challenge}`
+        requestId: `auth_${timestamp}_${challenge}`,
+        nonce: Math.random().toString(36).substring(2, 10)
       };
       return JSON.stringify(authData);
     };
@@ -230,12 +231,13 @@ const EnterprisePortal: React.FC<EnterprisePortalProps> = ({
                 🚀 Simulate Scan
               </button>
               <button className="btn btn-secondary" onClick={() => setQrData(JSON.stringify({
-                type: 'DID_AUTH_REQUEST',
+                type: 'did_auth',
                 timestamp: Date.now(),
                 challenge: Math.random().toString(36).substring(7),
                 domain: 'decentralized-trust-platform.local',
                 callbackUrl: `http://localhost:5174/auth/callback`,
-                requestId: `auth_${Date.now()}_${Math.random().toString(36).substring(7)}`
+                requestId: `auth_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+                nonce: Math.random().toString(36).substring(2, 10)
               }))}>
                 🔄 Refresh QR
               </button>
