@@ -4,7 +4,7 @@
   "description": "Backend API server for Decentralized Trust Platform",
   "main": "dist/app.js",
   "scripts": {
-    "dev": "nodemon src/app.ts",
+    "dev": "cross-env NODE_ENV=development nodemon src/app.ts",
     "build": "tsc",
     "start": "node dist/app.js",
     "test": "jest",
@@ -34,7 +34,9 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.4",
     "@types/node": "^20.4.5",
+    "@types/snarkjs": "^0.7.9",
     "@types/uuid": "^9.0.3",
+    "cross-env": "^10.0.0",
     "jest": "^29.6.2",
     "nodemon": "^3.0.1",
     "rimraf": "^5.0.1",

@@ -1,8 +1,29 @@
+// Load environment variables first
+import dotenv from 'dotenv';
+
+// Ensure NODE_ENV is set if not already
+if (!process.env.NODE_ENV) {
+  process.env.NODE_ENV = 'development';
+}
+
+// Load environment variables based on NODE_ENV
+const envFile = process.env.NODE_ENV === 'development' ? '.env.development' : '.env';
+console.log(`📁 Loading environment from: ${envFile}`);
+console.log(`🌍 NODE_ENV: ${process.env.NODE_ENV}`);
+
+const envResult = dotenv.config({ path: envFile });
+if (envResult.error) {
+  console.warn(`⚠️ Warning: Could not load ${envFile}:`, envResult.error.message);
+  // Fallback to default .env
+  dotenv.config();
+} else {
+  console.log(`✅ Environment loaded successfully from ${envFile}`);
+}
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import dotenv from 'dotenv';
 import { authRoutes } from './routes/auth';
 import { didRoutes } from './routes/did';
 import { healthRoutes } from './routes/health';
@@ -11,11 +32,15 @@ import { benchmarkRoutes } from './routes/benchmark';
 import zkpRoutes from './routes/zkp.routes';
 import premiumRoutes from './routes/premium.routes';
 
-// Load environment variables
-dotenv.config();
-
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Debug environment variables
+console.log(`🔧 Environment variables loaded:`);
+console.log(`   NODE_ENV: ${process.env.NODE_ENV}`);
+console.log(`   DEMO_MODE: ${process.env.DEMO_MODE}`);
+console.log(`   PORT: ${process.env.PORT}`);
+console.log(`   JWT_SECRET: ${process.env.JWT_SECRET ? '[SET]' : '[NOT SET]'}`);
 
 // Security middleware
 app.use(helmet());

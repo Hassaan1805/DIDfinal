@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DID Wallet Simulator</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .wallet-container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .wallet-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+        }
+        .wallet-header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 300;
+        }
+        .wallet-header .subtitle {
+            opacity: 0.9;
+            margin-top: 5px;
+            font-size: 14px;
+        }
+        .wallet-content {
+            padding: 30px;
+        }
+        .user-info {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        .user-avatar {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            margin: 0 auto 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .scanner-section {
+            margin-bottom: 30px;
+        }
+        .scanner-section h3 {
+            margin-bottom: 15px;
+            color: #333;
+            font-weight: 500;
+        }
+        .qr-input-area {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+        }
+        textarea {
+            width: 100%;
+            height: 120px;
+            border: 2px dashed #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            font-family: monospace;
+            font-size: 12px;
+            resize: vertical;
+            background: white;
+            box-sizing: border-box;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            margin: 10px 5px;
+            transition: all 0.3s ease;
+            min-width: 120px;
+        }
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .button:active {
+            transform: translateY(0);
+        }
+        .button.secondary {
+            background: #6c757d;
+        }
+        .button.danger {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+        }
+        .button.success {
+            background: linear-gradient(135deg, #51cf66 0%, #40c057 100%);
+        }
+        .button:disabled {
+            background: #dee2e6;
+            color: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .auth-request {
+            background: #e3f2fd;
+            border: 1px solid #bbdefb;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            display: none;
+        }
+        .auth-request.show {
+            display: block;
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .request-details {
+            margin-bottom: 20px;
+        }
+        .request-details h4 {
+            margin: 0 0 10px 0;
+            color: #1976d2;
+        }
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        .detail-label {
+            font-weight: 500;
+            color: #666;
+        }
+        .detail-value {
+            color: #333;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .action-buttons {
+            text-align: center;
+        }
+        .response-area {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            display: none;
+        }
+        .response-area.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            display: block;
+        }
+        .response-area.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            display: block;
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-connected {
+            background: #28a745;
+        }
+        .status-disconnected {
+            background: #dc3545;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            border-top: 1px solid #eee;
+            color: #666;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="wallet-container">
+        <div class="wallet-header">
+            <h1>🔐 DID Wallet</h1>
+            <div class="subtitle">Decentralized Identity Wallet Simulator</div>
+        </div>
+        
+        <div class="wallet-content">
+            <div class="user-info">
+                <div class="user-avatar">JD</div>
+                <strong>John Doe</strong><br>
+                <small>Senior Developer</small><br>
+                <small style="font-family: monospace;">did:ethr:0xf39F...2266</small>
+                <div style="margin-top: 10px;">
+                    <span class="status-indicator status-connected"></span>
+                    <small>Connected to Platform</small>
+                </div>
+            </div>
+
+            <div class="scanner-section">
+                <h3>📱 QR Code Scanner</h3>
+                <div class="qr-input-area">
+                    <p style="margin-top: 0; color: #666; font-size: 14px;">
+                        Paste QR code data below to simulate scanning:
+                    </p>
+                    <textarea id="qrInput" placeholder='Paste QR code JSON data here...'></textarea>
+                    <div style="margin-top: 15px;">
+                        <button class="button" onclick="scanQRCode()">🔍 Scan QR Code</button>
+                        <button class="button secondary" onclick="clearInput()">Clear</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="authRequest" class="auth-request">
+                <div class="request-details">
+                    <h4>🔐 Authentication Request</h4>
+                    <div id="requestDetails"></div>
+                </div>
+                <div class="action-buttons">
+                    <button class="button success" onclick="approveAuth()">✅ Approve</button>
+                    <button class="button danger" onclick="denyAuth()">❌ Deny</button>
+                </div>
+            </div>
+
+            <div id="responseArea" class="response-area"></div>
+        </div>
+
+        <div class="footer">
+            <span class="status-indicator status-connected"></span>
+            Backend: localhost:3001 | Platform: DTP Enterprise
+        </div>
+    </div>
+
+    <script>
+        let currentAuthRequest = null;
+
+        // User's wallet credentials
+        const walletUser = {
+            did: "did:ethr:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+            name: "John Doe",
+            role: "Senior Developer",
+            department: "Engineering",
+            employeeId: "EMP001",
+            companyId: "dtp_enterprise_001"
+        };
+
+        function scanQRCode() {
+            const qrInput = document.getElementById('qrInput').value.trim();
+            const responseArea = document.getElementById('responseArea');
+            
+            if (!qrInput) {
+                showResponse('Please paste QR code data first!', 'error');
+                return;
+            }
+
+            try {
+                const authRequest = JSON.parse(qrInput);
+                
+                // Validate the auth request
+                if (authRequest.type !== 'did-auth-request') {
+                    throw new Error('Invalid QR code: Not a DID authentication request');
+                }
+
+                currentAuthRequest = authRequest;
+                displayAuthRequest(authRequest);
+                hideResponse();
+                
+            } catch (error) {
+                console.error('QR Scan Error:', error);
+                showResponse(`Invalid QR code format: ${error.message}`, 'error');
+            }
+        }
+
+        function displayAuthRequest(request) {
+            const authRequestDiv = document.getElementById('authRequest');
+            const detailsDiv = document.getElementById('requestDetails');
+            
+            const formatTimestamp = (timestamp) => {
+                return new Date(timestamp).toLocaleString();
+            };
+
+            detailsDiv.innerHTML = `
+                <div class="detail-row">
+                    <span class="detail-label">Domain:</span>
+                    <span class="detail-value">${request.domain}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Required Role:</span>
+                    <span class="detail-value">${request.requiredRole}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Company:</span>
+                    <span class="detail-value">${request.companyId}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Employee:</span>
+                    <span class="detail-value">${request.employee.name} (${request.employee.id})</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Department:</span>
+                    <span class="detail-value">${request.employee.department}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Time:</span>
+                    <span class="detail-value">${formatTimestamp(request.timestamp)}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Challenge:</span>
+                    <span class="detail-value">${request.challenge.substring(0, 20)}...</span>
+                </div>
+            `;
+
+            authRequestDiv.classList.add('show');
+        }
+
+        async function approveAuth() {
+            if (!currentAuthRequest) {
+                showResponse('No authentication request to approve!', 'error');
+                return;
+            }
+
+            try {
+                // Check if user has required role
+                const hasRequiredRole = walletUser.role === currentAuthRequest.requiredRole;
+                const hasCompanyAccess = walletUser.companyId === currentAuthRequest.companyId;
+
+                if (!hasRequiredRole || !hasCompanyAccess) {
+                    showResponse(`Access Denied: You don't have the required role "${currentAuthRequest.requiredRole}" or company access.`, 'error');
+                    return;
+                }
+
+                // Create signature (mock)
+                const dataToSign = JSON.stringify({
+                    challenge: currentAuthRequest.challenge,
+                    did: walletUser.did,
+                    timestamp: Date.now()
+                });
+
+                // Simulate signature creation
+                const mockSignature = "0x" + Array(130).fill(0).map(() => 
+                    Math.floor(Math.random() * 16).toString(16)
+                ).join('');
+
+                const walletResponse = {
+                    type: "did-auth-response",
+                    challenge: currentAuthRequest.challenge,
+                    approved: true,
+                    did: walletUser.did,
+                    signature: mockSignature,
+                    timestamp: Date.now(),
+                    sessionId: currentAuthRequest.sessionId,
+                    userCredentials: {
+                        role: walletUser.role,
+                        department: walletUser.department,
+                        employeeId: walletUser.employeeId,
+                        companyId: walletUser.companyId,
+                        name: walletUser.name
+                    }
+                };
+
+                console.log('Sending approval to:', currentAuthRequest.apiEndpoint);
+                console.log('Approval payload:', walletResponse);
+
+                const response = await fetch(currentAuthRequest.apiEndpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(walletResponse)
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showResponse(`✅ Authentication Approved!\n\nServer Response:\n${JSON.stringify(result, null, 2)}`, 'success');
+                } else {
+                    showResponse(`❌ Authentication Failed!\n\nError: ${result.error || result.message}\n\nResponse:\n${JSON.stringify(result, null, 2)}`, 'error');
+                }
+
+                hideAuthRequest();
+
+            } catch (error) {
+                console.error('Approval error:', error);
+                showResponse(`❌ Error during approval: ${error.message}`, 'error');
+            }
+        }
+
+        async function denyAuth() {
+            if (!currentAuthRequest) {
+                showResponse('No authentication request to deny!', 'error');
+                return;
+            }
+
+            try {
+                const walletResponse = {
+                    type: "did-auth-response",
+                    challenge: currentAuthRequest.challenge,
+                    approved: false,
+                    did: walletUser.did,
+                    timestamp: Date.now(),
+                    sessionId: currentAuthRequest.sessionId,
+                    reason: "User denied authentication request"
+                };
+
+                const response = await fetch(currentAuthRequest.apiEndpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(walletResponse)
+                });
+
+                const result = await response.json();
+                
+                showResponse(`❌ Authentication Denied\n\nServer Response:\n${JSON.stringify(result, null, 2)}`, 'error');
+                hideAuthRequest();
+
+            } catch (error) {
+                console.error('Denial error:', error);
+                showResponse(`❌ Error during denial: ${error.message}`, 'error');
+            }
+        }
+
+        function clearInput() {
+            document.getElementById('qrInput').value = '';
+            hideAuthRequest();
+            hideResponse();
+        }
+
+        function showResponse(message, type) {
+            const responseArea = document.getElementById('responseArea');
+            responseArea.textContent = message;
+            responseArea.className = `response-area ${type}`;
+        }
+
+        function hideResponse() {
+            const responseArea = document.getElementById('responseArea');
+            responseArea.className = 'response-area';
+        }
+
+        function hideAuthRequest() {
+            const authRequestDiv = document.getElementById('authRequest');
+            authRequestDiv.classList.remove('show');
+            currentAuthRequest = null;
+        }
+
+        // Auto-fill with sample data for quick testing
+        window.addEventListener('load', function() {
+            const sampleQR = `{
+  "type": "did-auth-request",
+  "challenge": "auth_${Date.now()}_sample",
+  "domain": "decentralized-trust.platform",
+  "timestamp": ${Date.now()},
+  "requiredRole": "Senior Developer",
+  "companyId": "dtp_enterprise_001",
+  "sessionId": "session_${Date.now()}",
+  "apiEndpoint": "http://localhost:3001/api/auth/verify",
+  "employee": {
+    "id": "EMP001",
+    "name": "John Doe",
+    "department": "Engineering",
+    "role": "Senior Developer"
+  },
+  "nonce": "sample_nonce"
+}`;
+            
+            document.getElementById('qrInput').value = sampleQR;
+        });
+    </script>
+</body>
+</html>

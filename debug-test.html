@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Test</title>
+</head>
+<body>
+    <h1>JavaScript Debug Test</h1>
+    <button onclick="testBasic()">Test Basic JS</button>
+    <button onclick="testEthers()">Test Ethers</button>
+    <button onclick="testEmployeeData()">Test Employee Data</button>
+    
+    <div id="output"></div>
+    
+    <!-- Include ethers.js for cryptographic operations -->
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+    
+    <script>
+        function testBasic() {
+            alert('Basic JavaScript is working!');
+            document.getElementById('output').innerHTML = '<p>✅ Basic JS Works</p>';
+        }
+        
+        function testEthers() {
+            try {
+                if (typeof ethers !== 'undefined') {
+                    alert('Ethers.js is loaded!');
+                    console.log('Ethers version:', ethers.version);
+                    document.getElementById('output').innerHTML += '<p>✅ Ethers.js loaded</p>';
+                } else {
+                    alert('❌ Ethers.js failed to load');
+                    document.getElementById('output').innerHTML += '<p>❌ Ethers.js NOT loaded</p>';
+                }
+            } catch (error) {
+                alert('Error testing ethers: ' + error.message);
+                console.error('Ethers test error:', error);
+            }
+        }
+        
+        function testEmployeeData() {
+            try {
+                // Test employee wallet creation
+                const testKey = ethers.utils.keccak256(ethers.utils.toUtf8Bytes('test_key'));
+                const wallet = new ethers.Wallet(testKey);
+                
+                alert('Wallet creation works! Address: ' + wallet.address.substring(0, 10) + '...');
+                document.getElementById('output').innerHTML += '<p>✅ Wallet creation works</p>';
+                
+            } catch (error) {
+                alert('❌ Wallet creation failed: ' + error.message);
+                console.error('Wallet test error:', error);
+                document.getElementById('output').innerHTML += '<p>❌ Wallet creation failed</p>';
+            }
+        }
+        
+        // Test on page load
+        window.addEventListener('load', function() {
+            console.log('Page loaded');
+            document.getElementById('output').innerHTML = '<p>🚀 Page loaded, ready for testing</p>';
+        });
+    </script>
+</body>
+</html>

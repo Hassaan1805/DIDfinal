@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code Format Tester</title>
+    <script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; }
+        .qr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin: 20px 0; }
+        .qr-item { border: 1px solid #ddd; padding: 20px; border-radius: 8px; text-align: center; }
+        .qr-canvas { margin: 10px 0; }
+        .format-title { font-weight: bold; color: #007bff; margin-bottom: 10px; }
+        .data-preview { background: #f8f9fa; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; word-break: break-all; margin-top: 10px; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 5px; }
+        button:hover { background: #0056b3; }
+        .info { background: #d1ecf1; color: #0c5460; padding: 15px; border-radius: 5px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 QR Code Format Tester</h1>
+        
+        <div class="info">
+            <strong>Test different QR code formats with your wallet app</strong><br>
+            Try scanning each QR code to see which format your app recognizes.
+        </div>
+
+        <button onclick="generateAllFormats()">Generate All QR Code Formats</button>
+        <button onclick="clearAll()">Clear All</button>
+
+        <div id="qrGrid" class="qr-grid"></div>
+
+        <h2>📋 Format Explanations</h2>
+        <ul>
+            <li><strong>Simple URL:</strong> Basic web URL format</li>
+            <li><strong>URI Scheme:</strong> Custom app scheme (did:auth:)</li>
+            <li><strong>Plain Text:</strong> Just the challenge string</li>
+            <li><strong>JSON String:</strong> Our current format</li>
+            <li><strong>Compact JSON:</strong> Minified JSON</li>
+            <li><strong>Base64 Encoded:</strong> Encoded JSON data</li>
+            <li><strong>Query Parameters:</strong> URL with parameters</li>
+            <li><strong>Ethereum Message:</strong> Ethereum signing format</li>
+        </ul>
+    </div>
+
+    <script>
+        const testData = {
+            challengeId: 'test-challenge-123',
+            challenge: 'authenticate_user_2025_09_09',
+            employee: 'zaid',
+            address: '0xF51b2A9f6E125B7643CD0230c7140Bc4b9a27315',
+            apiEndpoint: 'http://localhost:3001/api/auth/verify',
+            timestamp: Date.now()
+        };
+
+        const formats = [
+            {
+                name: 'Simple URL',
+                data: 'http://localhost:3001/api/auth/verify?challenge=authenticate_user_2025_09_09&employee=zaid'
+            },
+            {
+                name: 'URI Scheme',
+                data: `did:auth:challenge=${testData.challenge}&employee=${testData.employee}&api=${encodeURIComponent(testData.apiEndpoint)}`
+            },
+            {
+                name: 'Plain Text',
+                data: testData.challenge
+            },
+            {
+                name: 'JSON String',
+                data: JSON.stringify(testData, null, 2)
+            },
+            {
+                name: 'Compact JSON',
+                data: JSON.stringify(testData)
+            },
+            {
+                name: 'Base64 Encoded',
+                data: btoa(JSON.stringify(testData))
+            },
+            {
+                name: 'Query Parameters',
+                data: `http://localhost:3001/auth?challenge=${testData.challenge}&employee=${testData.employee}&address=${testData.address}&timestamp=${testData.timestamp}`
+            },
+            {
+                name: 'Ethereum Message',
+                data: `Sign this message to authenticate: ${testData.challenge}`
+            }
+        ];
+
+        async function generateQR(text, containerId) {
+            try {
+                const canvas = document.createElement('canvas');
+                await QRCode.toCanvas(canvas, text, {
+                    width: 200,
+                    margin: 2,
+                    color: {
+                        dark: '#1F2937',
+                        light: '#FFFFFF'
+                    }
+                });
+                document.getElementById(containerId).appendChild(canvas);
+            } catch (error) {
+                document.getElementById(containerId).innerHTML = `<div style="color: red;">Error generating QR: ${error.message}</div>`;
+            }
+        }
+
+        function generateAllFormats() {
+            const grid = document.getElementById('qrGrid');
+            grid.innerHTML = '';
+
+            formats.forEach((format, index) => {
+                const qrItem = document.createElement('div');
+                qrItem.className = 'qr-item';
+                
+                const containerId = `qr-container-${index}`;
+                
+                qrItem.innerHTML = `
+                    <div class="format-title">${format.name}</div>
+                    <div id="${containerId}" class="qr-canvas"></div>
+                    <div class="data-preview">${format.data}</div>
+                    <button onclick="copyToClipboard('${format.data.replace(/'/g, "\\'")}')">Copy Data</button>
+                `;
+                
+                grid.appendChild(qrItem);
+                
+                // Generate QR code
+                generateQR(format.data, containerId);
+            });
+        }
+
+        function clearAll() {
+            document.getElementById('qrGrid').innerHTML = '';
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+            });
+        }
+
+        // Generate QR codes on page load
+        window.onload = generateAllFormats;
+    </script>
+</body>
+</html>

@@ -841,12 +841,13 @@ function EnterprisePortal({
       </div>
 
       {/* Main Content */}
-      <div className="flex items-center justify-center min-h-[calc(100vh-80px)] p-4">
-        <div className="max-w-lg w-full">
+      <div className="py-8 px-4">
+        <div className="max-w-4xl mx-auto">
           
           {/* Login Step */}
           {authStep === 'login' && (
-            <div className="bg-white rounded-3xl shadow-2xl overflow-hidden border border-gray-200">
+            <div className="max-w-lg mx-auto">
+              <div className="bg-white rounded-3xl shadow-2xl overflow-hidden border border-gray-200">
               <div className="bg-gradient-to-r from-blue-600 to-indigo-700 px-8 py-6">
                 <div className="text-center">
                   <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-4">
@@ -927,7 +928,8 @@ function EnterprisePortal({
 
           {/* QR Code Step */}
           {authStep === 'qr' && employee && (
-            <div className="bg-white rounded-3xl shadow-2xl overflow-hidden border border-gray-200">
+            <div className="max-w-lg mx-auto">
+              <div className="bg-white rounded-3xl shadow-2xl overflow-hidden border border-gray-200">
               <div className="bg-gradient-to-r from-green-600 to-emerald-700 px-8 py-6">
                 <div className="text-center">
                   <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-4">
@@ -1001,6 +1003,7 @@ function EnterprisePortal({
                   ← Back to Login
                 </button>
               </div>
+            </div>
             </div>
           )}
 
@@ -1349,6 +1352,7 @@ function EnterprisePortal({
             </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom'
-import EnterprisePortal from './EnterprisePortal'
+import SimpleEnterprisePortal from './SimpleEnterprisePortal'
+import TestPortal from './TestPortal'
 import BenchmarkPage from './pages/BenchmarkPage'
 import PremiumPage from './pages/PremiumPage'
 import './App.css'
@@ -22,8 +23,11 @@ function App() {
             <Link to="/" className="nav-link">
               🏢 Portal
             </Link>
+            <Link to="/test" className="nav-link">
+              🧪 Test Portal
+            </Link>
             <Link to="/benchmark" className="nav-link">
-              🧪 Benchmark Suite
+              📊 Benchmark Suite
             </Link>
           </div>
         </nav>
@@ -34,11 +38,15 @@ function App() {
             <Route 
               path="/" 
               element={
-                <EnterprisePortal 
+                <SimpleEnterprisePortal 
                   companyName="Decentralized Trust Platform"
                   logoUrl="https://via.placeholder.com/64x64/4F46E5/FFFFFF?text=DT"
                 />
               } 
+            />
+            <Route 
+              path="/test" 
+              element={<TestPortal />} 
             />
             <Route 
               path="/benchmark" 

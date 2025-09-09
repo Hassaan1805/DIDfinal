@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DID Mobile Wallet</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-top: 20px;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            opacity: 0.8;
+            font-size: 16px;
+        }
+        
+        .wallet-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .employee-info {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .employee-name {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .employee-role {
+            opacity: 0.8;
+            font-size: 16px;
+        }
+        
+        .address-section {
+            margin: 20px 0;
+        }
+        
+        .address-label {
+            font-size: 14px;
+            opacity: 0.7;
+            margin-bottom: 5px;
+        }
+        
+        .address {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 12px;
+            border-radius: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .scan-section {
+            text-align: center;
+            margin: 30px 0;
+        }
+        
+        .scan-button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 15px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 15px;
+            transition: background 0.3s;
+        }
+        
+        .scan-button:hover {
+            background: #45a049;
+        }
+        
+        .scan-button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        
+        .manual-input {
+            margin: 20px 0;
+        }
+        
+        .input-group {
+            margin-bottom: 15px;
+        }
+        
+        .input-label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        
+        .input-field {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 16px;
+        }
+        
+        .input-field::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+        
+        .auth-button {
+            background: #FF6B6B;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 15px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 15px;
+            transition: background 0.3s;
+        }
+        
+        .auth-button:hover {
+            background: #ff5252;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            text-align: center;
+        }
+        
+        .status.success {
+            background: rgba(76, 175, 80, 0.2);
+            border: 1px solid #4CAF50;
+        }
+        
+        .status.error {
+            background: rgba(244, 67, 54, 0.2);
+            border: 1px solid #f44336;
+        }
+        
+        .status.info {
+            background: rgba(33, 150, 243, 0.2);
+            border: 1px solid #2196F3;
+        }
+        
+        .camera-container {
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+            display: none;
+        }
+        
+        #video {
+            width: 100%;
+            max-width: 300px;
+            border-radius: 10px;
+        }
+        
+        .camera-controls {
+            margin-top: 15px;
+        }
+        
+        .camera-controls button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 10px;
+            margin: 0 10px;
+            cursor: pointer;
+        }
+        
+        .tabs {
+            display: flex;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 5px;
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            flex: 1;
+            padding: 12px;
+            text-align: center;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .tab.active {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔐 DID Wallet</h1>
+            <p>Decentralized Identity Authentication</p>
+        </div>
+        
+        <div class="wallet-card">
+            <div class="employee-info">
+                <div class="employee-name" id="employeeName">Zaid Ansari</div>
+                <div class="employee-role">Administrator</div>
+            </div>
+            
+            <div class="address-section">
+                <div class="address-label">Wallet Address:</div>
+                <div class="address" id="walletAddress">0xF51b2A9f6E125B7643CD0230c7140Bc4b9a27315</div>
+            </div>
+        </div>
+        
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('scan')">🎯 Scan QR</div>
+            <div class="tab" onclick="switchTab('manual')">✏️ Manual</div>
+        </div>
+        
+        <div id="scanTab" class="tab-content active">
+            <div class="scan-section">
+                <button class="scan-button" onclick="startCamera()">📱 Scan QR Code</button>
+                <div class="camera-container" id="cameraContainer">
+                    <video id="video" autoplay playsinline></video>
+                    <div class="camera-controls">
+                        <button onclick="stopCamera()">Stop Camera</button>
+                        <button onclick="switchCamera()">Switch Camera</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="manualTab" class="tab-content">
+            <div class="manual-input">
+                <div class="input-group">
+                    <label class="input-label">Challenge Data:</label>
+                    <textarea id="challengeInput" class="input-field" rows="4" placeholder="Paste QR code data or challenge here..."></textarea>
+                </div>
+                
+                <div class="input-group">
+                    <label class="input-label">API Endpoint:</label>
+                    <input type="text" id="apiInput" class="input-field" value="http://localhost:3001/api/auth/verify" placeholder="API endpoint">
+                </div>
+                
+                <button class="auth-button" onclick="authenticateManual()">🔐 Authenticate</button>
+            </div>
+        </div>
+        
+        <div id="status"></div>
+        
+        <div class="wallet-card">
+            <h3>🎯 Quick Test</h3>
+            <p style="margin: 10px 0; opacity: 0.8;">Test authentication with portal:</p>
+            <button class="scan-button" onclick="testWithPortal()">🌐 Open Test Portal</button>
+        </div>
+    </div>
+
+    <script>
+        let stream = null;
+        let currentCamera = 'environment'; // 'user' for front camera, 'environment' for back camera
+
+        function switchTab(tabName) {
+            // Remove active class from all tabs and tab contents
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            // Add active class to selected tab and content
+            event.target.classList.add('active');
+            document.getElementById(tabName + 'Tab').classList.add('active');
+        }
+
+        async function startCamera() {
+            try {
+                const cameraContainer = document.getElementById('cameraContainer');
+                const video = document.getElementById('video');
+                
+                const constraints = {
+                    video: {
+                        facingMode: currentCamera
+                    }
+                };
+                
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+                cameraContainer.style.display = 'block';
+                
+                // Start QR detection
+                detectQR();
+                
+                showStatus('Camera started. Point at QR code to scan.', 'info');
+            } catch (error) {
+                showStatus('Camera access denied or not available: ' + error.message, 'error');
+            }
+        }
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            document.getElementById('cameraContainer').style.display = 'none';
+            showStatus('Camera stopped.', 'info');
+        }
+
+        async function switchCamera() {
+            stopCamera();
+            currentCamera = currentCamera === 'environment' ? 'user' : 'environment';
+            await startCamera();
+        }
+
+        function detectQR() {
+            // Simplified QR detection - in a real app, you'd use a proper QR library
+            // For now, this will listen for manual input
+            showStatus('QR detection active. Use manual input for testing.', 'info');
+        }
+
+        async function authenticateManual() {
+            const challengeData = document.getElementById('challengeInput').value.trim();
+            const apiEndpoint = document.getElementById('apiInput').value.trim();
+            
+            if (!challengeData) {
+                showStatus('Please enter challenge data.', 'error');
+                return;
+            }
+            
+            showStatus('Authenticating...', 'info');
+            
+            try {
+                let challenge, employee, address;
+                
+                // Try to parse as JSON first
+                try {
+                    const parsed = JSON.parse(challengeData);
+                    challenge = parsed.challenge;
+                    employee = parsed.employee;
+                    address = parsed.address;
+                } catch {
+                    // Try to parse as URL
+                    if (challengeData.includes('challenge=')) {
+                        const url = new URL(challengeData);
+                        challenge = url.searchParams.get('challenge');
+                        employee = url.searchParams.get('employee');
+                        address = url.searchParams.get('address');
+                    } else {
+                        // Treat as plain challenge
+                        challenge = challengeData;
+                        employee = 'zaid';
+                        address = document.getElementById('walletAddress').textContent;
+                    }
+                }
+                
+                const authPayload = {
+                    challenge: challenge,
+                    signature: 'demo_signature_for_development',
+                    address: address || document.getElementById('walletAddress').textContent
+                };
+                
+                const response = await fetch(apiEndpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(authPayload)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus(`✅ Authentication Successful!\nWelcome ${result.data.employee.name}`, 'success');
+                } else {
+                    showStatus(`❌ Authentication Failed: ${result.error}`, 'error');
+                }
+                
+            } catch (error) {
+                showStatus(`❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        function testWithPortal() {
+            window.open('http://localhost:5173/test', '_blank');
+            showStatus('Opening test portal in new tab...', 'info');
+        }
+
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.className = `status ${type}`;
+            status.innerHTML = message.replace(/\n/g, '<br>');
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            showStatus('🔐 DID Wallet Ready! Scan QR codes from the portal to authenticate.', 'info');
+            
+            // Auto-fill with current employee data
+            const employeeName = document.getElementById('employeeName').textContent;
+            const walletAddress = document.getElementById('walletAddress').textContent;
+            
+            showStatus(`👤 Logged in as: ${employeeName}`, 'success');
+        });
+
+        // Handle file input for QR images (future enhancement)
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                // QR code reading from file would go here
+                showStatus('QR file reading not implemented yet. Use camera or manual input.', 'info');
+            }
+        }
+
+        // Add paste functionality
+        document.getElementById('challengeInput').addEventListener('paste', function(e) {
+            setTimeout(() => {
+                const pastedData = this.value;
+                if (pastedData) {
+                    showStatus('Challenge data pasted. Click Authenticate to proceed.', 'info');
+                }
+            }, 100);
+        });
+    </script>
+</body>
+</html>
