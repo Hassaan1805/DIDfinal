@@ -1,6 +1,9 @@
+<<<<<<< HEAD
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import EnterprisePortal from './EnterprisePortal'
+import SimpleEnterprisePortal from './SimpleEnterprisePortal'
+import TestPortal from './TestPortal'
 import BenchmarkPage from './pages/BenchmarkPage'
 import './App.css'
 import './fallback.css'
@@ -85,11 +88,14 @@ function App() {
             <Route 
               path="/" 
               element={
-                <EnterprisePortal 
+                <SimpleEnterprisePortal 
                   companyName="Decentralized Trust Platform"
-            
                 />
               } 
+            />
+            <Route 
+              path="/test" 
+              element={<TestPortal />} 
             />
             <Route 
               path="/benchmark" 

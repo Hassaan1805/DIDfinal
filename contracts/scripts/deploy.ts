@@ -1,47 +1,86 @@
-import { ethers } from "ethers";
+import { ethers } from "hardhat";
 import hre from "hardhat";
 
 async function main() {
   console.log("🚀 Starting DIDRegistry deployment...");
+  console.log("🌐 Network:", hre.network.name);
   
-  // Get the deployer account using hardhat's network provider
-  const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
-  const deployer = new ethers.Wallet("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80", provider);
+  // Get the deployer account from Hardhat's signers
+  const [deployer] = await ethers.getSigners();
   
   console.log("📋 Deploying contracts with account:", deployer.address);
   
   // Get account balance
-  const balance = await provider.getBalance(deployer.address);
+  const balance = await ethers.provider.getBalance(deployer.address);
   console.log("💰 Account balance:", ethers.formatEther(balance), "ETH");
+
+  if (balance === 0n) {
+    console.error("❌ Deployer account has no ETH! Please fund the account before deployment.");
+    if (hre.network.name === "sepolia") {
+      console.log("💡 Get Sepolia ETH from faucet: https://sepoliafaucet.com/");
+    }
+    process.exit(1);
+  }
 
   // Deploy the DIDRegistry contract
   console.log("📄 Deploying DIDRegistry contract...");
   
-  // Read the compiled contract
-  const contractArtifact = await hre.artifacts.readArtifact("DIDRegistry");
-  const contractFactory = new ethers.ContractFactory(
-    contractArtifact.abi,
-    contractArtifact.bytecode,
-    deployer
-  );
-  
-  const didRegistry = await contractFactory.deploy();
+  const DIDRegistry = await ethers.getContractFactory("DIDRegistry");
+  const didRegistry = await DIDRegistry.deploy();
   await didRegistry.waitForDeployment();
   const contractAddress = await didRegistry.getAddress();
   
   console.log("✅ DIDRegistry deployed successfully!");
   console.log("📍 Contract address:", contractAddress);
+  console.log("🌐 Network:", hre.network.name);
+  console.log("⛽ Transaction hash:", didRegistry.deploymentTransaction()?.hash);
   
-  // Verify contract deployment by calling a read function
+  // Verify contract deployment by calling a simple function
   console.log("🔍 Verifying deployment...");
-  const didRegistryWithTypes = didRegistry as any; // Type assertion for deployed contract
-  const owner = await didRegistryWithTypes.owner();
-  console.log("👤 Contract owner:", owner);
+  try {
+    // Try to call a view function to verify the contract is working
+    const contractCode = await ethers.provider.getCode(contractAddress);
+    if (contractCode === '0x') {
+      throw new Error("Contract deployment failed - no code at address");
+    }
+    console.log("✅ Contract code verified at address");
+  } catch (error) {
+    console.error("❌ Contract verification failed:", error);
+    process.exit(1);
+  }
   console.log("✅ Verification complete!");
   
+  // Save deployment info to a file
+  const deploymentInfo = {
+    network: hre.network.name,
+    contractAddress,
+    deployerAddress: deployer.address,
+    transactionHash: didRegistry.deploymentTransaction()?.hash,
+    blockNumber: didRegistry.deploymentTransaction()?.blockNumber,
+    timestamp: new Date().toISOString(),
+  };
+  
+  const fs = require('fs');
+  const path = require('path');
+  const deploymentsDir = path.join(__dirname, '..', 'deployments');
+  if (!fs.existsSync(deploymentsDir)) {
+    fs.mkdirSync(deploymentsDir);
+  }
+  
+  const deploymentFile = path.join(deploymentsDir, `${hre.network.name}-deployment.json`);
+  fs.writeFileSync(deploymentFile, JSON.stringify(deploymentInfo, null, 2));
+  
   console.log(`
-📊 Add this to your .env file:
+📊 Deployment Summary:
+Network: ${hre.network.name}
+Contract Address: ${contractAddress}
+Deployer: ${deployer.address}
+Transaction: ${didRegistry.deploymentTransaction()?.hash}
+
+📝 Environment Variables to Update:
 DID_REGISTRY_ADDRESS=${contractAddress}
+
+📁 Deployment info saved to: ${deploymentFile}
   `);
   
   // Return deployment info for use in other scripts

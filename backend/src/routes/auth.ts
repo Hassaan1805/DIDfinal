@@ -43,26 +43,34 @@ interface Employee {
 const employeeDatabase = new Map<string, Employee>([
   ['EMP001', {
     id: 'EMP001',
-    name: 'John Doe',
+    name: 'Zaid',
     department: 'Engineering',
-    role: 'Senior Developer',
-    email: 'john.doe@company.com',
+    role: 'CEO',
+    email: 'zaid@company.com',
     active: true
   }],
   ['EMP002', {
     id: 'EMP002',
-    name: 'Jane Smith',
-    department: 'HR',
-    role: 'HR Manager',
-    email: 'jane.smith@company.com',
+    name: 'Hassaan',
+    department: 'Engineering',
+    role: 'CTO',
+    email: 'hassaan@company.com',
     active: true
   }],
   ['EMP003', {
     id: 'EMP003',
-    name: 'Mike Johnson',
-    department: 'Finance',
-    role: 'Financial Analyst',
-    email: 'mike.johnson@company.com',
+    name: 'Atharva',
+    department: 'Product',
+    role: 'Product Manager',
+    email: 'atharva@company.com',
+    active: true
+  }],
+  ['EMP004', {
+    id: 'EMP004',
+    name: 'Gracian',
+    department: 'Design',
+    role: 'Senior Designer',
+    email: 'gracian@company.com',
     active: true
   }]
 ]);
@@ -263,6 +271,90 @@ router.get('/status/:challengeId', async (req: Request, res: Response): Promise<
 });
 
 /**
+ * GET /api/auth/status/session/:sessionId
+ * Checks the authentication status by session ID (for passwordless authentication polling)
+ */
+router.get('/status/session/:sessionId', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { sessionId } = req.params;
+
+    // Find challenge by sessionId (stored in challenge string or as metadata)
+    let matchingChallenge = null;
+    let challengeId = null;
+
+    for (const [cId, challengeData] of challenges.entries()) {
+      // sessionId could be stored in the challenge string or as metadata
+      if (cId.includes(sessionId) || challengeData.challenge.includes(sessionId)) {
+        matchingChallenge = challengeData;
+        challengeId = cId;
+        break;
+      }
+    }
+
+    if (!matchingChallenge) {
+      res.status(404).json({
+        success: false,
+        error: 'Session not found or expired',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    // Check if challenge is expired
+    if (Date.now() - matchingChallenge.timestamp > CHALLENGE_EXPIRY_TIME) {
+      challenges.delete(challengeId!);
+      res.status(400).json({
+        success: false,
+        error: 'Session has expired',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    // Check authentication status
+    if (matchingChallenge.used && matchingChallenge.token) {
+      // Authentication successful
+      res.json({
+        success: true,
+        data: {
+          authenticated: true,
+          sessionId,
+          user: {
+            did: matchingChallenge.did,
+            address: matchingChallenge.userAddress,
+            employeeId: matchingChallenge.employeeId,
+            name: employeeDatabase.get(matchingChallenge.employeeId || '')?.name || 'Unknown User'
+          },
+          token: matchingChallenge.token,
+          authenticatedAt: new Date(matchingChallenge.timestamp).toISOString()
+        },
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      // Still pending
+      res.json({
+        success: true,
+        data: {
+          authenticated: false,
+          pending: true,
+          sessionId,
+          expiresAt: matchingChallenge.timestamp + CHALLENGE_EXPIRY_TIME
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
+
+  } catch (error: any) {
+    console.error('Session status check error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check session status',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
  * POST /api/auth/verify-token
  * Verifies a JWT token and returns user information
  */
@@ -365,11 +457,36 @@ router.post('/verify', async (req: Request, res: Response): Promise<void> => {
     }
 
     try {
-      // Verify the signature
-      const recoveredAddress = ethers.verifyMessage(message, signature);
+      // Development mode - accept demo signatures
+      const isDevelopmentMode = process.env.NODE_ENV === 'development' || process.env.DEMO_MODE === 'true';
+      console.log('🔧 Environment check:', { 
+        NODE_ENV: process.env.NODE_ENV, 
+        DEMO_MODE: process.env.DEMO_MODE, 
+        isDevelopmentMode 
+      });
       
-      // Verify that the recovered address matches the provided address
-      if (recoveredAddress.toLowerCase() !== address.toLowerCase()) {
+      let signatureValid = false;
+      let recoveredAddress = '';
+
+      if (isDevelopmentMode) {
+        // In development mode, accept demo signatures or simplified testing
+        console.log('🔧 Development mode: Accepting demo signature');
+        signatureValid = true;
+        recoveredAddress = address; // Use provided address for demo
+      } else {
+        // Production mode - verify real Ethereum signature
+        console.log('🔐 Production mode: Verifying real signature');
+        try {
+          recoveredAddress = ethers.verifyMessage(message, signature);
+          signatureValid = recoveredAddress.toLowerCase() === address.toLowerCase();
+        } catch (error) {
+          console.error('Signature verification failed:', error);
+          signatureValid = false;
+        }
+      }
+      
+      // Verify that the signature is valid
+      if (!signatureValid || recoveredAddress.toLowerCase() !== address.toLowerCase()) {
         res.status(401).json({
           success: false,
           error: 'Signature verification failed - address mismatch',
@@ -440,6 +557,205 @@ router.post('/verify', async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({
       success: false,
       error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/auth/verify
+ * New passwordless verification endpoint that handles QR code authentication
+ * Expects the new QR code format with sessionId, challenge, and user credentials
+ */
+router.post('/verify', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { 
+      type, 
+      challenge, 
+      sessionId, 
+      did, 
+      signature, 
+      timestamp: authTimestamp, 
+      userCredentials,
+      approved 
+    } = req.body;
+
+    // Handle denial case
+    if (approved === false) {
+      res.status(200).json({
+        success: true,
+        data: {
+          authenticated: false,
+          denied: true,
+          sessionId
+        },
+        message: 'Authentication denied by user',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    // Validate required fields for approval
+    if (!type || !challenge || !sessionId || !did || !signature || !userCredentials) {
+      res.status(400).json({
+        success: false,
+        error: 'Missing required fields for authentication',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    // Validate auth request type
+    if (type !== 'did-auth-response') {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid authentication response type',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    // Find the original challenge by sessionId
+    let originalChallenge = null;
+    let challengeKey = null;
+
+    for (const [key, challengeData] of challenges.entries()) {
+      if (key.includes(sessionId) || challengeData.challenge.includes(sessionId)) {
+        originalChallenge = challengeData;
+        challengeKey = key;
+        break;
+      }
+    }
+
+    if (!originalChallenge) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid or expired authentication session',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    // Check if already authenticated
+    if (originalChallenge.used) {
+      res.status(400).json({
+        success: false,
+        error: 'Authentication session already completed',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    // Check expiration
+    if (Date.now() - originalChallenge.timestamp > CHALLENGE_EXPIRY_TIME) {
+      challenges.delete(challengeKey!);
+      res.status(400).json({
+        success: false,
+        error: 'Authentication session has expired',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    // Extract address from DID (did:ethr:0x...)
+    const didMatch = did.match(/^did:ethr:(0x[a-fA-F0-9]{40})$/);
+    if (!didMatch) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid DID format',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+    
+    const userAddress = didMatch[1];
+
+    try {
+      // Verify the signature
+      const messageToVerify = JSON.stringify({
+        challenge: challenge,
+        did: did,
+        timestamp: authTimestamp
+      });
+      
+      const recoveredAddress = ethers.verifyMessage(messageToVerify, signature);
+      
+      if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
+        res.status(401).json({
+          success: false,
+          error: 'Signature verification failed',
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+
+      console.log('✅ DID authentication successful for:', userCredentials.name);
+
+      // Mark challenge as used and store authentication data
+      originalChallenge.used = true;
+      originalChallenge.userAddress = userAddress;
+      originalChallenge.did = did;
+      originalChallenge.employeeId = userCredentials.employeeId;
+
+      // Generate JWT token with user credentials
+      const tokenPayload = {
+        did: did,
+        address: userAddress,
+        employeeId: userCredentials.employeeId,
+        name: userCredentials.name,
+        role: userCredentials.role,
+        department: userCredentials.department,
+        companyId: userCredentials.companyId,
+        sessionId: sessionId,
+        authenticated: true,
+        timestamp: new Date().toISOString()
+      };
+
+      const token = jwt.sign(tokenPayload, JWT_SECRET, { 
+        expiresIn: '24h',
+        issuer: 'decentralized-trust-platform'
+      });
+
+      // Store token for status polling
+      originalChallenge.token = token;
+
+      console.log(`🎉 User ${userCredentials.name} (${userCredentials.role}) authenticated successfully`);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          authenticated: true,
+          token: token,
+          user: {
+            did: did,
+            address: userAddress,
+            employeeId: userCredentials.employeeId,
+            name: userCredentials.name,
+            role: userCredentials.role,
+            department: userCredentials.department,
+            companyId: userCredentials.companyId
+          },
+          sessionId: sessionId,
+          expiresIn: '24h'
+        },
+        message: `Welcome, ${userCredentials.name}! Authentication successful.`,
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error: any) {
+      console.error('Signature verification error:', error);
+      res.status(401).json({
+        success: false,
+        error: 'Authentication signature verification failed',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+  } catch (error: any) {
+    console.error('Passwordless auth error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error during authentication',
       timestamp: new Date().toISOString()
     });
   }

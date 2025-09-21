@@ -130,17 +130,25 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
     });
 
     try {
+      print('🔍 Raw QR Data: $qrData');
+
       final data = json.decode(qrData);
+      print('✅ Parsed QR JSON: $data');
+      print('📱 QR Type found: ${data['type']}');
 
       if (data['type'] == 'did_auth') {
+        print('✅ Processing DID auth...');
         await _handleDIDAuth(data);
       } else if (data['type'] == 'zkp_challenge') {
+        print('✅ Processing ZKP challenge...');
         await _handleZKPChallenge(data);
       } else {
-        _showError('Unsupported QR code type');
+        print('❌ Unsupported QR type: ${data['type']}');
+        _showError('Unsupported QR code type: ${data['type']}');
       }
     } catch (e) {
-      _showError('Invalid QR code format');
+      print('❌ QR Processing Error: $e');
+      _showError('Invalid QR code format: $e');
     } finally {
       setState(() {
         _isProcessing = false;

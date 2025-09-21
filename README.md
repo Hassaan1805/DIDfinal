@@ -118,6 +118,51 @@ Copy `.env.example` to `.env` and configure:
 - Firebase configuration
 - JWT secrets
 
+### 🏃‍♂️ Development Server Setup
+
+#### Option 1: Using VS Code Tasks (Recommended)
+1. Open the project in VS Code
+2. Use `Ctrl+Shift+P` → "Tasks: Run Task"
+3. Select tasks:
+   - "Start Backend API Server" (runs on localhost:3001)
+   - "Start Portal Development Server" (runs on localhost:5173)
+   - "Start React Native Metro" (for mobile development)
+
+#### Option 2: Manual Setup
+```bash
+# Terminal 1: Backend API
+cd backend && npm run dev
+
+# Terminal 2: Web Portal
+cd portal && npm run dev
+
+# Terminal 3: Mobile Metro Bundler
+cd wallet && npm start
+
+# Terminal 4: Android App (requires Android Studio/emulator)
+cd wallet && npm run android
+```
+
+### 📱 Android Setup (Mobile Wallet)
+```bash
+# Install Android dependencies
+cd wallet
+npm install
+
+# Copy ZK circuit files (for proof generation)
+npm run copy-circuits
+
+# Build and run on Android
+npm run android
+```
+
+### 🧪 Testing the Complete Flow
+1. **Start all services** using VS Code tasks or manual setup
+2. **Open web portal**: Visit `http://localhost:5173`
+3. **Open mobile app**: Launch on Android emulator or device  
+4. **Test authentication**: Scan QR code from portal with mobile app
+5. **Test premium access**: Use ZK-proof features in the app
+
 ## 🔧 Development Scripts
 
 ### Root Level

@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Employee Wallet - Simple Version</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+        }
+
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .employee-selector {
+            padding: 20px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .employee-selector h3 {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 16px;
+        }
+
+        .employee-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .employee-option {
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.3s ease;
+            background: #f9f9f9;
+        }
+
+        .employee-option:hover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .employee-option.active {
+            border-color: #667eea;
+            background: #667eea;
+            color: white;
+        }
+
+        .employee-name {
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .employee-role {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        .user-section {
+            padding: 20px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .user-avatar {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 24px;
+            margin-right: 15px;
+        }
+
+        .user-details h3 {
+            margin-bottom: 5px;
+            color: #333;
+        }
+
+        .user-details p {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 3px;
+        }
+
+        .did-address {
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: #888;
+            word-break: break-all;
+        }
+
+        .scanner-section {
+            padding: 20px;
+        }
+
+        .scanner-title {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .qr-input {
+            width: 100%;
+            min-height: 120px;
+            border: 2px dashed #ddd;
+            border-radius: 10px;
+            padding: 15px;
+            font-size: 14px;
+            font-family: 'Courier New', monospace;
+            resize: vertical;
+            margin-bottom: 15px;
+        }
+
+        .qr-input:focus {
+            border-color: #667eea;
+            outline: none;
+        }
+
+        .button {
+            width: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 10px;
+        }
+
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .button:active {
+            transform: translateY(0);
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #333;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            transform: translateX(400px);
+            transition: transform 0.3s ease;
+            z-index: 1000;
+            max-width: 300px;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        .notification.success {
+            background: #28a745;
+        }
+
+        .notification.error {
+            background: #dc3545;
+        }
+
+        .notification.info {
+            background: #17a2b8;
+        }
+
+        .quick-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .quick-action {
+            padding: 12px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+
+        .quick-action:hover {
+            background: #e9ecef;
+            border-color: #667eea;
+        }
+
+        .response-section {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            display: none;
+        }
+
+        .response-section.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+
+        .response-section.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">🔐 DID Wallet</div>
+            <div class="subtitle">Simple Authentication</div>
+        </div>
+
+        <div class="employee-selector">
+            <h3>👤 Select Employee:</h3>
+            <div class="employee-grid">
+                <div class="employee-option" onclick="switchEmployee('EMP001')" data-employee="EMP001">
+                    <div class="employee-name">Zaid</div>
+                    <div class="employee-role">CEO</div>
+                </div>
+                <div class="employee-option" onclick="switchEmployee('EMP002')" data-employee="EMP002">
+                    <div class="employee-name">Hassaan</div>
+                    <div class="employee-role">CTO</div>
+                </div>
+                <div class="employee-option" onclick="switchEmployee('EMP003')" data-employee="EMP003">
+                    <div class="employee-name">Atharva</div>
+                    <div class="employee-role">Product Manager</div>
+                </div>
+                <div class="employee-option" onclick="switchEmployee('EMP004')" data-employee="EMP004">
+                    <div class="employee-name">Gracian</div>
+                    <div class="employee-role">Senior Designer</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="user-section">
+            <div class="user-info">
+                <div class="user-avatar" id="userAvatar">Z</div>
+                <div class="user-details">
+                    <h3 id="userName">Zaid</h3>
+                    <p id="userRole">CEO</p>
+                    <p id="userDepartment">Engineering</p>
+                    <div class="did-address" id="userDID">did:ethr:0x123...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="scanner-section">
+            <h3 class="scanner-title">📱 QR Code Scanner</h3>
+            
+            <div class="quick-actions">
+                <div class="quick-action" onclick="testFunction()">
+                    🧪 Test Function
+                </div>
+                <div class="quick-action" onclick="showDebugInfo()">
+                    🐛 Debug Info
+                </div>
+            </div>
+
+            <textarea 
+                id="qrInput" 
+                class="qr-input" 
+                placeholder="Paste QR code data here..."
+            ></textarea>
+            
+            <button class="button" onclick="testScanQR()">🔍 Test Scan QR</button>
+            <button class="button" onclick="authenticateWithMockSignature()">🔐 Authenticate (Mock)</button>
+
+            <div id="responseSection" class="response-section"></div>
+        </div>
+    </div>
+
+    <div id="notification" class="notification">
+        <span id="notificationText"></span>
+    </div>
+
+    <script>
+        // Simple employee database
+        const EMPLOYEES = {
+            'EMP001': {
+                id: 'EMP001',
+                name: 'Zaid',
+                department: 'Engineering',
+                role: 'CEO',
+                email: 'zaid@company.com',
+                companyId: 'dtp_enterprise_001',
+                mockAddress: '0x1234567890123456789012345678901234567890'
+            },
+            'EMP002': {
+                id: 'EMP002',
+                name: 'Hassaan',
+                department: 'Engineering',
+                role: 'CTO',
+                email: 'hassaan@company.com',
+                companyId: 'dtp_enterprise_001',
+                mockAddress: '0x2345678901234567890123456789012345678901'
+            },
+            'EMP003': {
+                id: 'EMP003',
+                name: 'Atharva',
+                department: 'Product',
+                role: 'Product Manager',
+                email: 'atharva@company.com',
+                companyId: 'dtp_enterprise_001',
+                mockAddress: '0x3456789012345678901234567890123456789012'
+            },
+            'EMP004': {
+                id: 'EMP004',
+                name: 'Gracian',
+                department: 'Design',
+                role: 'Senior Designer',
+                email: 'gracian@company.com',
+                companyId: 'dtp_enterprise_001',
+                mockAddress: '0x4567890123456789012345678901234567890123'
+            }
+        };
+
+        let currentEmployee = EMPLOYEES['EMP001'];
+        let currentAuthRequest = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Simple wallet loaded!');
+            updateUserProfile();
+            setActiveEmployee('EMP001');
+        });
+
+        function testFunction() {
+            alert('✅ JavaScript is working! Current user: ' + currentEmployee.name);
+            console.log('Test function called');
+        }
+
+        function showDebugInfo() {
+            console.log('=== DEBUG INFO ===');
+            console.log('Current employee:', currentEmployee);
+            console.log('Available employees:', Object.keys(EMPLOYEES));
+            alert(`Debug: Current user is ${currentEmployee.name} (${currentEmployee.role})`);
+        }
+
+        function switchEmployee(employeeId) {
+            console.log('Switching to employee:', employeeId);
+            
+            if (EMPLOYEES[employeeId]) {
+                currentEmployee = EMPLOYEES[employeeId];
+                updateUserProfile();
+                setActiveEmployee(employeeId);
+                showNotification(`Switched to ${currentEmployee.name}`, 'success');
+                console.log('Successfully switched to:', currentEmployee.name);
+            } else {
+                console.error('Employee not found:', employeeId);
+            }
+        }
+
+        function setActiveEmployee(employeeId) {
+            // Remove active from all
+            document.querySelectorAll('.employee-option').forEach(opt => {
+                opt.classList.remove('active');
+            });
+            
+            // Add active to selected
+            const selectedOption = document.querySelector(`[data-employee="${employeeId}"]`);
+            if (selectedOption) {
+                selectedOption.classList.add('active');
+            }
+        }
+
+        function updateUserProfile() {
+            console.log('Updating profile for:', currentEmployee.name);
+            
+            document.getElementById('userAvatar').textContent = currentEmployee.name.charAt(0).toUpperCase();
+            document.getElementById('userName').textContent = currentEmployee.name;
+            document.getElementById('userRole').textContent = currentEmployee.role;
+            document.getElementById('userDepartment').textContent = currentEmployee.department;
+            document.getElementById('userDID').textContent = `did:ethr:${currentEmployee.mockAddress}`;
+        }
+
+        function testScanQR() {
+            const qrInput = document.getElementById('qrInput').value.trim();
+            
+            if (!qrInput) {
+                showNotification('Please paste QR code data first!', 'error');
+                return;
+            }
+
+            try {
+                const authRequest = JSON.parse(qrInput);
+                console.log('Parsed auth request:', authRequest);
+                
+                if (authRequest.type !== 'did-auth-request') {
+                    throw new Error('Invalid QR code: Not a DID authentication request');
+                }
+                
+                currentAuthRequest = authRequest;
+                showNotification('✅ QR code parsed successfully!', 'success');
+                showResponse(`✅ QR Code Valid!\n\nChallenge: ${authRequest.challenge}\nEmployee: ${authRequest.employee?.name || 'Unknown'}\nRequired Role: ${authRequest.requiredRole || 'Any'}`, 'success');
+                
+            } catch (error) {
+                console.error('QR parsing error:', error);
+                showNotification('❌ Invalid QR code format', 'error');
+                showResponse(`❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function authenticateWithMockSignature() {
+            if (!currentAuthRequest) {
+                showNotification('Please scan a QR code first!', 'error');
+                return;
+            }
+
+            try {
+                console.log('Starting authentication...');
+                showNotification('🔐 Authenticating...', 'info');
+
+                // Simple check: just verify company access (skip role checking)
+                const hasCompanyAccess = currentEmployee.companyId === currentAuthRequest.companyId;
+
+                if (!hasCompanyAccess) {
+                    showResponse(`❌ Access Denied: Invalid company access`, 'error');
+                    showNotification('❌ Access Denied: Invalid company', 'error');
+                    return;
+                }
+
+                // Generate mock signature
+                const mockSignature = "0x" + Array(130).fill(0).map(() => 
+                    Math.floor(Math.random() * 16).toString(16)
+                ).join('');
+
+                const authPayload = {
+                    challengeId: currentAuthRequest.challengeId,
+                    signature: mockSignature,
+                    address: currentEmployee.mockAddress,
+                    message: currentAuthRequest.challenge
+                };
+
+                console.log('Sending auth request to:', currentAuthRequest.apiEndpoint);
+                console.log('Payload:', authPayload);
+
+                const response = await fetch(currentAuthRequest.apiEndpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(authPayload)
+                });
+
+                const result = await response.json();
+                console.log('Response:', result);
+
+                if (response.ok) {
+                    showResponse(`✅ Authentication Successful!\n\nEmployee: ${currentEmployee.name} (${currentEmployee.id})\nCompany: ${currentEmployee.companyId}\nAccess Granted!\n\nServer Response:\n${JSON.stringify(result, null, 2)}`, 'success');
+                    showNotification('✅ Authentication successful!', 'success');
+                } else {
+                    showResponse(`❌ Authentication Failed!\n\nError: ${result.error || result.message}\n\nResponse:\n${JSON.stringify(result, null, 2)}`, 'error');
+                    showNotification('❌ Authentication failed!', 'error');
+                }
+
+            } catch (error) {
+                console.error('Authentication error:', error);
+                showResponse(`❌ Error: ${error.message}`, 'error');
+                showNotification(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        function showResponse(message, type) {
+            const responseSection = document.getElementById('responseSection');
+            responseSection.textContent = message;
+            responseSection.className = `response-section ${type}`;
+        }
+
+        function showNotification(message, type = 'success') {
+            const notification = document.getElementById('notification');
+            const text = document.getElementById('notificationText');
+            
+            text.textContent = message;
+            notification.className = `notification ${type}`;
+            notification.classList.add('show');
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
