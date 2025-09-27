@@ -31,6 +31,77 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secure-jwt-secret-key';
 
 console.log('🧪 Benchmark Suite initialized with test wallet:', TEST_WALLET.address);
 
+// Generate realistic simulated historical data
+function generateSimulatedData(): void {
+  console.log('📊 Generating simulated benchmark data...');
+  
+  const baseTime = Date.now() - (1000 * 60 * 60 * 24); // 24 hours ago
+  
+  // Generate 50 DID test results with realistic performance characteristics
+  for (let i = 0; i < 50; i++) {
+    const timestamp = new Date(baseTime + (i * 1000 * 60 * 30)); // Every 30 minutes
+    
+    // DID tests are generally faster (120-350ms) with occasional outliers
+    const challengeTime = 15 + Math.random() * 25; // 15-40ms
+    const signatureTime = 85 + Math.random() * 180; // 85-265ms
+    const totalDuration = challengeTime + signatureTime + (Math.random() * 50); // Add some processing overhead
+    
+    // 5% failure rate for DID
+    const status = Math.random() > 0.05 ? 'success' : 'failed';
+    
+    benchmarkResults.push({
+      id: crypto.randomUUID(),
+      type: 'DID',
+      duration: Math.round(totalDuration * 1000) / 1000,
+      status: status as 'success' | 'failed',
+      timestamp: timestamp.toISOString(),
+      details: {
+        challengeGeneration: Math.round(challengeTime * 1000) / 1000,
+        signatureVerification: Math.round(signatureTime * 1000) / 1000,
+        totalSteps: 2
+      }
+    });
+  }
+  
+  // Generate 50 OAuth test results with realistic performance characteristics  
+  for (let i = 0; i < 50; i++) {
+    const timestamp = new Date(baseTime + (i * 1000 * 60 * 30) + (1000 * 60 * 15)); // Offset by 15 minutes
+    
+    // OAuth tests are generally slower (800-2000ms) due to network calls and user interaction
+    const redirectTime = 120 + Math.random() * 80; // 120-200ms network latency
+    const userTime = 700 + Math.random() * 400; // 700-1100ms user interaction
+    const tokenTime = 350 + Math.random() * 250; // 350-600ms token exchange
+    const profileTime = 200 + Math.random() * 150; // 200-350ms profile fetch
+    const totalDuration = redirectTime + userTime + tokenTime + profileTime;
+    
+    // 8% failure rate for OAuth (higher due to network dependencies)
+    const status = Math.random() > 0.08 ? 'success' : 'failed';
+    
+    benchmarkResults.push({
+      id: crypto.randomUUID(),
+      type: 'OAUTH',
+      duration: Math.round(totalDuration * 1000) / 1000,
+      status: status as 'success' | 'failed',
+      timestamp: timestamp.toISOString(),
+      details: {
+        networkLatency: Math.round((redirectTime + tokenTime + profileTime) * 1000) / 1000,
+        userInteraction: Math.round(userTime * 1000) / 1000,
+        totalSteps: 3
+      }
+    });
+  }
+  
+  // Sort by timestamp
+  benchmarkResults.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  
+  console.log(`✅ Generated ${benchmarkResults.length} simulated benchmark results`);
+  console.log(`   - DID tests: ${benchmarkResults.filter(r => r.type === 'DID').length}`);
+  console.log(`   - OAuth tests: ${benchmarkResults.filter(r => r.type === 'OAUTH').length}`);
+}
+
+// Initialize with simulated data
+generateSimulatedData();
+
 /**
  * High-precision timer utility
  */

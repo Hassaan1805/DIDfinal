@@ -1,0 +1,277 @@
+/* Emergency fallback styles for buttons and navigation */
+.btn {
+  background: #4F46E5;
+  color: white;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.btn:hover {
+  background: #3730A3;
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background: #6B7280;
+  color: white;
+}
+
+.btn-secondary:hover {
+  background: #4B5563;
+}
+
+.btn-success {
+  background: #10B981;
+  color: white;
+}
+
+.btn-success:hover {
+  background: #059669;
+}
+
+/* Navigation styles */
+.app-nav {
+  background: white;
+  border-bottom: 1px solid #E5E7EB;
+  padding: 1rem 0;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.nav-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.nav-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1F2937;
+}
+
+.nav-subtitle {
+  font-size: 0.875rem;
+  color: #6B7280;
+}
+
+.nav-links {
+  display: flex;
+  gap: 2rem;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  text-decoration: none;
+  color: #6B7280;
+  transition: all 0.2s ease;
+}
+
+.nav-link:hover {
+  background: #F3F4F6;
+  color: #1F2937;
+}
+
+.nav-link-active {
+  background: #EEF2FF;
+  color: #4F46E5;
+}
+
+.connection-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: #F0FDF4;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+}
+
+.connection-dot {
+  width: 8px;
+  height: 8px;
+  background: #10B981;
+  border-radius: 50%;
+}
+
+/* Basic layout */
+.app-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-main {
+  flex: 1;
+}
+
+.app-footer {
+  background: #F9FAFB;
+  border-top: 1px solid #E5E7EB;
+  padding: 2rem 0;
+  margin-top: 4rem;
+}
+
+.footer-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.footer-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.footer-section h4 {
+  color: #1F2937;
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+
+.footer-section p {
+  color: #6B7280;
+  line-height: 1.6;
+}
+
+.footer-section ul {
+  list-style: none;
+  padding: 0;
+}
+
+.footer-section li {
+  color: #6B7280;
+  margin-bottom: 0.5rem;
+}
+
+.footer-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 2rem;
+  border-top: 1px solid #E5E7EB;
+  font-size: 0.875rem;
+  color: #6B7280;
+}
+
+/* Basic card styles */
+.card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  margin-bottom: 1rem;
+}
+
+.card-header {
+  margin-bottom: 1rem;
+}
+
+.card-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1F2937;
+  margin-bottom: 0.5rem;
+}
+
+.card-description {
+  color: #6B7280;
+  line-height: 1.6;
+}
+
+/* Center content for QR section */
+.qr-section {
+  text-align: center;
+  padding: 2rem;
+}
+
+.qr-placeholder {
+  width: 200px;
+  height: 200px;
+  background: #F3F4F6;
+  border: 2px dashed #D1D5DB;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 2rem auto;
+  font-size: 3rem;
+}
+
+.step-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem;
+}
+
+.step-icon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.step-active .step-icon {
+  background: #4F46E5;
+  color: white;
+}
+
+.step-completed .step-icon {
+  background: #10B981;
+  color: white;
+}
+
+.step-pending .step-icon {
+  background: #F3F4F6;
+  color: #6B7280;
+}
+
+.step-title {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  font-size: 0.875rem;
+}
+
+.step-description {
+  font-size: 0.75rem;
+  color: #6B7280;
+  text-align: center;
+  max-width: 120px;
+}

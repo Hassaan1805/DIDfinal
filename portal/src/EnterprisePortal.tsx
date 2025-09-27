@@ -1,845 +1,185 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import QRCode from 'qrcode';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import QRCode from 'react-qr-code';
 
-interface AuthChallenge {
-  challengeId: string;
-  challenge: string;
-  expiresIn: number;
-  qrCodeData: string;
-  employeeId?: string;
-}
-
-interface Employee {
-  id: string;
-  name: string;
-  department: string;
-  role: string;
-  email: string;
-  avatar?: string;
-  permissions: string[];
-  lastLogin?: string;
-  status: 'active' | 'inactive' | 'pending';
-}
-
-interface AuthenticatedUser {
-  did: string;
-  address: string;
-  employeeId: string;
-  name: string;
-  role: string;
-  department: string;
-  email: string;
-  isAdmin: boolean;
-  credentialVerified?: boolean;
-}
-
-interface VerifiableCredential {
-  '@context': string[];
-  type: string[];
-  credentialSubject: {
-    id: string;
-    employeeId: string;
-    role: string;
-    department: string;
-    name: string;
-    email: string;
-  };
-  issuer: string;
-  issuanceDate: string;
-  expirationDate?: string;
-}
-
-interface PremiumUnlockState {
-  isPolling: boolean;
-  showModal: boolean;
-  timeoutId: NodeJS.Timeout | null;
-  startTime: number;
-  maxPollTime: number; // 2 minutes in milliseconds
-}
-
-interface SessionStatus {
-  authenticated: boolean;
-  address: string;
-  accessLevel: 'standard' | 'premium';
-  premiumGrantedAt?: string;
-  tokenExpiresAt?: string;
-  sessionActive: boolean;
-}
-
-interface CompanyPortalProps {
+interface EnterprisePortalProps {
   companyName?: string;
   logoUrl?: string;
-  theme?: 'corporate' | 'modern' | 'minimal';
 }
 
-// Admin Panel Component for VC Issuance
-function AdminPanel({ employee }: { employee: Employee }) {
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [issuingFor, setIssuingFor] = useState<string | null>(null);
-  const [vcQrCode, setVcQrCode] = useState<string>('');
-  const [issuedCredential, setIssuedCredential] = useState<{
-    employee: Employee;
-    credential: string;
-    preview: VerifiableCredential;
-  } | null>(null);
-
-  // Load employees on component mount
-  useEffect(() => {
-    const loadEmployeesOnMount = async () => {
-      try {
-        setLoading(true);
-        
-        // In production, this would use proper JWT authentication
-        const response = await fetch('/api/admin/employees', {
-          headers: {
-            'Authorization': `Bearer demo-admin-token-${employee.id}`,
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          if (result.success) {
-            setEmployees(result.data || []);
-          }
-        }
-      } catch (error) {
-        console.error('Error loading employees:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadEmployeesOnMount();
-  }, [employee.id]);
-
-  const issueCredential = async (targetEmployeeId: string) => {
-    try {
-      setIssuingFor(targetEmployeeId);
-      
-      const response = await fetch('/api/admin/issue-credential', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer demo-admin-token-${employee.id}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ targetEmployeeId })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to issue credential');
-      }
-
-      const result = await response.json();
-      if (result.success) {
-        const { credential, employee: targetEmployee, credentialPreview } = result.data;
-        
-        // Create QR code for the credential offer
-        const qrData = JSON.stringify({
-          type: 'VC_OFFER',
-          credential: credential
-        });
-
-        const qrCodeDataUrl = await QRCode.toDataURL(qrData, {
-          width: 300,
-          margin: 2,
-          color: {
-            dark: '#1f2937',
-            light: '#ffffff'
-          },
-          errorCorrectionLevel: 'M'
-        });
-
-        setVcQrCode(qrCodeDataUrl);
-        setIssuedCredential({
-          employee: targetEmployee,
-          credential,
-          preview: credentialPreview
-        });
-      } else {
-        throw new Error(result.error || 'Failed to issue credential');
-      }
-    } catch (error) {
-      console.error('Error issuing credential:', error);
-      alert('Failed to issue credential: ' + (error instanceof Error ? error.message : 'Unknown error'));
-    } finally {
-      setIssuingFor(null);
-    }
-  };
-
-  const closeCredentialModal = () => {
-    setIssuedCredential(null);
-    setVcQrCode('');
-  };
-
-  return (
-    <div className="mb-8">
-      <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-2xl p-6 mb-6">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-          </div>
-          <div>
-            <h3 className="text-xl font-bold text-white">Admin Panel</h3>
-            <p className="text-purple-200">Issue Verifiable Credentials</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-gray-50 rounded-2xl p-6">
-        <h4 className="text-lg font-semibold text-gray-800 mb-4">Employee Management</h4>
-        
-        {loading ? (
-          <div className="text-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto"></div>
-            <p className="text-gray-600 mt-2">Loading employees...</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {employees.map((emp) => (
-              <div key={emp.id} className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <img 
-                      src={emp.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(emp.name)}&background=6366f1&color=ffffff`} 
-                      alt={emp.name} 
-                      className="w-12 h-12 rounded-full"
-                    />
-                    <div>
-                      <h5 className="font-semibold text-gray-800">{emp.name}</h5>
-                      <p className="text-sm text-gray-600">{emp.role} • {emp.department}</p>
-                      <p className="text-xs text-gray-500">{emp.id}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center space-x-3">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      emp.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {emp.status}
-                    </span>
-                    
-                    {emp.status === 'active' && (
-                      <button
-                        onClick={() => issueCredential(emp.id)}
-                        disabled={issuingFor === emp.id}
-                        className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200"
-                      >
-                        {issuingFor === emp.id ? (
-                          <div className="flex items-center space-x-2">
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                            <span>Issuing...</span>
-                          </div>
-                        ) : (
-                          'Issue Employee Credential'
-                        )}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Credential Issuance Modal */}
-      {issuedCredential && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-green-600 to-emerald-600 p-6 rounded-t-2xl">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xl font-bold text-white">Credential Issued!</h3>
-                  <p className="text-green-100">Employee can now scan this QR code</p>
-                </div>
-                <button
-                  onClick={closeCredentialModal}
-                  className="text-white hover:bg-white/20 p-2 rounded-lg"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <div className="p-6">
-              {/* Employee Info */}
-              <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl mb-6">
-                <div className="flex items-center space-x-3">
-                  <img 
-                    src={issuedCredential.employee.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(issuedCredential.employee.name)}&background=3b82f6&color=ffffff`} 
-                    alt={issuedCredential.employee.name} 
-                    className="w-12 h-12 rounded-full"
-                  />
-                  <div>
-                    <h4 className="font-semibold text-gray-800">{issuedCredential.employee.name}</h4>
-                    <p className="text-sm text-blue-700">{issuedCredential.employee.role}</p>
-                    <p className="text-xs text-gray-600">{issuedCredential.employee.department}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* QR Code */}
-              <div className="text-center mb-6">
-                <h4 className="text-lg font-semibold text-gray-800 mb-4">Scan to Accept Credential</h4>
-                <div className="bg-white p-4 rounded-xl border-2 border-gray-200 inline-block">
-                  <img src={vcQrCode} alt="Credential QR Code" className="w-60 h-60" />
-                </div>
-                <p className="text-sm text-gray-600 mt-3">
-                  Have the employee scan this QR code with their DID Wallet app to accept the credential.
-                </p>
-              </div>
-
-              {/* Credential Preview */}
-              <div className="bg-gray-50 rounded-xl p-4">
-                <h5 className="font-semibold text-gray-800 mb-3">Credential Details:</h5>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Type:</span>
-                    <span className="font-medium">Employee Credential</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Role:</span>
-                    <span className="font-medium">{issuedCredential.preview.credentialSubject.role}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Department:</span>
-                    <span className="font-medium">{issuedCredential.preview.credentialSubject.department}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Issued:</span>
-                    <span className="font-medium">
-                      {new Date(issuedCredential.preview.issuanceDate).toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Professional Enterprise Portal Component
-function EnterprisePortal({ 
-  companyName = "Decentralized Trust Platform", 
-  logoUrl
-}: CompanyPortalProps) {
-  const [authChallenge, setAuthChallenge] = useState<AuthChallenge | null>(null);
-  const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>('');
-  const [employeeId, setEmployeeId] = useState<string>('');
-  const [employee, setEmployee] = useState<Employee | null>(null);
-  const [authenticatedUser, setAuthenticatedUser] = useState<AuthenticatedUser | null>(null);
-  const [authStep, setAuthStep] = useState<'login' | 'qr' | 'authenticating' | 'success' | 'dashboard'>('login');
-  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'disconnected'>('disconnected');
-  const [countdown, setCountdown] = useState<number>(0);
-  const [currentTime, setCurrentTime] = useState<string>('');
-
-  // Premium access state
+const EnterprisePortal: React.FC<EnterprisePortalProps> = ({ 
+  companyName = "Enterprise Portal", 
+  logoUrl 
+}) => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const [premiumUnlock, setPremiumUnlock] = useState<PremiumUnlockState>({
-    isPolling: false,
-    showModal: false,
-    timeoutId: null,
-    startTime: 0,
-    maxPollTime: 2 * 60 * 1000 // 2 minutes
-  });
-  const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
-  const [userHasPremiumAccess, setUserHasPremiumAccess] = useState<boolean>(false);
+  const [authStep, setAuthStep] = useState(0); // Start at 0 (not authenticated)
+  const [isLoading, setIsLoading] = useState(false);
+  const [qrData, setQrData] = useState('');
 
-  // Enhanced professional employee database
-  const mockEmployeeDatabase: Record<string, Employee> = {
-    'EMP001': {
-      id: 'EMP001',
-      name: 'John Doe',
-      department: 'Engineering',
-      role: 'Senior Software Engineer',
-      email: 'john.doe@company.com',
-      avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face&auto=format',
-      permissions: ['portal_access', 'dev_tools', 'code_review', 'deployment'],
-      lastLogin: '2025-07-12 14:30:00',
-      status: 'active'
-    },
-    'EMP002': {
-      id: 'EMP002',
-      name: 'Jane Smith',
-      department: 'Human Resources',
-      role: 'HR Director',
-      email: 'jane.smith@company.com',
-      avatar: 'https://images.unsplash.com/photo-1494790108755-2616b3f4abd3?w=150&h=150&fit=crop&crop=face&auto=format',
-      permissions: ['portal_access', 'hr_tools', 'employee_data', 'payroll'],
-      lastLogin: '2025-07-13 09:15:00',
-      status: 'active'
-    },
-    'EMP003': {
-      id: 'EMP003',
-      name: 'Mike Johnson',
-      department: 'Finance',
-      role: 'Chief Financial Officer',
-      email: 'mike.johnson@company.com',
-      avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&h=150&fit=crop&crop=face&auto=format',
-      permissions: ['portal_access', 'financial_data', 'budget_approval', 'reports'],
-      lastLogin: '2025-07-13 08:45:00',
-      status: 'active'
-    },
-    'EMP004': {
-      id: 'EMP004',
-      name: 'Sarah Wilson',
-      department: 'Marketing',
-      role: 'Marketing Manager',
-      email: 'sarah.wilson@company.com',
-      avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop&crop=face&auto=format',
-      permissions: ['portal_access', 'marketing_tools', 'campaign_management'],
-      lastLogin: '2025-07-12 16:20:00',
-      status: 'active'
-    },
-    'EMP005': {
-      id: 'EMP005',
-      name: 'David Chen',
-      department: 'Operations',
-      role: 'Operations Director',
-      email: 'david.chen@company.com',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face&auto=format',
-      permissions: ['portal_access', 'operations_dashboard', 'facility_management'],
-      lastLogin: '2025-07-13 07:30:00',
-      status: 'active'
-    }
-  };
-
-  // Update current time and check for existing authentication
+  // Generate QR data for authentication
   useEffect(() => {
-    const updateTime = () => {
-      setCurrentTime(new Date().toLocaleString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      }));
+    const generateAuthRequest = () => {
+      const timestamp = Date.now();
+      const challenge = Math.random().toString(36).substring(7);
+      const authData = {
+        type: 'did_auth',
+        timestamp,
+        challenge,
+        domain: 'decentralized-trust-platform.local',
+        callbackUrl: `http://localhost:5174/auth/callback`,
+        requestId: `auth_${timestamp}_${challenge}`,
+        nonce: Math.random().toString(36).substring(2, 10)
+      };
+      return JSON.stringify(authData);
     };
     
-    // Check for existing authentication
-    const checkExistingAuth = async () => {
-      try {
-        const authToken = localStorage.getItem('authToken');
-        if (authToken) {
-          // Decode JWT to extract user information
-          const base64Url = authToken.split('.')[1];
-          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-          const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-          }).join(''));
-          
-          const decoded = JSON.parse(jsonPayload);
-          
-          // Check if token is not expired
-          if (decoded.exp && decoded.exp > Math.floor(Date.now() / 1000)) {
-            const authenticatedUserData: AuthenticatedUser = {
-              did: decoded.did,
-              address: decoded.address,
-              employeeId: decoded.employeeId,
-              name: decoded.name,
-              role: decoded.role,
-              department: decoded.department,
-              email: decoded.email,
-              isAdmin: decoded.isAdmin,
-              credentialVerified: decoded.credentialVerified
-            };
-            
-            setAuthenticatedUser(authenticatedUserData);
-            setAuthStep('dashboard');
-            
-            // Also set employee data for compatibility
-            const employeeData: Employee = {
-              id: decoded.employeeId,
-              name: decoded.name,
-              department: decoded.department,
-              role: decoded.role,
-              email: decoded.email,
-              permissions: decoded.isAdmin ? ['admin', 'hr_director'] : ['employee'],
-              status: 'active' as const
-            };
-            setEmployee(employeeData);
-            
-            console.log('🔐 Existing authentication found:', {
-              name: decoded.name,
-              role: decoded.role,
-              isAdmin: decoded.isAdmin
-            });
-          } else {
-            // Token expired, clear it
-            localStorage.removeItem('authToken');
-          }
-        }
-      } catch (error) {
-        console.error('Error checking existing authentication:', error);
-        localStorage.removeItem('authToken');
-      }
-    };
-    
-    updateTime();
-    checkExistingAuth();
-    const interval = setInterval(updateTime, 1000);
-    return () => clearInterval(interval);
-  }, []);
+    setQrData(generateAuthRequest());
+  }, [authStep]);
 
-  // QR code countdown timer
-  useEffect(() => {
-    if (authStep === 'qr' && countdown > 0) {
-      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [authStep, countdown]);
-
-  const fetchChallenge = async (empId: string) => {
-    try {
-      console.log('🔄 Fetching challenge for employee:', empId);
-      
-      setLoading(true);
-      setConnectionStatus('connecting');
-      setError('');
-      
-      // Try POST first for employee-specific challenge
-      const response = await fetch('/api/auth/challenge', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({
-          employeeId: empId,
-          companyId: 'COMPANY_001',
-          requestType: 'portal_access'
-        })
-      });
-      
-      if (!response.ok) {
-        // Fallback to GET request
-        const fallbackResponse = await fetch('/api/auth/challenge', {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-        });
-        
-        if (!fallbackResponse.ok) {
-          throw new Error(`Authentication service unavailable`);
-        }
-        
-        const fallbackData = await fallbackResponse.json();
-        if (fallbackData.success) {
-          setAuthChallenge({ ...fallbackData.data, employeeId: empId });
-          setConnectionStatus('connected');
-          
-          // Generate QR code with employee context
-          const qrData = JSON.stringify({
-            ...fallbackData.data,
-            employeeId: empId,
-            companyId: 'COMPANY_001',
-            action: 'portal_access',
-            companyName
-          });
-          
-          const qrCodeDataUrl = await QRCode.toDataURL(qrData, {
-            width: 280,
-            margin: 3,
-            color: {
-              dark: '#1f2937',
-              light: '#ffffff'
-            },
-            errorCorrectionLevel: 'M'
-          });
-          
-          setQrCodeUrl(qrCodeDataUrl);
-          setCountdown(300); // 5 minutes
-          setAuthStep('qr');
-        }
-        return;
-      }
-      
-      const data = await response.json();
-      if (data.success) {
-        setAuthChallenge(data.data);
-        setConnectionStatus('connected');
-        
-        const qrCodeDataUrl = await QRCode.toDataURL(data.data.qrCodeData, {
-          width: 280,
-          margin: 3,
-          color: {
-            dark: '#1f2937',
-            light: '#ffffff'
-          },
-          errorCorrectionLevel: 'M'
-        });
-        
-        setQrCodeUrl(qrCodeDataUrl);
-        setCountdown(300); // 5 minutes
-        setAuthStep('qr');
-      } else {
-        throw new Error(data.error || 'Failed to generate authentication challenge');
-      }
-      
-    } catch (err) {
-      console.error('❌ Error fetching challenge:', err);
-      setError(err instanceof Error ? err.message : 'Failed to generate QR code');
-      setConnectionStatus('disconnected');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleEmployeeLogin = () => {
-    if (!employeeId.trim()) {
-      setError('Please enter your Employee ID');
-      return;
-    }
-
-    const foundEmployee = mockEmployeeDatabase[employeeId.toUpperCase()];
-    if (foundEmployee) {
-      if (foundEmployee.status !== 'active') {
-        setError('Employee account is not active. Please contact HR.');
-        return;
-      }
-      
-      setEmployee(foundEmployee);
-      setError('');
-      fetchChallenge(employeeId.toUpperCase());
-    } else {
-      setError('Employee ID not found. Please check your ID or contact HR.');
-    }
-  };
-
-  const handleNewLogin = () => {
-    setAuthStep('login');
-    setEmployeeId('');
-    setEmployee(null);
-    setAuthChallenge(null);
-    setQrCodeUrl('');
-    setError('');
-    setCountdown(0);
-  };
-
-  /**
-   * Premium Access Methods
-   */
-
-  // Check current session status
-  const checkSessionStatus = async (): Promise<SessionStatus | null> => {
-    try {
-      const token = localStorage.getItem('authToken');
-      if (!token) return null;
-
-      const response = await fetch('http://localhost:3001/api/auth/session-status', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        console.error('Session status check failed:', response.status);
-        return null;
-      }
-
-      const result = await response.json();
-      if (result.success && result.data) {
-        const status = result.data as SessionStatus;
-        setSessionStatus(status);
-        setUserHasPremiumAccess(status.accessLevel === 'premium');
-        return status;
-      }
-
-      return null;
-    } catch (error) {
-      console.error('Failed to check session status:', error);
-      return null;
-    }
-  };
-
-  // Handle premium content unlock button click
-  const handleUnlockPremiumContent = () => {
-    console.log('🎯 Starting premium content unlock flow...');
-    
-    // Show modal and start polling
-    setPremiumUnlock(prev => ({
-      ...prev,
-      showModal: true,
-      isPolling: true,
-      startTime: Date.now()
-    }));
-
-    // Start polling for premium access
-    startPremiumAccessPolling();
-  };
-
-  // Start polling for premium access upgrade
-  const startPremiumAccessPolling = () => {
-    console.log('🔄 Starting premium access polling...');
-
-    const pollInterval = setInterval(async () => {
-      const currentTime = Date.now();
-      const elapsedTime = currentTime - premiumUnlock.startTime;
-
-      // Check timeout (2 minutes)
-      if (elapsedTime >= premiumUnlock.maxPollTime) {
-        console.log('⏰ Premium access polling timed out');
-        stopPremiumAccessPolling();
-        return;
-      }
-
-      // Check session status
-      const status = await checkSessionStatus();
-      if (status && status.accessLevel === 'premium') {
-        console.log('🎉 Premium access detected! Redirecting...');
-        stopPremiumAccessPolling();
-        
-        // Navigate to premium page
-        setTimeout(() => {
-          navigate('/premium');
-        }, 1000);
-        return;
-      }
-
-      console.log('⏳ Still polling for premium access...', {
-        elapsed: Math.round(elapsedTime / 1000) + 's',
-        remaining: Math.round((premiumUnlock.maxPollTime - elapsedTime) / 1000) + 's'
-      });
-    }, 3000); // Poll every 3 seconds
-
-    // Store interval ID for cleanup
-    setPremiumUnlock(prev => ({
-      ...prev,
-      timeoutId: pollInterval
-    }));
-  };
-
-  // Stop premium access polling
-  const stopPremiumAccessPolling = () => {
-    console.log('🛑 Stopping premium access polling');
-    
-    if (premiumUnlock.timeoutId) {
-      clearInterval(premiumUnlock.timeoutId);
-    }
-
-    setPremiumUnlock({
-      isPolling: false,
-      showModal: false,
-      timeoutId: null,
-      startTime: 0,
-      maxPollTime: 2 * 60 * 1000
-    });
-  };
-
-  // Close premium unlock modal
-  const closePremiumModal = () => {
-    stopPremiumAccessPolling();
-  };
-
-  // Navigate to premium content (if user already has access)
-  const navigateToPremiumContent = () => {
-    navigate('/premium');
-  };
-
-  // Check for premium access requirement from URL params
-  useEffect(() => {
-    const checkPremiumRequirement = async () => {
-      if (searchParams.get('premium') === 'required') {
-        // User was redirected from premium page, show upgrade prompt
-        console.log('🔒 Premium access required - showing upgrade prompt');
-        await checkSessionStatus();
-      }
-    };
-
-    if (authStep === 'dashboard') {
-      checkPremiumRequirement();
-    }
-  }, [authStep, searchParams]);
-
-  // Cleanup polling on component unmount
-  useEffect(() => {
-    return () => {
-      if (premiumUnlock.timeoutId) {
-        clearInterval(premiumUnlock.timeoutId);
-      }
-    };
-  }, [premiumUnlock.timeoutId]);
-
-  const simulateWalletScan = () => {
-    setAuthStep('authenticating');
+  const handleLoginClick = () => {
+    console.log('Login with DID Wallet clicked');
+    // Add visual feedback
+    setIsLoading(true);
     setTimeout(() => {
-      setAuthStep('success');
+      setIsLoading(false);
+      setAuthStep(1); // Move to QR code generation step
+    }, 500);
+  };
+
+  const handleScanClick = () => {
+    console.log('Simulate Scan clicked');
+    setAuthStep(2);
+  };
+
+  const handleVerifyClick = () => {
+    console.log('Complete Verification clicked');
+    setIsLoading(true);
+    setTimeout(() => {
+      setAuthStep(3);
+      setIsLoading(false);
+      // Navigate to analytics after success
       setTimeout(() => {
-        setAuthStep('dashboard');
+        navigate('/benchmark');
       }, 2000);
-    }, 3000);
+    }, 1500);
   };
 
-  const formatCountdown = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const getDepartmentColor = (department: string) => {
-    const colors: Record<string, string> = {
-      'Engineering': 'bg-blue-100 text-blue-800',
-      'Human Resources': 'bg-green-100 text-green-800',
-      'Finance': 'bg-yellow-100 text-yellow-800',
-      'Marketing': 'bg-purple-100 text-purple-800',
-      'Operations': 'bg-gray-100 text-gray-800'
-    };
-    return colors[department] || 'bg-gray-100 text-gray-800';
+  const handlePremiumClick = () => {
+    console.log('Navigate to Analytics clicked');
+    navigate('/benchmark');
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-blue-50 to-indigo-100">
-      {/* Professional Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center space-x-4">
-              {logoUrl ? (
-                <img src={logoUrl} alt="Company Logo" className="h-10 w-auto" />
-              ) : (
-                <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-                  <span className="text-white font-bold text-lg">
-                    {companyName.split(' ').map(word => word[0]).join('').slice(0, 2)}
-                  </span>
-                </div>
-              )}
-              <div>
-                <h1 className="text-xl font-semibold text-gray-900">{companyName}</h1>
-                <p className="text-sm text-gray-500">Enterprise Portal</p>
-              </div>
+    <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
+      {/* Header Section */}
+      <div className="card" style={{ textAlign: 'center', marginBottom: '2rem', background: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)', color: 'white' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
+          {logoUrl && (
+            <img 
+              src={logoUrl} 
+              alt="Company Logo" 
+              style={{ width: '64px', height: '64px', borderRadius: '12px', marginRight: '1rem' }}
+            />
+          )}
+          <div>
+            <h1 style={{ margin: '0', fontSize: '2.5rem', fontWeight: 'bold' }}>
+              {companyName}
+            </h1>
+            <p style={{ margin: '0.5rem 0 0 0', fontSize: '1.2rem', opacity: 0.9 }}>
+              Enterprise DID Authentication Portal
+            </p>
+          </div>
+        </div>
+        <p style={{ margin: '0', fontSize: '1rem', opacity: 0.8 }}>
+          🔐 Secure Zero-Knowledge Authentication
+        </p>
+      </div>
+
+      {/* Quick Navigation */}
+      <div className="card">
+        <h2 className="card-title">Quick Actions</h2>
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+          <button 
+            className="btn" 
+            onClick={handleLoginClick}
+            style={{ minWidth: '200px' }}
+            disabled={isLoading}
+          >
+            {isLoading ? '⏳ Generating QR...' : '🔐 Login with DID Wallet'}
+          </button>
+          <button 
+            className="btn btn-secondary" 
+            onClick={handlePremiumClick}
+            style={{ minWidth: '150px' }}
+          >
+            📊 View Analytics
+          </button>
+        </div>
+      </div>
+
+      {/* Connection Status */}
+      <div className="card">
+        <h3 className="card-title">System Status</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+          <div style={{ padding: '1rem', background: '#F0FDF4', borderRadius: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div className="connection-dot"></div>
+              <strong>Backend Service</strong>
             </div>
-            <div className="text-right">
-              <p className="text-sm text-gray-600">{currentTime}</p>
-              <div className="flex items-center space-x-2 mt-1">
-                <div className={`w-2 h-2 rounded-full ${
-                  connectionStatus === 'connected' ? 'bg-green-500' : 
-                  connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
-                }`}></div>
-                <span className="text-xs text-gray-500 capitalize">{connectionStatus}</span>
-              </div>
+            <p style={{ margin: '0.5rem 0 0 0', color: '#059669' }}>Connected</p>
+          </div>
+          <div style={{ padding: '1rem', background: '#FEF3F2', borderRadius: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div style={{ width: '8px', height: '8px', background: '#EF4444', borderRadius: '50%' }}></div>
+              <strong>Blockchain Network</strong>
             </div>
+            <p style={{ margin: '0.5rem 0 0 0', color: '#DC2626' }}>Offline</p>
+          </div>
+          <div style={{ padding: '1rem', background: '#FEF3F2', borderRadius: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div style={{ width: '8px', height: '8px', background: '#EF4444', borderRadius: '50%' }}></div>
+              <strong>ZK Proof Service</strong>
+            </div>
+            <p style={{ margin: '0.5rem 0 0 0', color: '#DC2626' }}>Offline</p>
           </div>
         </div>
       </div>
 
+<<<<<<< HEAD
+      {/* Authentication Flow */}
+      <div className="card">
+        <h2 className="card-title">DID Authentication Flow</h2>
+        
+        {/* Step Indicator */}
+        <div className="step-indicator">
+          <div className={`step ${authStep === 1 ? 'step-active' : authStep > 1 ? 'step-completed' : 'step-pending'}`}>
+            <div className="step-icon">
+              {authStep > 1 ? '✓' : '📱'}
+            </div>
+            <div className="step-title">Scan QR Code</div>
+            <div className="step-description">Use wallet app to scan</div>
+          </div>
+          
+          <div style={{ width: '2rem', height: '2px', background: authStep > 1 ? '#10B981' : '#E5E7EB' }}></div>
+          
+          <div className={`step ${authStep === 2 ? 'step-active' : authStep > 2 ? 'step-completed' : 'step-pending'}`}>
+            <div className="step-icon">
+              {authStep > 2 ? '✓' : '🔐'}
+            </div>
+            <div className="step-title">Verify Identity</div>
+            <div className="step-description">Zero-Knowledge Proof</div>
+          </div>
+          
+          <div style={{ width: '2rem', height: '2px', background: authStep > 2 ? '#10B981' : '#E5E7EB' }}></div>
+          
+          <div className={`step ${authStep === 3 ? 'step-completed' : 'step-pending'}`}>
+            <div className="step-icon">
+              {authStep === 3 ? '✓' : '🎯'}
+            </div>
+            <div className="step-title">Access Granted</div>
+            <div className="step-description">Welcome to dashboard</div>
+          </div>
+=======
       {/* Main Content */}
       <div className="py-8 px-4">
         <div className="max-w-4xl mx-auto">
@@ -1270,92 +610,164 @@ function EnterprisePortal({
               </div>
             </div>
           )}
+>>>>>>> 6e9e2198fc49e65c9330337229688545fccdfe6e
         </div>
 
-        {/* Premium Unlock Modal */}
-        {premiumUnlock.showModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
-              <div className="bg-gradient-to-r from-purple-600 to-indigo-700 px-6 py-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-white">
-                    🔐 Premium Access Unlock
-                  </h3>
-                  <button
-                    onClick={closePremiumModal}
-                    className="text-white hover:text-gray-200 transition-colors"
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-              
-              <div className="p-6">
-                <div className="text-center mb-6">
-                  <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <svg className="w-8 h-8 text-purple-600 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                    </svg>
-                  </div>
-                  <h4 className="text-xl font-semibold text-gray-800 mb-2">
-                    Waiting for DID Wallet
-                  </h4>
-                  <p className="text-gray-600 mb-4">
-                    Please open your DID Wallet app and use the <strong>"Unlock Premium Content"</strong> feature to continue.
-                  </p>
-                </div>
+        {/* Step Content */}
+        {authStep === 0 && (
+          <div className="qr-section">
+            <div style={{ fontSize: '4rem', margin: '2rem 0' }}>🔐</div>
+            <h3>Ready to Authenticate</h3>
+            <p style={{ color: '#6B7280', marginBottom: '2rem' }}>
+              Click "Login with DID Wallet" above to start the authentication process
+            </p>
+            <div style={{ 
+              background: 'rgba(59, 130, 246, 0.1)', 
+              border: '1px solid rgba(59, 130, 246, 0.2)',
+              borderRadius: '8px',
+              padding: '1rem',
+              marginBottom: '1rem'
+            }}>
+              <strong>📋 What happens next:</strong>
+              <ol style={{ marginLeft: '1rem', marginTop: '0.5rem' }}>
+                <li>QR code will be generated</li>
+                <li>Scan with your mobile wallet</li>
+                <li>Complete zero-knowledge proof verification</li>
+                <li>Access granted to enterprise portal</li>
+              </ol>
+            </div>
+          </div>
+        )}
 
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                  <h5 className="font-semibold text-blue-800 mb-2">Instructions:</h5>
-                  <ol className="text-sm text-blue-700 space-y-1">
-                    <li>1. Open your DID Wallet mobile app</li>
-                    <li>2. Go to the main screen</li>
-                    <li>3. Tap "Unlock Premium Content"</li>
-                    <li>4. Complete the ZK-proof generation</li>
-                    <li>5. Your session will be automatically upgraded</li>
-                  </ol>
-                </div>
+        {authStep === 1 && (
+          <div className="qr-section">
+            <div className="qr-code-container" style={{ 
+              background: 'white', 
+              padding: '20px', 
+              borderRadius: '12px', 
+              display: 'inline-block',
+              border: '2px solid #E5E7EB',
+              marginBottom: '1rem'
+            }}>
+              <QRCode 
+                value={qrData}
+                size={200}
+                level="H"
+              />
+            </div>
+            <h3>Scan with Wallet App</h3>
+            <p style={{ color: '#6B7280', marginBottom: '2rem' }}>
+              Use your mobile wallet to scan this QR code and authenticate your identity
+            </p>
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <button className="btn" onClick={handleScanClick}>
+                🚀 Simulate Scan
+              </button>
+              <button className="btn btn-secondary" onClick={() => setQrData(JSON.stringify({
+                type: 'did_auth',
+                timestamp: Date.now(),
+                challenge: Math.random().toString(36).substring(7),
+                domain: 'decentralized-trust-platform.local',
+                callbackUrl: `http://localhost:5174/auth/callback`,
+                requestId: `auth_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+                nonce: Math.random().toString(36).substring(2, 10)
+              }))}>
+                🔄 Refresh QR
+              </button>
+              <button className="btn btn-secondary" onClick={() => setAuthStep(0)}>
+                ← Back
+              </button>
+            </div>
+          </div>
+        )}
 
-                <div className="flex items-center justify-center space-x-3 mb-4">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600"></div>
-                  <span className="text-gray-600">
-                    Polling for session upgrade...
-                  </span>
-                </div>
+        {authStep === 2 && (
+          <div className="qr-section">
+            <div style={{ fontSize: '4rem', margin: '2rem 0' }}>🔐</div>
+            <h3>Verifying Identity</h3>
+            <p style={{ color: '#6B7280', marginBottom: '2rem' }}>
+              Generating zero-knowledge proof to verify your credentials without revealing personal data
+            </p>
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <button 
+                className="btn btn-success" 
+                onClick={handleVerifyClick}
+                disabled={isLoading}
+              >
+                {isLoading ? '⏳ Verifying...' : '✅ Complete Verification'}
+              </button>
+              <button className="btn btn-secondary" onClick={() => setAuthStep(1)}>
+                ← Back to QR
+              </button>
+            </div>
+          </div>
+        )}
 
-                <div className="text-center">
-                  <p className="text-xs text-gray-500">
-                    This process will timeout in{' '}
-                    {Math.max(0, Math.round((premiumUnlock.maxPollTime - (Date.now() - premiumUnlock.startTime)) / 1000))}{' '}
-                    seconds
-                  </p>
-                </div>
-
-                <div className="mt-6 pt-4 border-t border-gray-200">
-                  <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-3 border border-green-200">
-                    <div className="flex items-start space-x-2">
-                      <svg className="w-5 h-5 text-green-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                      </svg>
-                      <div>
-                        <p className="text-sm font-medium text-green-800">Zero-Knowledge Privacy</p>
-                        <p className="text-xs text-green-700 mt-1">
-                          Your wallet address and personal information remain completely private during this process.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+        {authStep === 3 && (
+          <div className="qr-section">
+            <div style={{ fontSize: '4rem', margin: '2rem 0', color: '#10B981' }}>🎉</div>
+            <h3 style={{ color: '#10B981' }}>Authentication Successful!</h3>
+            <p style={{ color: '#6B7280', marginBottom: '2rem' }}>
+              Welcome to the enterprise portal. Redirecting to your dashboard...
+            </p>
+            <div style={{ 
+              width: '100%', 
+              height: '8px', 
+              background: '#E5E7EB', 
+              borderRadius: '4px',
+              overflow: 'hidden',
+              maxWidth: '300px',
+              margin: '0 auto 2rem auto'
+            }}>
+              <div style={{ 
+                width: '100%', 
+                height: '100%', 
+                background: 'linear-gradient(90deg, #10B981, #059669)',
+                borderRadius: '4px',
+                animation: 'pulse 1s infinite'
+              }}></div>
+            </div>
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <button className="btn" onClick={() => navigate('/benchmark')}>
+                🚀 Go to Analytics Dashboard
+              </button>
+              <button className="btn btn-secondary" onClick={() => setAuthStep(0)}>
+                🔄 Start New Session
+              </button>
             </div>
           </div>
         )}
         </div>
       </div>
+
+      {/* Features */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem', marginTop: '2rem' }}>
+        <div className="card">
+          <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>🔐</div>
+          <h3 className="card-title">Zero-Knowledge Privacy</h3>
+          <p className="card-description">
+            Prove your identity without revealing personal information using advanced cryptographic protocols
+          </p>
+        </div>
+
+        <div className="card">
+          <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⚡</div>
+          <h3 className="card-title">Lightning Fast</h3>
+          <p className="card-description">
+            Seamless authentication experience with sub-second verification times for enterprise users
+          </p>
+        </div>
+
+        <div className="card">
+          <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>🛡️</div>
+          <h3 className="card-title">Enterprise Security</h3>
+          <p className="card-description">
+            Bank-grade security with blockchain verification and decentralized identity management
+          </p>
+        </div>
+      </div>
     </div>
   );
-}
+};
 
 export default EnterprisePortal;
