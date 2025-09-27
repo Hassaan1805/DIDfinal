@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quick Auth Flow Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        .container {
+            background: white;
+            color: #333;
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .test-result {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover { opacity: 0.9; }
+        .qr-container {
+            text-align: center;
+            margin: 20px 0;
+        }
+        #qrcode { margin: 20px auto; }
+        pre {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Quick Authentication Flow Test</h1>
+        <p>Testing the core components: Portal → QR Generation → Wallet Authentication</p>
+        
+        <div class="test-result info" id="status">
+            Ready to test! Click the buttons below to verify each component.
+        </div>
+
+        <h3>Step 1: Backend API Health Check</h3>
+        <button onclick="testBackend()">🔧 Test Backend API</button>
+        <div id="backendResult"></div>
+
+        <h3>Step 2: Generate Authentication Request</h3>
+        <button onclick="generateAuthRequest()">🔐 Generate QR Code</button>
+        <div id="qrResult"></div>
+        <div class="qr-container">
+            <canvas id="qrcode"></canvas>
+            <div id="qrData"></div>
+        </div>
+
+        <h3>Step 3: Test Authentication (Simulate Wallet)</h3>
+        <button onclick="simulateWalletAuth()">📱 Simulate Wallet Response</button>
+        <div id="authResult"></div>
+
+        <h3>Quick Links</h3>
+        <button onclick="window.open('http://localhost:5173', '_blank')">🌐 Open Portal</button>
+        <button onclick="window.open('http://127.0.0.1:8080/secure-wallet-local.html', '_blank')">📱 Open Wallet</button>
+    </div>
+
+    <script>
+        let currentAuthRequest = null;
+        const API_BASE = 'http://localhost:3001/api';
+
+        async function testBackend() {
+            const resultDiv = document.getElementById('backendResult');
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = `<div class="test-result success">✅ Backend healthy: ${data.service} v${data.version}</div>`;
+                    updateStatus("Backend API is running and healthy!");
+                } else {
+                    resultDiv.innerHTML = `<div class="test-result error">❌ Backend error: ${response.status}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="test-result error">❌ Backend connection failed: ${error.message}</div>`;
+                updateStatus("Backend connection failed - make sure it's running on port 3001");
+            }
+        }
+
+        async function generateAuthRequest() {
+            const resultDiv = document.getElementById('qrResult');
+            const qrElement = document.getElementById('qrcode');
+            const qrDataDiv = document.getElementById('qrData');
+            
+            try {
+                // Get real challenge from backend
+                const response = await fetch(`${API_BASE}/auth/challenge`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        requiredRole: "employee",
+                        companyId: "tech-innovations-inc"
+                    })
+                });
+
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message || 'Challenge request failed');
+
+                // Parse the QR data from backend response
+                currentAuthRequest = JSON.parse(result.data.qrCodeData);
+                console.log('Auth request from backend:', currentAuthRequest);
+
+                // Generate QR code
+                await QRCode.toCanvas(qrElement, result.data.qrCodeData, {
+                    width: 256,
+                    margin: 2,
+                    color: {
+                        dark: '#4F46E5',
+                        light: '#FFFFFF'
+                    }
+                });
+
+                qrDataDiv.innerHTML = `<pre>${JSON.stringify(currentAuthRequest, null, 2)}</pre>`;
+                resultDiv.innerHTML = `<div class="test-result success">✅ QR Code generated successfully from backend!</div>`;
+                updateStatus("QR Code ready - scan with wallet or simulate authentication");
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="test-result error">❌ QR generation failed: ${error.message}</div>`;
+            }
+        }
+
+        async function simulateWalletAuth() {
+            const resultDiv = document.getElementById('authResult');
+            
+            if (!currentAuthRequest) {
+                resultDiv.innerHTML = `<div class="test-result error">❌ No auth request available. Generate QR code first!</div>`;
+                return;
+            }
+
+            try {
+                // Simulate wallet response (using Zaid's profile from secure-wallet-local.html)
+                const walletResponse = {
+                    type: "did-auth-response",
+                    challenge: currentAuthRequest.challenge,
+                    did: "did:ethr:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+                    signature: "0x_mock_signature_for_testing",
+                    timestamp: Date.now(),
+                    sessionId: currentAuthRequest.sessionId,
+                    userData: {
+                        name: "Zaid Ansari",
+                        role: "employee",
+                        companyId: "tech-innovations-inc",
+                        address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+                    }
+                };
+
+                const response = await fetch(`${API_BASE}/auth/verify`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(walletResponse)
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    resultDiv.innerHTML = `
+                        <div class="test-result success">✅ Authentication successful!</div>
+                        <pre>Token: ${result.token ? result.token.substring(0, 50) + '...' : 'N/A'}</pre>
+                        <pre>User: ${JSON.stringify(result.user || result.data, null, 2)}</pre>
+                    `;
+                    updateStatus("🎉 Full authentication flow working!");
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="test-result error">❌ Authentication failed: ${result.message || result.error}</div>
+                        <pre>Response: ${JSON.stringify(result, null, 2)}</pre>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="test-result error">❌ Authentication request failed: ${error.message}</div>`;
+            }
+        }
+
+        function updateStatus(message) {
+            document.getElementById('status').innerHTML = `<div class="test-result info">ℹ️ ${message}</div>`;
+        }
+
+        // Auto-test backend on load
+        window.onload = () => {
+            setTimeout(testBackend, 1000);
+        };
+    </script>
+</body>
+</html>

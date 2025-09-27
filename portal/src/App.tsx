@@ -1,4 +1,5 @@
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import EnterprisePortalProfessional from './EnterprisePortalProfessional'
 import SimpleEnterprisePortal from './SimpleEnterprisePortal'
 import TestPortal from './TestPortal'
 import BenchmarkPage from './pages/BenchmarkPage'
@@ -9,34 +10,15 @@ function App() {
   return (
     <Router>
       <div className="app-container">
-        {/* Navigation Header */}
-        <nav className="app-nav">
-          <div className="nav-brand">
-            <img 
-              src="https://via.placeholder.com/32x32/4F46E5/FFFFFF?text=DT" 
-              alt="Decentralized Trust Platform" 
-              className="nav-logo"
-            />
-            <span className="nav-title">Decentralized Trust Platform</span>
-          </div>
-          <div className="nav-links">
-            <Link to="/" className="nav-link">
-              🏢 Portal
-            </Link>
-            <Link to="/test" className="nav-link">
-              🧪 Test Portal
-            </Link>
-            <Link to="/benchmark" className="nav-link">
-              📊 Benchmark Suite
-            </Link>
-          </div>
-        </nav>
-
         {/* Main Content */}
         <main className="app-main">
           <Routes>
             <Route 
               path="/" 
+              element={<EnterprisePortalProfessional />} 
+            />
+            <Route 
+              path="/simple" 
               element={
                 <SimpleEnterprisePortal 
                   companyName="Decentralized Trust Platform"

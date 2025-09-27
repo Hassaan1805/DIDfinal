@@ -78,10 +78,12 @@ function SimpleEnterprisePortal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [currentTime, setCurrentTime] = useState('');
-  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'disconnected'>('disconnected');
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'disconnected' | 'authenticated'>('disconnected');
   const [challengeId, setChallengeId] = useState('');
   const [scanningStatus, setScanningStatus] = useState('');
   const [authProgress, setAuthProgress] = useState(0);
+  const [authenticatedEmployee, setAuthenticatedEmployee] = useState<Employee | null>(null);
+  const [showWelcome, setShowWelcome] = useState(false);
 
   // Update current time
   useEffect(() => {
@@ -178,8 +180,8 @@ function SimpleEnterprisePortal({
       setAuthStep('qr');
       setConnectionStatus('connected');
       
-      // Start realistic mobile wallet scanning simulation with real backend auth
-      simulateRealisticMobileScan(challengeIdFromBackend, emp.id);
+      // Start polling for wallet authentication
+      startAuthenticationPolling(challengeIdFromBackend, emp);
 
     } catch (error) {
       console.error('Login error:', error);
@@ -190,81 +192,92 @@ function SimpleEnterprisePortal({
     }
   };
 
-  const simulateRealisticMobileScan = async (challengeIdFromBackend: string, employeeId: string) => {
-    // Phase 1: Waiting for mobile scan (3 seconds)
-    setTimeout(() => {
-      setAuthStep('scanning');
-      setScanningStatus('📱 QR Code detected by mobile wallet...');
-      setAuthProgress(15);
-    }, 3000);
-
-    // Phase 2: DID resolution (1.5 seconds later)
-    setTimeout(() => {
-      setScanningStatus('🔍 Resolving DID identity...');
-      setAuthProgress(30);
-    }, 4500);
-
-    // Phase 3: Credential verification (1 second later)
-    setTimeout(() => {
-      setScanningStatus('✅ Verifying employee credentials...');
-      setAuthProgress(50);
-    }, 5500);
-
-    // Phase 4: Zero-knowledge proof generation (2 seconds later)
-    setTimeout(() => {
-      setScanningStatus('🔐 Generating zero-knowledge proof...');
-      setAuthProgress(70);
-    }, 7500);
-
-    // Phase 5: Real Backend authentication (1.5 seconds later)
-    setTimeout(async () => {
-      setScanningStatus('🌐 Authenticating with enterprise system...');
-      setAuthProgress(85);
-      
+  const startAuthenticationPolling = async (challengeId: string, employee: Employee) => {
+    let pollCount = 0;
+    const maxPolls = 60; // Poll for up to 5 minutes (60 * 5 seconds)
+    
+    // Keep the QR code visible while polling
+    // setAuthStep('scanning'); // Comment this out to keep showing QR
+    setScanningStatus('📱 Waiting for wallet authentication...');
+    setAuthProgress(10);
+    
+    const pollInterval = setInterval(async () => {
       try {
-        // Use real backend API with proper employee addresses
-        const employeeAddresses: Record<string, string> = {
-          'EMP001': '0x742d35Cc6Dd03A30DE0F7b5A7A8a8Dd1CE4Aaa2F', // Zaid
-          'EMP002': '0x742d35Cc6Dd03A30DE0F7b5A7A8a8Dd1CE4Aaa2F', // Hassaan  
-          'EMP003': '0x1234567890123456789012345678901234567890', // Atharva
-          'EMP004': '0xABCDEF1234567890ABCDEF1234567890ABCDEF12'  // Gracian
-        };
-
-        const employeeAddress = employeeAddresses[employeeId];
-        const message = `Sign this message to authenticate with challenge: ${challengeIdFromBackend}`;
-
-        const response = await fetch('http://localhost:3001/api/auth/verify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            challengeId: challengeIdFromBackend,
-            signature: 'demo_signature_for_development', // Development mode signature
-            address: employeeAddress,
-            message: message
-          })
-        });
+        pollCount++;
+        console.log(`🔄 Polling attempt ${pollCount}/${maxPolls} for challenge: ${challengeId}`);
         
-        if (response.ok) {
-          const responseData = await response.json();
-          console.log('✅ Authentication successful:', responseData);
+        // Update progress and status messages
+        if (pollCount <= 5) {
+          setScanningStatus('� QR Code ready - scan with your wallet...');
+          setAuthProgress(15);
+        } else if (pollCount <= 15) {
+          setScanningStatus('⏳ Waiting for wallet authentication...');
+          setAuthProgress(30);
+        } else if (pollCount <= 30) {
+          setScanningStatus('🔄 Still waiting for authentication...');
+          setAuthProgress(45);
+        } else {
+          setScanningStatus('⏱️ Taking longer than usual... please check your wallet');
+          setAuthProgress(60);
+        }
+        
+        const response = await fetch(`http://localhost:3001/api/auth/status/${challengeId}`);
+        const result = await response.json();
+        
+        if (result.success && result.data.status === 'completed') {
+          // Authentication successful!
+          clearInterval(pollInterval);
+          
+          console.log('✅ Authentication completed:', result.data);
+          setScanningStatus('� Authentication successful!');
           setAuthProgress(100);
-          setScanningStatus('🎉 Authentication successful!');
+          
+          // Store the JWT token
+          const token = result.data.token;
+          if (token) {
+            localStorage.setItem('authToken', token);
+            localStorage.setItem('userAddress', result.data.userAddress || result.data.did);
+            localStorage.setItem('userEmployee', JSON.stringify(employee));
+          }
+          
+          // Complete the authentication flow
           setTimeout(() => {
             setAuthStep('success');
-          }, 1500);
-        } else {
-          const errorData = await response.json();
-          console.error('❌ Backend authentication failed:', errorData);
-          throw new Error(`Backend authentication failed: ${errorData.message || 'Unknown error'}`);
+            setConnectionStatus('authenticated');
+            setAuthenticatedEmployee(employee);
+            setShowWelcome(true);
+            
+            // Auto-hide welcome message after 3 seconds
+            setTimeout(() => {
+              setShowWelcome(false);
+            }, 3000);
+          }, 1000);
+          
+        } else if (!response.ok || result.error?.includes('expired')) {
+          // Challenge expired or invalid
+          clearInterval(pollInterval);
+          setError('Authentication request expired. Please try again.');
+          setConnectionStatus('disconnected');
+          setAuthStep('login');
+          
+        } else if (pollCount >= maxPolls) {
+          // Timeout reached
+          clearInterval(pollInterval);
+          setError('Authentication timeout. Please try again.');
+          setConnectionStatus('disconnected'); 
+          setAuthStep('login');
         }
-      } catch (err) {
-        console.error('Authentication error:', err);
-        setError(`Authentication failed: ${err instanceof Error ? err.message : 'Unknown error'}. Please try again.`);
-        setAuthStep('qr');
-        setAuthProgress(0);
-        setScanningStatus('');
+        
+      } catch (error) {
+        console.error('Polling error:', error);
+        if (pollCount >= maxPolls) {
+          clearInterval(pollInterval);
+          setError('Authentication failed. Please check your connection and try again.');
+          setConnectionStatus('disconnected');
+          setAuthStep('login');
+        }
       }
-    }, 9000);
+    }, 5000); // Poll every 5 seconds
   };
 
   const handleNewLogin = () => {
@@ -581,6 +594,28 @@ function SimpleEnterprisePortal({
                 >
                   Start New Session
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* Welcome Notification Overlay */}
+          {showWelcome && authenticatedEmployee && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-8 max-w-md mx-4 text-center transform transition-all duration-500 scale-100">
+                <div className="w-16 h-16 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">Welcome Back!</h3>
+                <p className="text-gray-600 mb-4">
+                  Hi {authenticatedEmployee.name}, you have been successfully authenticated and granted portal access.
+                </p>
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <p className="text-sm text-green-800">
+                    🔐 Authenticated via DID • Session active for 24 hours
+                  </p>
+                </div>
               </div>
             </div>
           )}
