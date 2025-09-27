@@ -63,13 +63,24 @@ const EnterprisePortalProfessional: React.FC = () => {
   useEffect(() => {
     const checkConnection = async () => {
       try {
+        console.log('🔍 Checking backend health...');
         const response = await fetch('http://localhost:3001/api/health');
-        setIsConnected(response.ok);
+        const isHealthy = response.ok;
+        console.log(`🏥 Backend health check:`, { status: response.status, ok: response.ok, healthy: isHealthy });
+        setIsConnected(isHealthy);
       } catch (error) {
+        console.error('❌ Health check failed:', error);
         setIsConnected(false);
       }
     };
+    
+    // Initial check
     checkConnection();
+    
+    // Set up periodic health checks every 10 seconds
+    const healthInterval = setInterval(checkConnection, 10000);
+    
+    return () => clearInterval(healthInterval);
   }, []);
 
   // Check for existing session

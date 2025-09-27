@@ -184,14 +184,12 @@ async function generateChallenge(context?: {
 
   // Create QR code data with context
   const qrCodeData = JSON.stringify({
-    type: 'did_auth',
     challengeId,
     challenge,
     action: 'authenticate',
     domain: 'company.portal.com', // Your company domain
     timestamp: Date.now(),
     expiresAt: Date.now() + CHALLENGE_EXPIRY_TIME,
-    nonce: crypto.randomBytes(16).toString('hex'),
     ...(context?.employeeId && { employeeId: context.employeeId }),
     ...(context?.companyId && { companyId: context.companyId }),
     ...(context?.requestType && { requestType: context.requestType })
