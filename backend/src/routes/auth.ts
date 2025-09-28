@@ -184,14 +184,20 @@ async function generateChallenge(context?: {
 
   // Create QR code data with context
   const qrCodeData = JSON.stringify({
+    type: "did-auth-request",
+    version: "1.0",
     challengeId,
     challenge,
-    action: 'authenticate',
-    domain: 'company.portal.com', // Your company domain
+    domain: 'decentralized-trust.platform',
+    companyId: context?.companyId || 'dtp_enterprise_001',
     timestamp: Date.now(),
     expiresAt: Date.now() + CHALLENGE_EXPIRY_TIME,
-    ...(context?.employeeId && { employeeId: context.employeeId }),
-    ...(context?.companyId && { companyId: context.companyId }),
+    apiEndpoint: 'http://localhost:3001/api/auth/verify',
+    instruction: 'Authenticate with your DID wallet to access Enterprise Portal',
+    ...(context?.employeeId && { 
+      employee: employeeDatabase.get(context.employeeId),
+      expectedDID: `did:ethr:${employeeDatabase.get(context.employeeId)?.email?.includes('zaid') ? '0x742d35Cc6Dd03A30DE0F7b5A7A8a8Dd1CE4Aaa2F' : '0x1234567890123456789012345678901234567890'}`
+    }),
     ...(context?.requestType && { requestType: context.requestType })
   });
 

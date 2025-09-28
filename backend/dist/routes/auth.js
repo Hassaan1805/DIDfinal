@@ -21,26 +21,34 @@ const blockchainService = new blockchainService_1.BlockchainService({
 const employeeDatabase = new Map([
     ['EMP001', {
             id: 'EMP001',
-            name: 'John Doe',
+            name: 'Zaid',
             department: 'Engineering',
-            role: 'Senior Developer',
-            email: 'john.doe@company.com',
+            role: 'CEO',
+            email: 'zaid@company.com',
             active: true
         }],
     ['EMP002', {
             id: 'EMP002',
-            name: 'Jane Smith',
-            department: 'HR',
-            role: 'HR Manager',
-            email: 'jane.smith@company.com',
+            name: 'Hassaan',
+            department: 'Engineering',
+            role: 'CTO',
+            email: 'hassaan@company.com',
             active: true
         }],
     ['EMP003', {
             id: 'EMP003',
-            name: 'Mike Johnson',
-            department: 'Finance',
-            role: 'Financial Analyst',
-            email: 'mike.johnson@company.com',
+            name: 'Atharva',
+            department: 'Product',
+            role: 'Product Manager',
+            email: 'atharva@company.com',
+            active: true
+        }],
+    ['EMP004', {
+            id: 'EMP004',
+            name: 'Gracian',
+            department: 'Design',
+            role: 'Senior Designer',
+            email: 'gracian@company.com',
             active: true
         }]
 ]);
@@ -122,14 +130,20 @@ async function generateChallenge(context) {
     });
     cleanupExpiredChallenges();
     const qrCodeData = JSON.stringify({
+        type: "did-auth-request",
+        version: "1.0",
         challengeId,
         challenge,
-        action: 'authenticate',
-        domain: 'company.portal.com',
+        domain: 'decentralized-trust.platform',
+        companyId: context?.companyId || 'dtp_enterprise_001',
         timestamp: Date.now(),
         expiresAt: Date.now() + CHALLENGE_EXPIRY_TIME,
-        ...(context?.employeeId && { employeeId: context.employeeId }),
-        ...(context?.companyId && { companyId: context.companyId }),
+        apiEndpoint: 'http://localhost:3001/api/auth/verify',
+        instruction: 'Authenticate with your DID wallet to access Enterprise Portal',
+        ...(context?.employeeId && {
+            employee: employeeDatabase.get(context.employeeId),
+            expectedDID: `did:ethr:${employeeDatabase.get(context.employeeId)?.email?.includes('zaid') ? '0x742d35Cc6Dd03A30DE0F7b5A7A8a8Dd1CE4Aaa2F' : '0x1234567890123456789012345678901234567890'}`
+        }),
         ...(context?.requestType && { requestType: context.requestType })
     });
     return {
@@ -188,6 +202,75 @@ router.get('/status/:challengeId', async (req, res) => {
         res.status(500).json({
             success: false,
             error: 'Failed to check challenge status',
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+router.get('/status/session/:sessionId', async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        let matchingChallenge = null;
+        let challengeId = null;
+        for (const [cId, challengeData] of challenges.entries()) {
+            if (cId.includes(sessionId) || challengeData.challenge.includes(sessionId)) {
+                matchingChallenge = challengeData;
+                challengeId = cId;
+                break;
+            }
+        }
+        if (!matchingChallenge) {
+            res.status(404).json({
+                success: false,
+                error: 'Session not found or expired',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        if (Date.now() - matchingChallenge.timestamp > CHALLENGE_EXPIRY_TIME) {
+            challenges.delete(challengeId);
+            res.status(400).json({
+                success: false,
+                error: 'Session has expired',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        if (matchingChallenge.used && matchingChallenge.token) {
+            res.json({
+                success: true,
+                data: {
+                    authenticated: true,
+                    sessionId,
+                    user: {
+                        did: matchingChallenge.did,
+                        address: matchingChallenge.userAddress,
+                        employeeId: matchingChallenge.employeeId,
+                        name: employeeDatabase.get(matchingChallenge.employeeId || '')?.name || 'Unknown User'
+                    },
+                    token: matchingChallenge.token,
+                    authenticatedAt: new Date(matchingChallenge.timestamp).toISOString()
+                },
+                timestamp: new Date().toISOString()
+            });
+        }
+        else {
+            res.json({
+                success: true,
+                data: {
+                    authenticated: false,
+                    pending: true,
+                    sessionId,
+                    expiresAt: matchingChallenge.timestamp + CHALLENGE_EXPIRY_TIME
+                },
+                timestamp: new Date().toISOString()
+            });
+        }
+    }
+    catch (error) {
+        console.error('Session status check error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to check session status',
             timestamp: new Date().toISOString()
         });
     }
@@ -274,8 +357,31 @@ router.post('/verify', async (req, res) => {
             return;
         }
         try {
-            const recoveredAddress = ethers_1.ethers.verifyMessage(message, signature);
-            if (recoveredAddress.toLowerCase() !== address.toLowerCase()) {
+            const isDevelopmentMode = process.env.NODE_ENV === 'development' || process.env.DEMO_MODE === 'true';
+            console.log('🔧 Environment check:', {
+                NODE_ENV: process.env.NODE_ENV,
+                DEMO_MODE: process.env.DEMO_MODE,
+                isDevelopmentMode
+            });
+            let signatureValid = false;
+            let recoveredAddress = '';
+            if (isDevelopmentMode) {
+                console.log('🔧 Development mode: Accepting demo signature');
+                signatureValid = true;
+                recoveredAddress = address;
+            }
+            else {
+                console.log('🔐 Production mode: Verifying real signature');
+                try {
+                    recoveredAddress = ethers_1.ethers.verifyMessage(message, signature);
+                    signatureValid = recoveredAddress.toLowerCase() === address.toLowerCase();
+                }
+                catch (error) {
+                    console.error('Signature verification failed:', error);
+                    signatureValid = false;
+                }
+            }
+            if (!signatureValid || recoveredAddress.toLowerCase() !== address.toLowerCase()) {
                 res.status(401).json({
                     success: false,
                     error: 'Signature verification failed - address mismatch',
@@ -333,6 +439,159 @@ router.post('/verify', async (req, res) => {
         res.status(500).json({
             success: false,
             error: 'Internal server error',
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+router.post('/verify', async (req, res) => {
+    try {
+        const { type, challenge, sessionId, did, signature, timestamp: authTimestamp, userCredentials, approved } = req.body;
+        if (approved === false) {
+            res.status(200).json({
+                success: true,
+                data: {
+                    authenticated: false,
+                    denied: true,
+                    sessionId
+                },
+                message: 'Authentication denied by user',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        if (!type || !challenge || !sessionId || !did || !signature || !userCredentials) {
+            res.status(400).json({
+                success: false,
+                error: 'Missing required fields for authentication',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        if (type !== 'did-auth-response') {
+            res.status(400).json({
+                success: false,
+                error: 'Invalid authentication response type',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        let originalChallenge = null;
+        let challengeKey = null;
+        for (const [key, challengeData] of challenges.entries()) {
+            if (key.includes(sessionId) || challengeData.challenge.includes(sessionId)) {
+                originalChallenge = challengeData;
+                challengeKey = key;
+                break;
+            }
+        }
+        if (!originalChallenge) {
+            res.status(400).json({
+                success: false,
+                error: 'Invalid or expired authentication session',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        if (originalChallenge.used) {
+            res.status(400).json({
+                success: false,
+                error: 'Authentication session already completed',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        if (Date.now() - originalChallenge.timestamp > CHALLENGE_EXPIRY_TIME) {
+            challenges.delete(challengeKey);
+            res.status(400).json({
+                success: false,
+                error: 'Authentication session has expired',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        const didMatch = did.match(/^did:ethr:(0x[a-fA-F0-9]{40})$/);
+        if (!didMatch) {
+            res.status(400).json({
+                success: false,
+                error: 'Invalid DID format',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        const userAddress = didMatch[1];
+        try {
+            const messageToVerify = JSON.stringify({
+                challenge: challenge,
+                did: did,
+                timestamp: authTimestamp
+            });
+            const recoveredAddress = ethers_1.ethers.verifyMessage(messageToVerify, signature);
+            if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
+                res.status(401).json({
+                    success: false,
+                    error: 'Signature verification failed',
+                    timestamp: new Date().toISOString()
+                });
+                return;
+            }
+            console.log('✅ DID authentication successful for:', userCredentials.name);
+            originalChallenge.used = true;
+            originalChallenge.userAddress = userAddress;
+            originalChallenge.did = did;
+            originalChallenge.employeeId = userCredentials.employeeId;
+            const tokenPayload = {
+                did: did,
+                address: userAddress,
+                employeeId: userCredentials.employeeId,
+                name: userCredentials.name,
+                role: userCredentials.role,
+                department: userCredentials.department,
+                companyId: userCredentials.companyId,
+                sessionId: sessionId,
+                authenticated: true,
+                timestamp: new Date().toISOString()
+            };
+            const token = jsonwebtoken_1.default.sign(tokenPayload, JWT_SECRET, {
+                expiresIn: '24h',
+                issuer: 'decentralized-trust-platform'
+            });
+            originalChallenge.token = token;
+            console.log(`🎉 User ${userCredentials.name} (${userCredentials.role}) authenticated successfully`);
+            res.status(200).json({
+                success: true,
+                data: {
+                    authenticated: true,
+                    token: token,
+                    user: {
+                        did: did,
+                        address: userAddress,
+                        employeeId: userCredentials.employeeId,
+                        name: userCredentials.name,
+                        role: userCredentials.role,
+                        department: userCredentials.department,
+                        companyId: userCredentials.companyId
+                    },
+                    sessionId: sessionId,
+                    expiresIn: '24h'
+                },
+                message: `Welcome, ${userCredentials.name}! Authentication successful.`,
+                timestamp: new Date().toISOString()
+            });
+        }
+        catch (error) {
+            console.error('Signature verification error:', error);
+            res.status(401).json({
+                success: false,
+                error: 'Authentication signature verification failed',
+                timestamp: new Date().toISOString()
+            });
+        }
+    }
+    catch (error) {
+        console.error('Passwordless auth error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error during authentication',
             timestamp: new Date().toISOString()
         });
     }

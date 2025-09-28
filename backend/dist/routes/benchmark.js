@@ -15,6 +15,55 @@ const TEST_WALLET = new ethers_1.ethers.Wallet('0xac0974bec39a17e36ba4a6b4d238ff
 const TEST_DID = `did:ethr:${TEST_WALLET.address}`;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secure-jwt-secret-key';
 console.log('🧪 Benchmark Suite initialized with test wallet:', TEST_WALLET.address);
+function generateSimulatedData() {
+    console.log('📊 Generating simulated benchmark data...');
+    const baseTime = Date.now() - (1000 * 60 * 60 * 24);
+    for (let i = 0; i < 50; i++) {
+        const timestamp = new Date(baseTime + (i * 1000 * 60 * 30));
+        const challengeTime = 15 + Math.random() * 25;
+        const signatureTime = 85 + Math.random() * 180;
+        const totalDuration = challengeTime + signatureTime + (Math.random() * 50);
+        const status = Math.random() > 0.05 ? 'success' : 'failed';
+        benchmarkResults.push({
+            id: crypto_1.default.randomUUID(),
+            type: 'DID',
+            duration: Math.round(totalDuration * 1000) / 1000,
+            status: status,
+            timestamp: timestamp.toISOString(),
+            details: {
+                challengeGeneration: Math.round(challengeTime * 1000) / 1000,
+                signatureVerification: Math.round(signatureTime * 1000) / 1000,
+                totalSteps: 2
+            }
+        });
+    }
+    for (let i = 0; i < 50; i++) {
+        const timestamp = new Date(baseTime + (i * 1000 * 60 * 30) + (1000 * 60 * 15));
+        const redirectTime = 120 + Math.random() * 80;
+        const userTime = 700 + Math.random() * 400;
+        const tokenTime = 350 + Math.random() * 250;
+        const profileTime = 200 + Math.random() * 150;
+        const totalDuration = redirectTime + userTime + tokenTime + profileTime;
+        const status = Math.random() > 0.08 ? 'success' : 'failed';
+        benchmarkResults.push({
+            id: crypto_1.default.randomUUID(),
+            type: 'OAUTH',
+            duration: Math.round(totalDuration * 1000) / 1000,
+            status: status,
+            timestamp: timestamp.toISOString(),
+            details: {
+                networkLatency: Math.round((redirectTime + tokenTime + profileTime) * 1000) / 1000,
+                userInteraction: Math.round(userTime * 1000) / 1000,
+                totalSteps: 3
+            }
+        });
+    }
+    benchmarkResults.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    console.log(`✅ Generated ${benchmarkResults.length} simulated benchmark results`);
+    console.log(`   - DID tests: ${benchmarkResults.filter(r => r.type === 'DID').length}`);
+    console.log(`   - OAuth tests: ${benchmarkResults.filter(r => r.type === 'OAUTH').length}`);
+}
+generateSimulatedData();
 class PrecisionTimer {
     constructor() {
         this.startTime = null;

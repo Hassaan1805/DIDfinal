@@ -33,7 +33,8 @@ import zkpRoutes from './routes/zkp.routes';
 import premiumRoutes from './routes/premium.routes';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = parseInt(process.env.PORT || '3001', 10);
+const HOST = process.env.HOST || '0.0.0.0';
 
 // Debug environment variables
 console.log(`🔧 Environment variables loaded:`);
@@ -101,10 +102,12 @@ app.use('*', (req: express.Request, res: express.Response) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Decentralized Trust Platform Backend running on port ${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`🚀 Decentralized Trust Platform Backend running on ${HOST}:${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
+  console.log(`🔗 Health check: http://${HOST}:${PORT}/api/health`);
+  console.log(`🌐 Network access: http://192.168.1.100:${PORT}/api/health`);
+  console.log(`📱 Mobile access: Use 192.168.1.100:${PORT} in your mobile app`);
 });
 
 export default app;

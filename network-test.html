@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Connectivity Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .success { border-left: 5px solid #4caf50; }
+        .error { border-left: 5px solid #f44336; }
+        .pending { border-left: 5px solid #ff9800; }
+        button {
+            background: #2196f3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #1976d2; }
+        .log { 
+            background: #f8f9fa; 
+            border: 1px solid #dee2e6; 
+            border-radius: 5px; 
+            padding: 10px; 
+            font-family: monospace; 
+            font-size: 12px; 
+            max-height: 200px; 
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔧 Network Connectivity Test</h1>
+    <p>This tool helps diagnose network connection issues between the wallet and backend.</p>
+
+    <div id="backend-test" class="test-card pending">
+        <h3>🖥️ Backend Server Test</h3>
+        <p>Testing connection to <code>http://localhost:3001</code></p>
+        <button onclick="testBackend()">Test Backend Connection</button>
+        <div id="backend-result"></div>
+    </div>
+
+    <div id="cors-test" class="test-card pending">
+        <h3>🌐 CORS Policy Test</h3>
+        <p>Testing cross-origin request handling</p>
+        <button onclick="testCORS()">Test CORS Configuration</button>
+        <div id="cors-result"></div>
+    </div>
+
+    <div id="auth-test" class="test-card pending">
+        <h3>🔐 Authentication Endpoint Test</h3>
+        <p>Testing authentication API endpoints</p>
+        <button onclick="testAuthEndpoint()">Test Auth Endpoint</button>
+        <div id="auth-result"></div>
+    </div>
+
+    <div id="demo-qr" class="test-card">
+        <h3>📱 Demo QR Code Data</h3>
+        <p>Copy this test QR code data to the wallet:</p>
+        <textarea id="demo-qr-data" readonly style="width: 100%; height: 150px; font-family: monospace; font-size: 12px;"></textarea>
+        <button onclick="generateDemoQR()">Generate Demo QR Code</button>
+        <button onclick="copyDemoQR()">Copy to Clipboard</button>
+    </div>
+
+    <div id="log-section" class="test-card">
+        <h3>📋 Detailed Log</h3>
+        <div id="log-output" class="log"></div>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <script>
+        let logOutput = [];
+
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logMessage = `[${timestamp}] ${message}`;
+            logOutput.push(logMessage);
+            console.log(logMessage);
+            
+            const logElement = document.getElementById('log-output');
+            logElement.innerHTML = logOutput.join('\n');
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function clearLog() {
+            logOutput = [];
+            document.getElementById('log-output').innerHTML = '';
+        }
+
+        function setTestResult(testId, success, message) {
+            const element = document.getElementById(testId);
+            element.className = `test-card ${success ? 'success' : 'error'}`;
+            
+            const resultDiv = document.getElementById(testId.replace('-test', '-result'));
+            resultDiv.innerHTML = `<p><strong>${success ? '✅ Success' : '❌ Failed'}:</strong> ${message}</p>`;
+        }
+
+        async function testBackend() {
+            log('🔍 Testing backend server connection...');
+            
+            try {
+                const startTime = Date.now();
+                const response = await fetch('http://localhost:3001/api/health', {
+                    method: 'GET',
+                    mode: 'cors',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                const duration = Date.now() - startTime;
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                log(`✅ Backend connection successful (${duration}ms)`);
+                log(`Response: ${JSON.stringify(data)}`);
+                
+                setTestResult('backend', true, `Connected successfully in ${duration}ms. Service: ${data.service}`);
+                
+            } catch (error) {
+                log(`❌ Backend connection failed: ${error.message}`);
+                setTestResult('backend', false, `${error.message}`);
+            }
+        }
+
+        async function testCORS() {
+            log('🌐 Testing CORS policy...');
+            
+            try {
+                const response = await fetch('http://localhost:3001/api/health', {
+                    method: 'OPTIONS',
+                    mode: 'cors'
+                });
+                
+                const corsHeaders = {
+                    'Access-Control-Allow-Origin': response.headers.get('Access-Control-Allow-Origin'),
+                    'Access-Control-Allow-Methods': response.headers.get('Access-Control-Allow-Methods'),
+                    'Access-Control-Allow-Headers': response.headers.get('Access-Control-Allow-Headers')
+                };
+                
+                log('✅ CORS preflight successful');
+                log(`CORS headers: ${JSON.stringify(corsHeaders, null, 2)}`);
+                
+                setTestResult('cors', true, 'CORS is properly configured');
+                
+            } catch (error) {
+                log(`❌ CORS test failed: ${error.message}`);
+                setTestResult('cors', false, `CORS issue: ${error.message}`);
+            }
+        }
+
+        async function testAuthEndpoint() {
+            log('🔐 Testing authentication endpoint...');
+            
+            try {
+                const testPayload = {
+                    employeeId: 'EMP001',
+                    address: '0x742d35Cc6Dd03A30DE0F7b5A7A8a8Dd1CE4Aaa2F',
+                    domain: 'test.example.com'
+                };
+                
+                const response = await fetch('http://localhost:3001/api/auth/challenge', {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify(testPayload)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                log('✅ Auth endpoint test successful');
+                log(`Challenge created: ${data.data.challengeId}`);
+                
+                setTestResult('auth', true, 'Authentication endpoint is working properly');
+                
+            } catch (error) {
+                log(`❌ Auth endpoint test failed: ${error.message}`);
+                setTestResult('auth', false, `Authentication issue: ${error.message}`);
+            }
+        }
+
+        function generateDemoQR() {
+            log('📱 Generating demo QR code data...');
+            
+            const demoQRData = {
+                "type": "did-auth-request",
+                "version": "1.0",
+                "challengeId": "demo-" + Math.random().toString(36).substring(2, 15),
+                "challenge": "demo_challenge_" + Date.now(),
+                "domain": "decentralized-trust.platform",
+                "companyId": "dtp_enterprise_001",
+                "timestamp": Date.now(),
+                "expiresAt": Date.now() + (5 * 60 * 1000),
+                "apiEndpoint": "http://localhost:3001/api/auth/verify",
+                "employee": {
+                    "id": "EMP001",
+                    "name": "Zaid",
+                    "department": "Engineering", 
+                    "role": "CEO & Founder"
+                },
+                "expectedDID": "did:ethr:0x742d35Cc6Dd03A30DE0F7b5A7A8a8Dd1CE4Aaa2F",
+                "instruction": "Authenticate with your mobile DID wallet to access Enterprise Portal"
+            };
+            
+            const qrString = JSON.stringify(demoQRData, null, 2);
+            document.getElementById('demo-qr-data').value = qrString;
+            
+            log('✅ Demo QR code generated');
+        }
+
+        function copyDemoQR() {
+            const textarea = document.getElementById('demo-qr-data');
+            textarea.select();
+            document.execCommand('copy');
+            log('📋 Demo QR code copied to clipboard');
+        }
+
+        // Auto-generate demo QR on page load
+        window.addEventListener('load', function() {
+            log('🚀 Network connectivity test tool loaded');
+            generateDemoQR();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Data Tester</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        textarea {
+            width: 100%;
+            height: 200px;
+            font-family: monospace;
+            font-size: 12px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            resize: vertical;
+        }
+        .button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px 5px 10px 0;
+        }
+        .button:hover {
+            background: #0056b3;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 QR Data Validator</h1>
+        <p>This tool validates QR code data for the DID mobile wallet.</p>
+        
+        <h3>Test Your QR Data:</h3>
+        <textarea id="qrInput" placeholder="Paste your QR code JSON data here...">{"type":"did-auth-request","version":"1.0","challengeId":"9fe81508-eae9-4f1f-9399-2c2f78b96f99","challenge":"57b347978c7d2803e19d1b9febf8f6634825b98e3030c151824525cdeaff99b7","domain":"decentralized-trust.platform","companyId":"dtp_enterprise_001","timestamp":1759001217411,"expiresAt":1759001517411,"apiEndpoint":"http://localhost:3001/api/auth/verify","employee":{"id":"EMP001","name":"Zaid","department":"Engineering","role":"CEO & Founder"},"expectedDID":"did:ethr:0x1234567890123456789012345678901234567890","instruction":"Authenticate with your mobile DID wallet to access Enterprise Portal"}</textarea>
+        
+        <div>
+            <button class="button" onclick="validateQR()">🔍 Validate QR Data</button>
+            <button class="button" onclick="generateSample()">📝 Generate Sample</button>
+            <button class="button" onclick="formatJSON()">🎨 Format JSON</button>
+            <button class="button" onclick="copyToClipboard()">📋 Copy</button>
+        </div>
+        
+        <div id="result"></div>
+    </div>
+
+    <script>
+        function validateQR() {
+            const input = document.getElementById('qrInput').value.trim();
+            const resultDiv = document.getElementById('result');
+            
+            if (!input) {
+                showResult('❌ Error: No QR data provided', 'error');
+                return;
+            }
+            
+            try {
+                const data = JSON.parse(input);
+                const validation = validateDIDAuthRequest(data);
+                
+                if (validation.isValid) {
+                    showResult(`✅ Valid DID Authentication Request!\n\n${validation.details}`, 'success');
+                } else {
+                    showResult(`❌ Invalid DID Request:\n\n${validation.errors.join('\n')}`, 'error');
+                }
+                
+            } catch (e) {
+                showResult(`❌ JSON Parse Error: ${e.message}\n\nPlease check your JSON syntax.`, 'error');
+            }
+        }
+        
+        function validateDIDAuthRequest(data) {
+            const errors = [];
+            const details = [];
+            
+            // Required fields
+            const requiredFields = ['type', 'challengeId', 'challenge', 'companyId', 'apiEndpoint'];
+            for (const field of requiredFields) {
+                if (!data[field]) {
+                    errors.push(`Missing required field: ${field}`);
+                } else {
+                    details.push(`✓ ${field}: ${data[field]}`);
+                }
+            }
+            
+            // Type validation
+            if (data.type !== 'did-auth-request') {
+                errors.push(`Invalid type: "${data.type}" (expected: "did-auth-request")`);
+            }
+            
+            // Expiration check
+            if (data.expiresAt) {
+                const now = Date.now();
+                const expiresAt = parseInt(data.expiresAt);
+                if (expiresAt < now) {
+                    errors.push(`Request expired: ${new Date(expiresAt).toLocaleString()}`);
+                } else {
+                    const timeLeft = Math.floor((expiresAt - now) / 60000);
+                    details.push(`✓ Expires in ${timeLeft} minutes`);
+                }
+            }
+            
+            // Employee data
+            if (data.employee) {
+                details.push(`✓ Employee: ${data.employee.name} (${data.employee.role})`);
+                details.push(`✓ Department: ${data.employee.department}`);
+            }
+            
+            // API endpoint
+            if (data.apiEndpoint) {
+                details.push(`✓ API Endpoint: ${data.apiEndpoint}`);
+            }
+            
+            return {
+                isValid: errors.length === 0,
+                errors: errors,
+                details: details.join('\n')
+            };
+        }
+        
+        function generateSample() {
+            const sample = {
+                "type": "did-auth-request",
+                "version": "1.0",
+                "challengeId": crypto.randomUUID(),
+                "challenge": Array.from({length: 32}, () => Math.floor(Math.random() * 16).toString(16)).join(''),
+                "domain": "decentralized-trust.platform",
+                "companyId": "dtp_enterprise_001",
+                "timestamp": Date.now(),
+                "expiresAt": Date.now() + (15 * 60 * 1000), // 15 minutes
+                "apiEndpoint": "http://localhost:3001/api/auth/verify",
+                "employee": {
+                    "id": "EMP001",
+                    "name": "Zaid",
+                    "department": "Engineering",
+                    "role": "CEO & Founder"
+                },
+                "expectedDID": "did:ethr:0x742d35Cc6Dd03A30DE0F7b5A7A8a8Dd1CE4Aaa2F",
+                "instruction": "Authenticate with your mobile DID wallet to access Enterprise Portal"
+            };
+            
+            document.getElementById('qrInput').value = JSON.stringify(sample, null, 2);
+            showResult('📝 Sample DID authentication request generated!', 'info');
+        }
+        
+        function formatJSON() {
+            const input = document.getElementById('qrInput').value.trim();
+            try {
+                const data = JSON.parse(input);
+                document.getElementById('qrInput').value = JSON.stringify(data, null, 2);
+                showResult('🎨 JSON formatted successfully!', 'info');
+            } catch (e) {
+                showResult(`❌ Cannot format: ${e.message}`, 'error');
+            }
+        }
+        
+        function copyToClipboard() {
+            const input = document.getElementById('qrInput');
+            input.select();
+            document.execCommand('copy');
+            showResult('📋 QR data copied to clipboard!', 'info');
+        }
+        
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.textContent = message;
+            resultDiv.className = `result ${type}`;
+        }
+        
+        // Auto-validate on page load if data exists
+        window.onload = function() {
+            const input = document.getElementById('qrInput').value.trim();
+            if (input) {
+                validateQR();
+            }
+        };
+    </script>
+</body>
+</html>

@@ -134,13 +134,13 @@ const EnterprisePortalProfessional: React.FC = () => {
       // Generate QR code with proper DID authentication request structure
       const qrData = JSON.stringify({
         type: "did-auth-request",
-        challenge: challengeData.challenge || `challenge_${Date.now()}`, // Fallback if challenge missing
-        challengeId: challengeData.challengeId || `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`, // Fallback if challengeId missing
+        version: "1.0",
+        challengeId: challengeData.challengeId || `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`,
+        challenge: challengeData.challenge || `challenge_${Date.now()}`,
         domain: "decentralized-trust.platform",
-        timestamp: new Date(challengeData.timestamp || Date.now()).getTime(),
-        requiredRole: employee.role,
-        companyId: "dtp_enterprise_001",
-        sessionId: `session_${new Date(challengeData.timestamp || Date.now()).getTime()}`,
+        companyId: "dtp_enterprise_001", 
+        timestamp: challengeData.timestamp || Date.now(),
+        expiresAt: (challengeData.timestamp || Date.now()) + (5 * 60 * 1000), // 5 minutes
         apiEndpoint: "http://localhost:3001/api/auth/verify",
         employee: {
           id: employee.id,
@@ -148,13 +148,9 @@ const EnterprisePortalProfessional: React.FC = () => {
           department: employee.department,
           role: employee.role
         },
-        employeeAddresses: {
-          "EMP001": "0x742d35Cc6Dd03A30DE0F7b5A7A8a8Dd1CE4Aaa2F",
-          "EMP002": "0x742d35Cc6Dd03A30DE0F7b5A7A8a8Dd1CE4Aaa2F",
-          "EMP003": "0x1234567890123456789012345678901234567890",
-          "EMP004": "0xABCDEF1234567890ABCDEF1234567890ABCDEF12"
-        },
-        nonce: Math.random().toString(36).substring(2, 15)
+        // Include the expected DID format for the employee
+        expectedDID: `did:ethr:${employee.address}`,
+        instruction: "Authenticate with your mobile DID wallet to access Enterprise Portal"
       });
 
       const qrUrl = await QRCode.toDataURL(qrData, {
@@ -413,19 +409,42 @@ const EnterprisePortalProfessional: React.FC = () => {
           </div>
           
           <div className="text-sm text-blue-300">
-            <div className="mb-2">📱 Open your mobile wallet</div>
-            <div className="mb-2">📷 Scan the QR code above</div>
+            <div className="mb-2">📱 Open your DID wallet (e.g., secure-wallet-local.html)</div>
+            <div className="mb-2">📷 Copy and paste the QR data into the wallet</div>
+            <div className="mb-2">🔐 The wallet will show your DID: did:ethr:your-address</div>
             <div>✅ Approve the authentication request</div>
+          </div>
+          
+          {/* Debug info for developers */}
+          <div className="mt-4 p-3 bg-black/20 rounded-lg text-xs text-gray-300">
+            <div className="font-mono break-all">
+              Challenge ID: {challenge?.challengeId}
+            </div>
+            <div className="mt-2">
+              Expected DID: did:ethr:{currentEmployee?.address}
+            </div>
           </div>
         </div>
 
-        {/* Cancel Button */}
-        <button
-          onClick={() => setAuthStep('login')}
-          className="w-full mt-6 bg-white/10 hover:bg-white/20 border border-white/20 text-white py-3 px-6 rounded-xl transition-all"
-        >
-          Cancel Authentication
-        </button>
+        {/* Action Buttons */}
+        <div className="space-y-3 mt-6">
+          <button
+            onClick={() => {
+              // Open the wallet server in a new tab for easy testing
+              window.open('http://localhost:3002', '_blank');
+            }}
+            className="w-full bg-green-500/80 hover:bg-green-600/90 backdrop-blur-sm text-white py-3 px-6 rounded-xl transition-all border border-white/20"
+          >
+            🔓 Open DID Wallet
+          </button>
+          
+          <button
+            onClick={() => setAuthStep('login')}
+            className="w-full bg-white/10 hover:bg-white/20 border border-white/20 text-white py-3 px-6 rounded-xl transition-all"
+          >
+            Cancel Authentication
+          </button>
+        </div>
         </div>
       </div>
     </div>
