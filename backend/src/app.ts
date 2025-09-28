@@ -31,6 +31,8 @@ import adminRoutes from './routes/admin';
 import { benchmarkRoutes } from './routes/benchmark';
 import zkpRoutes from './routes/zkp.routes';
 import premiumRoutes from './routes/premium.routes';
+import monitoringRoutes from './routes/monitoring';
+import simpleTestRoutes from './routes/simple-test';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -67,6 +69,8 @@ app.use('/api/did', didRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/benchmark', benchmarkRoutes);
 app.use('/api/premium', premiumRoutes); // Premium content routes (ZK-proof protected)
+app.use('/api/monitor', monitoringRoutes); // Blockchain monitoring routes
+app.use('/api/simple-test', simpleTestRoutes); // Simple blockchain testing
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

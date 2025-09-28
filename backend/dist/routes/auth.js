@@ -10,7 +10,9 @@ const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const crypto_1 = __importDefault(require("crypto"));
 const did_jwt_1 = require("did-jwt");
 const blockchainService_1 = require("../services/blockchainService");
+const SepoliaService_1 = require("../services/SepoliaService");
 const auth_middleware_1 = require("../middleware/auth.middleware");
+const employeeWallets_1 = require("../services/employeeWallets");
 const router = (0, express_1.Router)();
 exports.authRoutes = router;
 const blockchainService = new blockchainService_1.BlockchainService({
@@ -54,7 +56,7 @@ const employeeDatabase = new Map([
 ]);
 const challenges = new Map();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secure-jwt-secret-key';
-const CHALLENGE_EXPIRY_TIME = 5 * 60 * 1000;
+const CHALLENGE_EXPIRY_TIME = 10 * 60 * 1000;
 router.get('/challenge', async (req, res) => {
     try {
         const challenge = await generateChallenge();
@@ -138,11 +140,11 @@ async function generateChallenge(context) {
         companyId: context?.companyId || 'dtp_enterprise_001',
         timestamp: Date.now(),
         expiresAt: Date.now() + CHALLENGE_EXPIRY_TIME,
-        apiEndpoint: 'http://localhost:3001/api/auth/verify',
+        apiEndpoint: 'http://192.168.1.100:3001/api/auth/sepolia-verify',
         instruction: 'Authenticate with your DID wallet to access Enterprise Portal',
         ...(context?.employeeId && {
             employee: employeeDatabase.get(context.employeeId),
-            expectedDID: `did:ethr:${employeeDatabase.get(context.employeeId)?.email?.includes('zaid') ? '0x742d35Cc6Dd03A30DE0F7b5A7A8a8Dd1CE4Aaa2F' : '0x1234567890123456789012345678901234567890'}`
+            expectedDID: context?.employeeId ? `did:ethr:${employeeWallets_1.EMPLOYEE_WALLETS.get(context.employeeId)?.address}` : undefined
         }),
         ...(context?.requestType && { requestType: context.requestType })
     });
@@ -443,159 +445,6 @@ router.post('/verify', async (req, res) => {
         });
     }
 });
-router.post('/verify', async (req, res) => {
-    try {
-        const { type, challenge, sessionId, did, signature, timestamp: authTimestamp, userCredentials, approved } = req.body;
-        if (approved === false) {
-            res.status(200).json({
-                success: true,
-                data: {
-                    authenticated: false,
-                    denied: true,
-                    sessionId
-                },
-                message: 'Authentication denied by user',
-                timestamp: new Date().toISOString()
-            });
-            return;
-        }
-        if (!type || !challenge || !sessionId || !did || !signature || !userCredentials) {
-            res.status(400).json({
-                success: false,
-                error: 'Missing required fields for authentication',
-                timestamp: new Date().toISOString()
-            });
-            return;
-        }
-        if (type !== 'did-auth-response') {
-            res.status(400).json({
-                success: false,
-                error: 'Invalid authentication response type',
-                timestamp: new Date().toISOString()
-            });
-            return;
-        }
-        let originalChallenge = null;
-        let challengeKey = null;
-        for (const [key, challengeData] of challenges.entries()) {
-            if (key.includes(sessionId) || challengeData.challenge.includes(sessionId)) {
-                originalChallenge = challengeData;
-                challengeKey = key;
-                break;
-            }
-        }
-        if (!originalChallenge) {
-            res.status(400).json({
-                success: false,
-                error: 'Invalid or expired authentication session',
-                timestamp: new Date().toISOString()
-            });
-            return;
-        }
-        if (originalChallenge.used) {
-            res.status(400).json({
-                success: false,
-                error: 'Authentication session already completed',
-                timestamp: new Date().toISOString()
-            });
-            return;
-        }
-        if (Date.now() - originalChallenge.timestamp > CHALLENGE_EXPIRY_TIME) {
-            challenges.delete(challengeKey);
-            res.status(400).json({
-                success: false,
-                error: 'Authentication session has expired',
-                timestamp: new Date().toISOString()
-            });
-            return;
-        }
-        const didMatch = did.match(/^did:ethr:(0x[a-fA-F0-9]{40})$/);
-        if (!didMatch) {
-            res.status(400).json({
-                success: false,
-                error: 'Invalid DID format',
-                timestamp: new Date().toISOString()
-            });
-            return;
-        }
-        const userAddress = didMatch[1];
-        try {
-            const messageToVerify = JSON.stringify({
-                challenge: challenge,
-                did: did,
-                timestamp: authTimestamp
-            });
-            const recoveredAddress = ethers_1.ethers.verifyMessage(messageToVerify, signature);
-            if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
-                res.status(401).json({
-                    success: false,
-                    error: 'Signature verification failed',
-                    timestamp: new Date().toISOString()
-                });
-                return;
-            }
-            console.log('✅ DID authentication successful for:', userCredentials.name);
-            originalChallenge.used = true;
-            originalChallenge.userAddress = userAddress;
-            originalChallenge.did = did;
-            originalChallenge.employeeId = userCredentials.employeeId;
-            const tokenPayload = {
-                did: did,
-                address: userAddress,
-                employeeId: userCredentials.employeeId,
-                name: userCredentials.name,
-                role: userCredentials.role,
-                department: userCredentials.department,
-                companyId: userCredentials.companyId,
-                sessionId: sessionId,
-                authenticated: true,
-                timestamp: new Date().toISOString()
-            };
-            const token = jsonwebtoken_1.default.sign(tokenPayload, JWT_SECRET, {
-                expiresIn: '24h',
-                issuer: 'decentralized-trust-platform'
-            });
-            originalChallenge.token = token;
-            console.log(`🎉 User ${userCredentials.name} (${userCredentials.role}) authenticated successfully`);
-            res.status(200).json({
-                success: true,
-                data: {
-                    authenticated: true,
-                    token: token,
-                    user: {
-                        did: did,
-                        address: userAddress,
-                        employeeId: userCredentials.employeeId,
-                        name: userCredentials.name,
-                        role: userCredentials.role,
-                        department: userCredentials.department,
-                        companyId: userCredentials.companyId
-                    },
-                    sessionId: sessionId,
-                    expiresIn: '24h'
-                },
-                message: `Welcome, ${userCredentials.name}! Authentication successful.`,
-                timestamp: new Date().toISOString()
-            });
-        }
-        catch (error) {
-            console.error('Signature verification error:', error);
-            res.status(401).json({
-                success: false,
-                error: 'Authentication signature verification failed',
-                timestamp: new Date().toISOString()
-            });
-        }
-    }
-    catch (error) {
-        console.error('Passwordless auth error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Internal server error during authentication',
-            timestamp: new Date().toISOString()
-        });
-    }
-});
 router.post('/login', async (req, res) => {
     try {
         const { did, signature, credential, challengeId, message } = req.body;
@@ -802,4 +651,323 @@ function cleanupExpiredChallenges() {
     }
 }
 setInterval(cleanupExpiredChallenges, 10 * 60 * 1000);
+router.post('/sepolia-verify', async (req, res) => {
+    try {
+        const { challengeId, signature, address, message, storeOnChain = true } = req.body;
+        console.log('🔗 Starting Sepolia blockchain authentication:', {
+            challengeId,
+            address,
+            storeOnChain,
+            serviceConfigured: SepoliaService_1.sepoliaService.isConfigured(),
+            serviceReady: SepoliaService_1.sepoliaService.isReady()
+        });
+        if (!challengeId || !signature || !address || !message) {
+            res.status(400).json({
+                success: false,
+                error: 'Missing required fields: challengeId, signature, address, message',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+            res.status(400).json({
+                success: false,
+                error: 'Invalid Ethereum address format',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        console.log('🔍 Sepolia-verify: Looking for challengeId:', challengeId);
+        console.log('📋 Sepolia-verify: Available challenges:', Array.from(challenges.keys()));
+        const challengeData = challenges.get(challengeId);
+        if (!challengeData) {
+            console.log('❌ Sepolia-verify: Challenge not found in memory');
+            res.status(400).json({
+                success: false,
+                error: 'Invalid or expired challenge',
+                details: `Challenge ${challengeId} not found. Available: ${Array.from(challenges.keys()).join(', ')}`,
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        if (challengeData.used) {
+            res.status(400).json({
+                success: false,
+                error: 'Challenge has already been used',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        const now = Date.now();
+        if (now - challengeData.timestamp > CHALLENGE_EXPIRY_TIME) {
+            challenges.delete(challengeId);
+            res.status(400).json({
+                success: false,
+                error: 'Challenge has expired',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        let isSignatureValid = false;
+        try {
+            const isDevelopmentMode = process.env.NODE_ENV === 'development' || process.env.DEMO_MODE === 'true';
+            console.log('🔧 Sepolia-verify Environment check:', {
+                NODE_ENV: process.env.NODE_ENV,
+                DEMO_MODE: process.env.DEMO_MODE,
+                isDevelopmentMode
+            });
+            let recoveredAddress = '';
+            if (isDevelopmentMode) {
+                console.log('🔧 Sepolia-verify Development mode: Accepting demo signature');
+                isSignatureValid = true;
+                recoveredAddress = address;
+            }
+            else {
+                console.log('🔐 Sepolia-verify Production mode: Verifying real signature');
+                try {
+                    recoveredAddress = ethers_1.ethers.verifyMessage(message, signature);
+                    isSignatureValid = recoveredAddress.toLowerCase() === address.toLowerCase();
+                }
+                catch (error) {
+                    console.error('Sepolia-verify Signature verification failed:', error);
+                    isSignatureValid = false;
+                }
+            }
+            if (!isSignatureValid || recoveredAddress.toLowerCase() !== address.toLowerCase()) {
+                console.log('❌ Sepolia-verify Signature verification failed:', {
+                    isSignatureValid,
+                    expectedAddress: address,
+                    recoveredAddress,
+                    isDevelopmentMode
+                });
+                res.status(401).json({
+                    success: false,
+                    error: 'Invalid signature',
+                    verification: {
+                        offChain: {
+                            signatureValid: false,
+                            reason: 'Signature does not match address'
+                        }
+                    },
+                    timestamp: new Date().toISOString()
+                });
+                return;
+            }
+            if (!message.includes(challengeData.challenge)) {
+                console.log('❌ Sepolia-verify Challenge not found in message:', {
+                    message: message.substring(0, 100) + '...',
+                    expectedChallenge: challengeData.challenge.substring(0, 20) + '...'
+                });
+                res.status(401).json({
+                    success: false,
+                    error: 'Invalid challenge in signed message',
+                    timestamp: new Date().toISOString()
+                });
+                return;
+            }
+            console.log('✅ Sepolia-verify Off-chain signature verification passed');
+        }
+        catch (error) {
+            res.status(401).json({
+                success: false,
+                error: 'Signature verification failed',
+                details: error.message,
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        let blockchainResults = null;
+        if (storeOnChain && SepoliaService_1.sepoliaService.isConfigured()) {
+            console.log('💾 Processing blockchain operations on Sepolia...');
+            const checksummedAddress = ethers_1.ethers.getAddress(address.toLowerCase());
+            const didInfo = await SepoliaService_1.sepoliaService.getEmployeeDIDInfo(checksummedAddress);
+            let registrationResult = null;
+            if (!didInfo.success || !didInfo.didInfo?.isActive) {
+                console.log('📝 Registering employee DID on Sepolia...');
+                const did = `did:ethr:${checksummedAddress}`;
+                const publicKeyJwk = JSON.stringify({
+                    kty: 'EC',
+                    crv: 'secp256k1',
+                    use: 'sig',
+                    x: checksummedAddress.substring(2, 34),
+                    y: checksummedAddress.substring(34, 66)
+                });
+                registrationResult = await SepoliaService_1.sepoliaService.registerEmployeeDID(checksummedAddress, did, publicKeyJwk);
+            }
+            const authRecordResult = await SepoliaService_1.sepoliaService.recordAuthentication(challengeId, message, checksummedAddress);
+            const verificationResult = await SepoliaService_1.sepoliaService.verifyAuthentication(challengeId, signature);
+            blockchainResults = {
+                registration: registrationResult,
+                authRecord: authRecordResult,
+                verification: verificationResult,
+                didInfo: didInfo.didInfo
+            };
+        }
+        else if (storeOnChain && !SepoliaService_1.sepoliaService.isConfigured()) {
+            console.warn('⚠️ Blockchain storage requested but Sepolia service not configured');
+        }
+        challengeData.used = true;
+        challengeData.userAddress = ethers_1.ethers.getAddress(address.toLowerCase());
+        challengeData.did = `did:ethr:${ethers_1.ethers.getAddress(address.toLowerCase())}`;
+        const checksummedAddressForToken = ethers_1.ethers.getAddress(address.toLowerCase());
+        const tokenPayload = {
+            address: checksummedAddressForToken,
+            did: `did:ethr:${checksummedAddressForToken}`,
+            challengeId: challengeId,
+            authenticated: true,
+            blockchainVerified: !!blockchainResults?.verification?.success,
+            timestamp: new Date().toISOString()
+        };
+        const token = jsonwebtoken_1.default.sign(tokenPayload, JWT_SECRET, {
+            expiresIn: '24h',
+            issuer: 'decentralized-trust-platform'
+        });
+        challengeData.token = token;
+        const networkStatus = SepoliaService_1.sepoliaService.isConfigured()
+            ? await SepoliaService_1.sepoliaService.getNetworkStatus()
+            : { success: false, error: 'Service not configured' };
+        const response = {
+            success: true,
+            message: 'Authentication successful with Sepolia blockchain integration',
+            user: {
+                address,
+                did: `did:ethr:${address}`
+            },
+            verification: {
+                offChain: {
+                    signatureValid: isSignatureValid,
+                    timestamp: new Date().toISOString()
+                },
+                blockchain: blockchainResults
+            },
+            network: networkStatus.success ? networkStatus.status : {
+                error: networkStatus.error,
+                configured: SepoliaService_1.sepoliaService.isConfigured()
+            },
+            links: {
+                etherscan: blockchainResults?.verification?.txHash
+                    ? `https://sepolia.etherscan.io/tx/${blockchainResults.verification.txHash}`
+                    : null,
+                faucet: 'https://sepoliafaucet.com/',
+                explorer: 'https://sepolia.etherscan.io'
+            },
+            token,
+            expiresIn: '24h',
+            timestamp: new Date().toISOString()
+        };
+        console.log('✅ Sepolia blockchain authentication completed:', {
+            address,
+            blockchainStored: !!blockchainResults?.verification?.success,
+            transactionHash: blockchainResults?.verification?.txHash
+        });
+        res.json(response);
+    }
+    catch (error) {
+        console.error('❌ Sepolia blockchain authentication error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Blockchain authentication failed',
+            details: error.message,
+            service: {
+                configured: SepoliaService_1.sepoliaService.isConfigured(),
+                config: SepoliaService_1.sepoliaService.getConfig()
+            },
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+router.get('/sepolia-status', async (req, res) => {
+    try {
+        if (!SepoliaService_1.sepoliaService.isConfigured()) {
+            res.json({
+                success: false,
+                error: 'Sepolia service not configured',
+                setup: {
+                    required: [
+                        'SEPOLIA_RPC_URL',
+                        'SEPOLIA_CONTRACT_ADDRESS',
+                        'PLATFORM_PRIVATE_KEY'
+                    ],
+                    faucets: [
+                        'https://sepoliafaucet.com/',
+                        'https://www.infura.io/faucet/sepolia'
+                    ]
+                },
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        const networkStatus = await SepoliaService_1.sepoliaService.getNetworkStatus();
+        const config = SepoliaService_1.sepoliaService.getConfig();
+        res.json({
+            success: networkStatus.success,
+            network: networkStatus.status,
+            configuration: {
+                rpcUrl: config.rpcUrl,
+                contractAddress: config.contractAddress,
+                chainId: config.chainId,
+                walletAddress: config.walletAddress
+            },
+            links: {
+                explorer: 'https://sepolia.etherscan.io',
+                faucet: 'https://sepoliafaucet.com/',
+                contract: config.contractAddress
+                    ? `https://sepolia.etherscan.io/address/${config.contractAddress}`
+                    : null
+            },
+            error: networkStatus.error,
+            timestamp: new Date().toISOString()
+        });
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get Sepolia network status',
+            details: error.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+router.get('/sepolia-history/:address', async (req, res) => {
+    try {
+        const { address } = req.params;
+        if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+            res.status(400).json({
+                success: false,
+                error: 'Invalid Ethereum address',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        if (!SepoliaService_1.sepoliaService.isConfigured()) {
+            res.status(503).json({
+                success: false,
+                error: 'Sepolia service not configured',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        const didInfo = await SepoliaService_1.sepoliaService.getEmployeeDIDInfo(address);
+        res.json({
+            success: didInfo.success,
+            address,
+            did: `did:ethr:${address}`,
+            blockchain: didInfo.didInfo || null,
+            links: {
+                etherscan: `https://sepolia.etherscan.io/address/${address}`,
+                profile: didInfo.didInfo?.did || null
+            },
+            error: didInfo.error,
+            timestamp: new Date().toISOString()
+        });
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get authentication history',
+            details: error.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+});
 //# sourceMappingURL=auth.js.map

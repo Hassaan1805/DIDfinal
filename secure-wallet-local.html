@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enterprise DID Wallet - Local Crypto</title>
+    <title>Enterprise DID Wallet - Sepolia Blockchain</title>
     <style>
         * {
             margin: 0;
@@ -252,7 +252,7 @@
     <div class="container">
         <div class="header">
             <div class="logo">🔐 DID Wallet</div>
-            <div class="subtitle">Secure Enterprise Authentication - Local Crypto</div>
+            <div class="subtitle">🔗 Sepolia Blockchain Authentication - Enterprise DID Wallet</div>
         </div>
 
         <div class="user-profile">
@@ -677,7 +677,7 @@
         }
 
         async function autoAuthenticate() {
-            console.log('=== AUTO-AUTHENTICATE STARTED (LOCAL CRYPTO) ===');
+            console.log('=== AUTO-AUTHENTICATE STARTED (SEPOLIA BLOCKCHAIN) ===');
             
             if (!currentAuthRequest) {
                 showNotification('No authentication request to process!', 'error');
@@ -700,13 +700,18 @@
                     challengeId: currentAuthRequest.challengeId,
                     signature: mockSignature,
                     address: currentWalletUser.address,
-                    message: messageToSign
+                    message: messageToSign,
+                    storeOnChain: true // Enable blockchain storage
                 };
 
-                console.log('Sending wallet response:', walletResponse);
+                console.log('Sending Sepolia blockchain authentication request:', walletResponse);
+                
+                // Use Sepolia blockchain verification endpoint
+                const sepoliaEndpoint = currentAuthRequest.apiEndpoint.replace('/verify', '/sepolia-verify');
+                console.log('Using Sepolia endpoint:', sepoliaEndpoint);
                 
                 // Send to backend with proper error handling
-                const response = await fetch(currentAuthRequest.apiEndpoint, {
+                const response = await fetch(sepoliaEndpoint, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -724,8 +729,26 @@
                 console.log('Backend response:', result);
 
                 if (result.success) {
-                    showResponse(`✅ Authentication Successful!\n\nEmployee: ${currentWalletUser.name}\nRole: ${currentWalletUser.role}\nLocal Crypto Verified: ✓\n\nServer Response:\n${JSON.stringify(result, null, 2)}`, 'success');
-                    showNotification('✅ Authentication successful!', 'success');
+                    const blockchainInfo = result.verification?.blockchain 
+                        ? `🔗 Blockchain Status: ${result.verification.blockchain.verification?.success ? '✅ Stored on Sepolia' : '⚠️ Off-chain only'}\n`
+                        + (result.verification.blockchain.verification?.txHash ? `📝 Transaction: ${result.verification.blockchain.verification.txHash}\n` : '')
+                        + (result.links?.etherscan ? `🔍 Etherscan: ${result.links.etherscan}\n` : '')
+                        : '⚠️ Blockchain not configured\n';
+                    
+                    showResponse(
+                        `✅ Sepolia Blockchain Authentication Successful!\n\n` +
+                        `Employee: ${currentWalletUser.name}\n` +
+                        `Role: ${currentWalletUser.role}\n` +
+                        `DID: ${result.user?.did || 'N/A'}\n` +
+                        `Address: ${result.user?.address || currentWalletUser.address}\n\n` +
+                        `✓ Off-chain Signature Verified\n` +
+                        `${blockchainInfo}\n` +
+                        `Network: ${result.network?.networkName || 'Unknown'} (Chain ${result.network?.chainId || 'N/A'})\n` +
+                        `Block Number: ${result.network?.blockNumber || 'N/A'}\n\n` +
+                        `Server Response:\n${JSON.stringify(result, null, 2)}`, 
+                        'success'
+                    );
+                    showNotification('✅ Sepolia blockchain authentication successful!', 'success');
                 } else {
                     showResponse(`❌ Authentication Failed!\n\nError: ${result.error}\n\nResponse:\n${JSON.stringify(result, null, 2)}`, 'error');
                     showNotification('❌ Authentication failed!', 'error');

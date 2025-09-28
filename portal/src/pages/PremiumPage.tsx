@@ -59,7 +59,7 @@ const PremiumPage: React.FC = () => {
         return;
       }
 
-      const response = await fetch('http://localhost:3001/api/auth/session-status', {
+      const response = await fetch('/api/auth/session-status', {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -115,7 +115,7 @@ const PremiumPage: React.FC = () => {
       const token = localStorage.getItem('authToken');
       if (!token) return;
 
-      const response = await fetch('http://localhost:3001/api/premium/content', {
+      const response = await fetch('/api/premium/content', {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,

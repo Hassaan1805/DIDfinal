@@ -5,7 +5,7 @@ import PixelBlast from './components/backgrounds/PixelBlast';
 
 // Employee data matching backend
 const employees = [
-  { id: 'EMP001', name: 'Zaid', role: 'CEO & Founder', department: 'Engineering', email: 'zaid@company.com', address: '0x1234567890123456789012345678901234567890' },
+  { id: 'EMP001', name: 'Zaid', role: 'CEO & Founder', department: 'Engineering', email: 'zaid@company.com', address: '0xcB65d5364c1aF83Bf77344634EE4029b765F0167' },
   { id: 'EMP002', name: 'Sarah', role: 'CTO', department: 'Engineering', email: 'sarah@company.com', address: '0x2345678901234567890123456789012345678901' },
   { id: 'EMP003', name: 'Mike', role: 'Head of Security', department: 'Security', email: 'mike@company.com', address: '0x3456789012345678901234567890123456789012' },
   { id: 'EMP004', name: 'Lisa', role: 'Product Manager', department: 'Product', email: 'lisa@company.com', address: '0x4567890123456789012345678901234567890123' }
@@ -64,7 +64,7 @@ const EnterprisePortalProfessional: React.FC = () => {
     const checkConnection = async () => {
       try {
         console.log('🔍 Checking backend health...');
-        const response = await fetch('http://localhost:3001/api/health');
+        const response = await fetch('/api/health');
         const isHealthy = response.ok;
         console.log(`🏥 Backend health check:`, { status: response.status, ok: response.ok, healthy: isHealthy });
         setIsConnected(isHealthy);
@@ -107,7 +107,7 @@ const EnterprisePortalProfessional: React.FC = () => {
     }
 
     try {
-      const response = await fetch('http://localhost:3001/api/auth/challenge', {
+      const response = await fetch('/api/auth/challenge', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -141,7 +141,7 @@ const EnterprisePortalProfessional: React.FC = () => {
         companyId: "dtp_enterprise_001", 
         timestamp: challengeData.timestamp || Date.now(),
         expiresAt: (challengeData.timestamp || Date.now()) + (5 * 60 * 1000), // 5 minutes
-        apiEndpoint: "http://localhost:3001/api/auth/verify",
+        apiEndpoint: "/api/auth/verify",
         employee: {
           id: employee.id,
           name: employee.name,
@@ -177,7 +177,7 @@ const EnterprisePortalProfessional: React.FC = () => {
   const startAuthenticationPolling = (challengeId: string) => {
     const pollInterval = setInterval(async () => {
       try {
-        const response = await fetch(`http://localhost:3001/api/auth/status/${challengeId}`);
+        const response = await fetch(`/api/auth/status/${challengeId}`);
         const statusResponse = await response.json();
         console.log('Polling response:', statusResponse); // Debug log
         

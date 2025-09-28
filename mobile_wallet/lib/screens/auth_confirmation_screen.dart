@@ -143,8 +143,16 @@ class _AuthConfirmationScreenState extends State<AuthConfirmationScreen>
           _authenticationComplete = true;
         });
 
-        // Show success for 2 seconds then return
-        await Future.delayed(const Duration(seconds: 2));
+        // Show blockchain transaction details if available
+        if (result.blockchainData != null &&
+            result.blockchainData!['txHash'] != null) {
+          _showBlockchainSuccessDialog(result);
+        } else {
+          _showSuccessDialog(result);
+        }
+
+        // Wait a bit then return
+        await Future.delayed(const Duration(seconds: 3));
 
         if (mounted) {
           Navigator.of(context).pop(true);
@@ -163,6 +171,156 @@ class _AuthConfirmationScreenState extends State<AuthConfirmationScreen>
       });
       _progressController.reset();
     }
+  }
+
+  void _showSuccessDialog(AuthResult result) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.green),
+            SizedBox(width: 8),
+            Text('✅ Authentication Successful'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+                '${result.message ?? 'Authentication completed successfully'}'),
+            if (result.user != null) ...[
+              const SizedBox(height: 12),
+              const Text('User Info:',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              Text('DID: ${result.user!['did'] ?? 'N/A'}'),
+              Text('Name: ${result.user!['name'] ?? 'N/A'}'),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showBlockchainSuccessDialog(AuthResult result) {
+    final blockchain = result.blockchainData!;
+    final txHash = blockchain['txHash'] as String;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.verified, color: Colors.green),
+            SizedBox(width: 8),
+            Text('🔗 Blockchain Authentication'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '✅ Successfully authenticated and stored on Sepolia blockchain!',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              const Text('Blockchain Details:',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              _buildBlockchainDetail(
+                  'Network', blockchain['network'] ?? 'Sepolia'),
+              _buildBlockchainDetail(
+                  'Contract', blockchain['contractAddress'] ?? 'N/A'),
+              const SizedBox(height: 8),
+              const Text('Transaction Hash:',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(8),
+                margin: const EdgeInsets.only(top: 4),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.green.withOpacity(0.3)),
+                ),
+                child: SelectableText(
+                  txHash,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    color: Colors.green,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'View on Sepolia Etherscan:',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 4),
+              SelectableText(
+                'https://sepolia.etherscan.io/tx/$txHash',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Colors.blue,
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+              if (result.user != null) ...[
+                const SizedBox(height: 16),
+                const Text('User Info:',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                Text('DID: ${result.user!['did'] ?? 'N/A'}'),
+                Text('Name: ${result.user!['name'] ?? 'N/A'}'),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBlockchainDetail(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(
+              '$label:',
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
+          ),
+          Expanded(
+            child: SelectableText(
+              value,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

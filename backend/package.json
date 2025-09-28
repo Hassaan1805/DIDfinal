@@ -8,7 +8,12 @@
     "build": "tsc",
     "start": "node dist/app.js",
     "test": "jest",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist",
+    "blockchain:setup": "node scripts/setup-blockchain.js",
+    "blockchain:deploy": "cd ../contracts && npx hardhat run scripts/deploy-sepolia.js --network sepolia",
+    "blockchain:test": "cd ../contracts && npx hardhat test",
+    "sepolia:status": "node scripts/sepolia-status.js",
+    "wallet:generate": "node scripts/generate-wallet.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -26,6 +31,9 @@
     "uuid": "^9.0.1"
   },
   "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "^3.1.0",
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@openzeppelin/contracts": "^5.4.0",
     "@types/bcryptjs": "^2.4.2",
     "@types/cors": "^2.8.13",
     "@types/express": "^4.17.17",
@@ -37,6 +45,7 @@
     "@types/snarkjs": "^0.7.9",
     "@types/uuid": "^9.0.3",
     "cross-env": "^10.0.0",
+    "hardhat": "^3.0.6",
     "jest": "^29.6.2",
     "nodemon": "^3.0.1",
     "rimraf": "^5.0.1",

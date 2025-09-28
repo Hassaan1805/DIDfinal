@@ -408,7 +408,7 @@ class NetworkService extends ChangeNotifier {
     return recommendations;
   }
 
-  // Authenticate using the working URL
+  // Authenticate using the working URL with Sepolia blockchain
   Future<AuthResult> authenticate(
       AuthRequest request, String signature, String address) async {
     if (_workingUrl == null) {
@@ -422,36 +422,86 @@ class NetworkService extends ChangeNotifier {
     }
 
     try {
-      final authResponse = AuthResponse(
-        challengeId: request.challengeId,
-        signature: signature,
-        address: address,
-        message: 'Authentication challenge: ${request.challenge}',
-      );
+      print('🔗 Starting Sepolia blockchain authentication...');
+      print('📡 Using backend: $_workingUrl');
+      print('🔐 Address: $address');
+      print('📝 Challenge ID: ${request.challengeId}');
+
+      // Prepare Sepolia authentication request
+      final sepoliaAuthData = {
+        'challengeId': request.challengeId,
+        'signature': signature,
+        'address': address,
+        'message': 'Authentication challenge: ${request.challenge}',
+        'storeOnChain': true, // Enable blockchain storage
+      };
+
+      // Use Sepolia endpoint for authentication
+      final sepoliaEndpoint = '$_workingUrl/api/auth/sepolia-verify';
 
       final response = await http
           .post(
-            Uri.parse(request.apiEndpoint.replaceFirst(
-                'localhost:3001', _workingUrl!.replaceFirst('http://', ''))),
+            Uri.parse(sepoliaEndpoint),
             headers: {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
+              'X-Device-Info':
+                  _deviceInfo != null ? jsonEncode(_deviceInfo!.toJson()) : '',
             },
-            body: jsonEncode(authResponse.toJson()),
+            body: jsonEncode(sepoliaAuthData),
           )
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(
+              seconds: 30)); // Longer timeout for blockchain operations
+
+      print('📊 Response status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        return AuthResult.fromJson(data);
+        print('✅ Sepolia authentication response received');
+
+        // Check if it was successful
+        if (data['success'] == true) {
+          final verification = data['verification'];
+          final blockchain = verification?['blockchain'];
+          final txHash = blockchain?['verification']?['txHash'];
+
+          if (txHash != null) {
+            print('🔗 Transaction stored on Sepolia blockchain: $txHash');
+          }
+
+          return AuthResult(
+            success: true,
+            message: 'Authentication successful via Sepolia blockchain',
+            token: data['token'],
+            user: data['user'],
+            blockchainData: {
+              'txHash': txHash,
+              'network': 'Sepolia',
+              'contractAddress': blockchain?['contract']?['address'],
+              'verification': blockchain?['verification'],
+            },
+          );
+        } else {
+          return AuthResult(
+            success: false,
+            error: data['error'] ?? 'Sepolia authentication failed',
+            details: data['details'],
+          );
+        }
       } else {
+        final errorData =
+            response.statusCode >= 400 && response.statusCode < 500
+                ? jsonDecode(response.body)
+                : null;
+
         return AuthResult(
           success: false,
-          error: 'Authentication failed: HTTP ${response.statusCode}',
+          error: 'Sepolia authentication failed: HTTP ${response.statusCode}',
+          details: errorData?['error'] ?? response.reasonPhrase,
         );
       }
     } catch (e) {
-      print('Authentication error: $e');
+      print('❌ Sepolia authentication error: $e');
 
       // Test if backend is still working
       final testResult = await _testSingleConnection(_workingUrl!);
@@ -468,8 +518,44 @@ class NetworkService extends ChangeNotifier {
 
       return AuthResult(
         success: false,
-        error: 'Authentication error: ${e.toString()}',
+        error: 'Sepolia authentication error: ${e.toString()}',
       );
+    }
+  }
+
+  // Test Sepolia authentication endpoint
+  Future<Map<String, dynamic>> testSepoliaAuthentication() async {
+    if (_workingUrl == null) {
+      await runDiagnostics();
+      if (_workingUrl == null) {
+        return {'success': false, 'error': 'No backend connection available'};
+      }
+    }
+
+    try {
+      // Test Sepolia status endpoint
+      final statusResponse = await http.get(
+        Uri.parse('$_workingUrl/api/auth/sepolia-status'),
+        headers: {'Accept': 'application/json'},
+      ).timeout(const Duration(seconds: 10));
+
+      if (statusResponse.statusCode == 200) {
+        final statusData = jsonDecode(statusResponse.body);
+        print('✅ Sepolia service status: ${statusData['status']}');
+        return statusData;
+      } else {
+        return {
+          'success': false,
+          'error':
+              'Sepolia service unavailable: HTTP ${statusResponse.statusCode}',
+          'details': statusResponse.reasonPhrase,
+        };
+      }
+    } catch (e) {
+      return {
+        'success': false,
+        'error': 'Sepolia service test failed: ${e.toString()}',
+      };
     }
   }
 

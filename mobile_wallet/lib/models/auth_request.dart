@@ -127,6 +127,8 @@ class AuthResult {
   final String? token;
   final Map<String, dynamic>? user;
   final String? message;
+  final String? details;
+  final Map<String, dynamic>? blockchainData;
 
   const AuthResult({
     required this.success,
@@ -134,6 +136,8 @@ class AuthResult {
     this.token,
     this.user,
     this.message,
+    this.details,
+    this.blockchainData,
   });
 
   factory AuthResult.fromJson(Map<String, dynamic> json) {
@@ -143,6 +147,8 @@ class AuthResult {
       token: json['token'] as String?,
       user: json['user'] as Map<String, dynamic>?,
       message: json['message'] as String?,
+      details: json['details'] as String?,
+      blockchainData: json['blockchainData'] as Map<String, dynamic>?,
     );
   }
 
@@ -153,6 +159,8 @@ class AuthResult {
       'token': token,
       'user': user,
       'message': message,
+      'details': details,
+      'blockchainData': blockchainData,
     };
   }
 }

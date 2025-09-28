@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'dart:convert';
 
 import '../services/wallet_service.dart';
 import '../services/network_service.dart';
+import '../models/auth_request.dart';
 
 import '../utils/theme.dart';
 import 'qr_scanner_screen.dart';
@@ -343,6 +345,29 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildQuickActionButton(
+                  context,
+                  icon: Icons.science,
+                  label: 'Test Sepolia',
+                  color: Colors.green,
+                  onTap: () => _testSepoliaAuthentication(context),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildQuickActionButton(
+                  context,
+                  icon: Icons.info_outline,
+                  label: 'About App',
+                  onTap: () => _showAboutDialog(context),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -353,6 +378,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     required IconData icon,
     required String label,
     required VoidCallback onTap,
+    Color? color,
   }) {
     return InkWell(
       onTap: onTap,
@@ -362,13 +388,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         decoration: BoxDecoration(
           color: AppTheme.backgroundColor,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.borderColor),
+          border: Border.all(
+              color: color?.withOpacity(0.3) ?? AppTheme.borderColor),
         ),
         child: Column(
           children: [
             Icon(
               icon,
-              color: AppTheme.primaryColor,
+              color: color ?? AppTheme.primaryColor,
               size: 24,
             ),
             const SizedBox(height: 8),
@@ -376,11 +403,160 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               label,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     fontWeight: FontWeight.w600,
+                    color: color,
                   ),
               textAlign: TextAlign.center,
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _testSepoliaAuthentication(BuildContext context) async {
+    final networkService = Provider.of<NetworkService>(context, listen: false);
+    final walletService = Provider.of<WalletService>(context, listen: false);
+
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        title: Text('🧪 Testing Sepolia'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Testing Sepolia blockchain authentication...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      // First test Sepolia service status
+      final statusResult = await networkService.testSepoliaAuthentication();
+
+      if (statusResult['success'] != true) {
+        Navigator.of(context).pop(); // Close loading
+        _showSepoliaTestResult(context, statusResult, false);
+        return;
+      }
+
+      // Create a mock authentication request
+      final mockRequest = AuthRequest(
+        type: 'did-auth-request',
+        challengeId: 'test_${DateTime.now().millisecondsSinceEpoch}',
+        challenge: 'test_challenge_${DateTime.now().millisecondsSinceEpoch}',
+        companyId: 'dtp_enterprise_001',
+        apiEndpoint: '${networkService.workingUrl}/api/auth/sepolia-verify',
+        expiresAt: DateTime.now()
+            .add(const Duration(minutes: 15))
+            .millisecondsSinceEpoch,
+        employee: AuthEmployee(
+          id: walletService.currentEmployee?.id ?? 'test_employee',
+          name: walletService.currentEmployee?.name ?? 'Test Employee',
+          role: walletService.currentEmployee?.role ?? 'Tester',
+          department: walletService.currentEmployee?.department ?? 'Testing',
+        ),
+        expectedDID: walletService.currentEmployee?.did,
+      );
+
+      // Test authentication
+      final authResult = await walletService.authenticate(mockRequest);
+
+      Navigator.of(context).pop(); // Close loading
+      _showSepoliaTestResult(context, authResult.toJson(), authResult.success);
+    } catch (e) {
+      Navigator.of(context).pop(); // Close loading
+      _showSepoliaTestResult(
+          context,
+          {
+            'success': false,
+            'error': e.toString(),
+          },
+          false);
+    }
+  }
+
+  void _showSepoliaTestResult(
+      BuildContext context, Map<String, dynamic> result, bool success) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(
+              success ? Icons.check_circle : Icons.error,
+              color: success ? Colors.green : Colors.red,
+            ),
+            const SizedBox(width: 8),
+            Text(success ? '✅ Sepolia Test Passed' : '❌ Sepolia Test Failed'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (success) ...[
+                const Text('🔗 Sepolia blockchain authentication is working!'),
+                const SizedBox(height: 12),
+                if (result['blockchainData']?['txHash'] != null) ...[
+                  const Text('Transaction Hash:',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(8),
+                    margin: const EdgeInsets.only(top: 4, bottom: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: Colors.green.withOpacity(0.3)),
+                    ),
+                    child: SelectableText(
+                      result['blockchainData']['txHash'],
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontFamily: 'monospace',
+                        color: Colors.green,
+                      ),
+                    ),
+                  ),
+                ],
+              ] else ...[
+                Text('Error: ${result['error'] ?? 'Unknown error'}'),
+                const SizedBox(height: 8),
+                const Text(
+                  'Make sure the backend server is running with Sepolia configuration.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+              const SizedBox(height: 12),
+              const Text('Full Response:',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: SelectableText(
+                  JsonEncoder.withIndent('  ').convert(result),
+                  style: const TextStyle(fontSize: 9, fontFamily: 'monospace'),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }

@@ -44,7 +44,7 @@ const LoginPage: React.FC = () => {
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
   // Cleanup intervals on component unmount
   useEffect(() => {

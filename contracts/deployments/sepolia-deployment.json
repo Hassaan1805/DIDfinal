@@ -1,0 +1,10 @@
+{
+  "network": "sepolia",
+  "contractName": "SimpleDIDRegistry",
+  "contractAddress": "0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48",
+  "deployerAddress": "0xBdA3AC10e1403cFC54Ab2195Aad7Da8a39B775B9",
+  "transactionHash": "0xe9733901e06eddee2c0683326b3feb418204bc1c7f004d53036ed3cde9d9bb8e",
+  "blockNumber": null,
+  "timestamp": "2025-09-28T12:25:17.929Z",
+  "etherscanUrl": "https://sepolia.etherscan.io/address/0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48"
+}

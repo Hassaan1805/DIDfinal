@@ -45,7 +45,7 @@ interface ApiResponse {
   timestamp: string;
 }
 
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE_URL = '/api';
 
 const BenchmarkPage: React.FC = () => {
   const [results, setResults] = useState<BenchmarkResult[]>([]);
@@ -787,7 +787,7 @@ const BenchmarkPage: React.FC = () => {
                   <span>Backend API</span>
                 </h3>
                 <p className="text-purple-700 leading-relaxed font-mono text-sm">
-                  http://localhost:3001/api/benchmark
+                  /api/benchmark
                 </p>
               </div>
 

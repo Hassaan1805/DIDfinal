@@ -2,7 +2,7 @@ import { ethers } from "hardhat";
 import hre from "hardhat";
 
 async function main() {
-  console.log("🚀 Starting DIDRegistry deployment...");
+  console.log("🚀 Starting DID Authentication Registry deployment...");
   console.log("🌐 Network:", hre.network.name);
   
   // Get the deployer account from Hardhat's signers
@@ -12,9 +12,9 @@ async function main() {
   
   // Get account balance
   const balance = await ethers.provider.getBalance(deployer.address);
-  console.log("💰 Account balance:", ethers.formatEther(balance), "ETH");
+  console.log("💰 Account balance:", ethers.utils.formatEther(balance), "ETH");
 
-  if (balance === 0n) {
+  if (balance.isZero()) {
     console.error("❌ Deployer account has no ETH! Please fund the account before deployment.");
     if (hre.network.name === "sepolia") {
       console.log("💡 Get Sepolia ETH from faucet: https://sepoliafaucet.com/");
@@ -22,20 +22,22 @@ async function main() {
     process.exit(1);
   }
 
-  // Deploy the DIDRegistry contract
-  console.log("📄 Deploying DIDRegistry contract...");
+  // Deploy the SimpleDIDRegistry contract (for Sepolia blockchain authentication)
+  console.log("📄 Deploying SimpleDIDRegistry contract...");
   
-  const DIDRegistry = await ethers.getContractFactory("DIDRegistry");
-  const didRegistry = await DIDRegistry.deploy();
-  await didRegistry.waitForDeployment();
-  const contractAddress = await didRegistry.getAddress();
+  const SimpleDIDRegistry = await ethers.getContractFactory("SimpleDIDRegistry");
+  const simpleDIDRegistry = await SimpleDIDRegistry.deploy();
   
-  console.log("✅ DIDRegistry deployed successfully!");
+  // Wait for deployment (ethers v5 style)
+  await simpleDIDRegistry.deployed();
+  const contractAddress = simpleDIDRegistry.address;
+  
+  console.log("✅ SimpleDIDRegistry deployed successfully!");
   console.log("📍 Contract address:", contractAddress);
   console.log("🌐 Network:", hre.network.name);
-  console.log("⛽ Transaction hash:", didRegistry.deploymentTransaction()?.hash);
+  console.log("⛽ Transaction hash:", simpleDIDRegistry.deployTransaction?.hash);
   
-  // Verify contract deployment by calling a simple function
+  // Verify contract deployment by calling a contract function
   console.log("🔍 Verifying deployment...");
   try {
     // Try to call a view function to verify the contract is working
@@ -43,21 +45,31 @@ async function main() {
     if (contractCode === '0x') {
       throw new Error("Contract deployment failed - no code at address");
     }
-    console.log("✅ Contract code verified at address");
+    
+    // Test contract functionality
+    const stats = await simpleDIDRegistry.getContractStats();
+    console.log("📊 Initial stats:", {
+      registrations: stats[0].toString(),
+      authentications: stats[1].toString(),
+      blockNumber: stats[2].toString()
+    });
+    
+    console.log("✅ Contract functionality verified!");
   } catch (error) {
     console.error("❌ Contract verification failed:", error);
     process.exit(1);
   }
-  console.log("✅ Verification complete!");
   
   // Save deployment info to a file
   const deploymentInfo = {
     network: hre.network.name,
+    contractName: "SimpleDIDRegistry",
     contractAddress,
     deployerAddress: deployer.address,
-    transactionHash: didRegistry.deploymentTransaction()?.hash,
-    blockNumber: didRegistry.deploymentTransaction()?.blockNumber,
+    transactionHash: simpleDIDRegistry.deployTransaction?.hash,
+    blockNumber: simpleDIDRegistry.deployTransaction?.blockNumber,
     timestamp: new Date().toISOString(),
+    etherscanUrl: hre.network.name === "sepolia" ? `https://sepolia.etherscan.io/address/${contractAddress}` : null,
   };
   
   const fs = require('fs');
@@ -72,20 +84,25 @@ async function main() {
   
   console.log(`
 📊 Deployment Summary:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Network: ${hre.network.name}
-Contract Address: ${contractAddress}
+Contract: SimpleDIDRegistry v1.0.0
+Address: ${contractAddress}
 Deployer: ${deployer.address}
-Transaction: ${didRegistry.deploymentTransaction()?.hash}
+Transaction: ${simpleDIDRegistry.deployTransaction?.hash}
+Gas Used: ${simpleDIDRegistry.deployTransaction?.gasLimit}
+${hre.network.name === "sepolia" ? `Etherscan: https://sepolia.etherscan.io/address/${contractAddress}` : ""}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📝 Environment Variables to Update:
-DID_REGISTRY_ADDRESS=${contractAddress}
+SEPOLIA_CONTRACT_ADDRESS=${contractAddress}
 
 📁 Deployment info saved to: ${deploymentFile}
   `);
   
   // Return deployment info for use in other scripts
   return {
-    didRegistry,
+    simpleDIDRegistry,
     contractAddress,
     deployer
   };

@@ -1,0 +1,305 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+
+/**
+ * @title DID Authentication Registry for Decentralized Trust Platform
+ * @dev Stores authentication records and DID credentials on Sepolia testnet
+ * @author DecentralizedTrustPlatform Team
+ */
+contract DIDAuthRegistry is Ownable, ReentrancyGuard {
+    using ECDSA for bytes32;
+
+    // Events
+    event DIDRegistered(
+        address indexed user, 
+        string indexed did, 
+        uint256 timestamp
+    );
+    
+    event AuthenticationRecorded(
+        address indexed user, 
+        string indexed challengeId, 
+        bool success, 
+        uint256 timestamp
+    );
+    
+    event CredentialIssued(
+        address indexed user, 
+        string credentialHash, 
+        uint256 timestamp
+    );
+
+    // Structures
+    struct DIDRecord {
+        string did;                    // DID identifier (did:ethr:0x...)
+        string publicKeyJwk;          // Public key in JWK format
+        uint256 registrationDate;     // Registration timestamp
+        bool isActive;                // Active status
+        uint256 authCount;            // Number of successful authentications
+        mapping(string => bool) credentials; // Credential hashes
+    }
+
+    struct AuthSession {
+        address user;                 // User address
+        string challengeId;          // Challenge identifier
+        bytes32 challengeHash;       // Challenge hash
+        uint256 timestamp;           // Session creation timestamp
+        uint256 expiresAt;           // Expiration timestamp
+        bool isVerified;             // Verification status
+        bool exists;                 // Session exists flag
+    }
+
+    // Storage
+    mapping(address => DIDRecord) public didRegistry;
+    mapping(string => AuthSession) public authSessions;
+    mapping(address => string[]) public userAuthHistory;
+    
+    // Configuration
+    uint256 public constant CHALLENGE_VALIDITY = 300; // 5 minutes
+    uint256 public totalRegistrations = 0;
+    uint256 public totalAuthentications = 0;
+    
+    // Contract information
+    string public constant CONTRACT_NAME = "DID Authentication Registry";
+    string public constant CONTRACT_VERSION = "1.0.0";
+    string public constant PLATFORM_NAME = "Decentralized Trust Platform";
+
+    constructor() {
+        // Contract deployment event is automatically emitted
+        // Additional initialization can be added here if needed
+    }
+
+    /**
+     * @dev Register DID for Decentralized Trust Platform employee
+     * @param _did DID identifier in format did:ethr:0x...
+     * @param _publicKeyJwk Public key in JWK format
+     * @return success Boolean indicating registration success
+     */
+    function registerDID(
+        string memory _did,
+        string memory _publicKeyJwk
+    ) external nonReentrant returns (bool) {
+        require(bytes(_did).length > 0, "DID cannot be empty");
+        require(bytes(_publicKeyJwk).length > 0, "Public key cannot be empty");
+        require(!didRegistry[msg.sender].isActive, "DID already registered for this address");
+        require(_validateDIDFormat(_did), "Invalid DID format");
+
+        DIDRecord storage record = didRegistry[msg.sender];
+        record.did = _did;
+        record.publicKeyJwk = _publicKeyJwk;
+        record.registrationDate = block.timestamp;
+        record.isActive = true;
+        record.authCount = 0;
+
+        totalRegistrations++;
+
+        emit DIDRegistered(msg.sender, _did, block.timestamp);
+        
+        return true;
+    }
+
+    /**
+     * @dev Record authentication attempt (only owner can call)
+     * @param _challengeId Unique challenge identifier
+     * @param _challengeHash Hash of the challenge
+     * @param _user User address attempting authentication
+     * @return success Boolean indicating record success
+     */
+    function recordAuthentication(
+        string memory _challengeId,
+        bytes32 _challengeHash,
+        address _user
+    ) external onlyOwner nonReentrant returns (bool) {
+        require(_user != address(0), "Invalid user address");
+        require(bytes(_challengeId).length > 0, "Challenge ID required");
+        require(_challengeHash != bytes32(0), "Challenge hash required");
+        require(!authSessions[_challengeId].exists, "Challenge ID already exists");
+        require(didRegistry[_user].isActive, "User DID not registered");
+
+        AuthSession storage session = authSessions[_challengeId];
+        session.user = _user;
+        session.challengeId = _challengeId;
+        session.challengeHash = _challengeHash;
+        session.timestamp = block.timestamp;
+        session.expiresAt = block.timestamp + CHALLENGE_VALIDITY;
+        session.isVerified = false;
+        session.exists = true;
+
+        return true;
+    }
+
+    /**
+     * @dev Verify authentication signature (only owner can call)
+     * @param _challengeId Challenge identifier
+     * @param _signature User's signature
+     * @return success Boolean indicating verification success
+     */
+    function verifyAuthentication(
+        string memory _challengeId,
+        bytes memory _signature
+    ) external onlyOwner nonReentrant returns (bool) {
+        AuthSession storage session = authSessions[_challengeId];
+        
+        require(session.exists, "Challenge not found");
+        require(block.timestamp <= session.expiresAt, "Challenge expired");
+        require(!session.isVerified, "Challenge already verified");
+        require(didRegistry[session.user].isActive, "User DID not active");
+
+        // Verify signature against challenge hash
+        bytes32 messageHash = session.challengeHash.toEthSignedMessageHash();
+        address recoveredSigner = messageHash.recover(_signature);
+        
+        bool isValid = (recoveredSigner == session.user);
+        
+        if (isValid) {
+            session.isVerified = true;
+            didRegistry[session.user].authCount++;
+            userAuthHistory[session.user].push(_challengeId);
+            totalAuthentications++;
+        }
+
+        emit AuthenticationRecorded(session.user, _challengeId, isValid, block.timestamp);
+        
+        return isValid;
+    }
+
+    /**
+     * @dev Issue verifiable credential to employee (only owner can call)
+     * @param _employee Employee address
+     * @param _credentialHash Hash of the credential data
+     */
+    function issueCredential(
+        address _employee,
+        string memory _credentialHash
+    ) external onlyOwner {
+        require(didRegistry[_employee].isActive, "Employee DID not active");
+        require(bytes(_credentialHash).length > 0, "Credential hash required");
+
+        didRegistry[_employee].credentials[_credentialHash] = true;
+        emit CredentialIssued(_employee, _credentialHash, block.timestamp);
+    }
+
+    /**
+     * @dev Validate DID format (basic validation)
+     * @param _did DID string to validate
+     * @return valid Boolean indicating if DID format is valid
+     */
+    function _validateDIDFormat(string memory _did) internal pure returns (bool) {
+        bytes memory didBytes = bytes(_did);
+        
+        // Must be at least 42 characters long (did:ethr:0x + 40 hex chars)
+        if (didBytes.length < 42) return false;
+        
+        // Must start with "did:ethr:0x"
+        if (
+            didBytes[0] != 'd' || didBytes[1] != 'i' || didBytes[2] != 'd' ||
+            didBytes[3] != ':' || didBytes[4] != 'e' || didBytes[5] != 't' ||
+            didBytes[6] != 'h' || didBytes[7] != 'r' || didBytes[8] != ':' ||
+            didBytes[9] != '0' || didBytes[10] != 'x'
+        ) {
+            return false;
+        }
+        
+        return true;
+    }
+
+    // === VIEW FUNCTIONS ===
+
+    /**
+     * @dev Get employee's DID information
+     * @param _user Employee address
+     * @return did DID identifier
+     * @return registrationDate Registration timestamp
+     * @return isActive Active status
+     * @return authCount Number of successful authentications
+     */
+    function getDIDInfo(address _user) external view returns (
+        string memory did,
+        uint256 registrationDate,
+        bool isActive,
+        uint256 authCount
+    ) {
+        DIDRecord storage record = didRegistry[_user];
+        return (record.did, record.registrationDate, record.isActive, record.authCount);
+    }
+
+    /**
+     * @dev Get authentication session details
+     * @param _challengeId Challenge identifier
+     * @return user User address
+     * @return timestamp Session creation timestamp
+     * @return expiresAt Session expiration timestamp
+     * @return isVerified Verification status
+     * @return exists Session exists flag
+     */
+    function getAuthSession(string memory _challengeId) external view returns (
+        address user,
+        uint256 timestamp,
+        uint256 expiresAt,
+        bool isVerified,
+        bool exists
+    ) {
+        AuthSession storage session = authSessions[_challengeId];
+        return (session.user, session.timestamp, session.expiresAt, session.isVerified, session.exists);
+    }
+
+    /**
+     * @dev Get user's authentication history
+     * @param _user User address
+     * @return challengeIds Array of challenge IDs
+     */
+    function getUserAuthHistory(address _user) external view returns (string[] memory) {
+        return userAuthHistory[_user];
+    }
+
+    /**
+     * @dev Check if user has specific credential
+     * @param _user User address
+     * @param _credentialHash Credential hash
+     * @return hasCredential Boolean indicating credential ownership
+     */
+    function hasCredential(address _user, string memory _credentialHash) external view returns (bool) {
+        return didRegistry[_user].credentials[_credentialHash];
+    }
+
+    /**
+     * @dev Get contract statistics
+     * @return registrations Total number of DID registrations
+     * @return authentications Total number of successful authentications
+     * @return blockNumber Current block number
+     */
+    function getContractStats() external view returns (
+        uint256 registrations,
+        uint256 authentications,
+        uint256 blockNumber
+    ) {
+        return (totalRegistrations, totalAuthentications, block.number);
+    }
+
+    /**
+     * @dev Get contract information
+     * @return name Contract name
+     * @return version Contract version
+     * @return platform Platform name
+     */
+    function getContractInfo() external pure returns (
+        string memory name,
+        string memory version,
+        string memory platform
+    ) {
+        return (CONTRACT_NAME, CONTRACT_VERSION, PLATFORM_NAME);
+    }
+
+    /**
+     * @dev Check if a user's DID is registered
+     * @param _user User address to check
+     * @return isRegistered Boolean indicating registration status
+     */
+    function isUserRegistered(address _user) external view returns (bool) {
+        return didRegistry[_user].isActive;
+    }
+}

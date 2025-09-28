@@ -29,8 +29,11 @@ const admin_1 = __importDefault(require("./routes/admin"));
 const benchmark_1 = require("./routes/benchmark");
 const zkp_routes_1 = __importDefault(require("./routes/zkp.routes"));
 const premium_routes_1 = __importDefault(require("./routes/premium.routes"));
+const monitoring_1 = __importDefault(require("./routes/monitoring"));
+const simple_test_1 = __importDefault(require("./routes/simple-test"));
 const app = (0, express_1.default)();
 const PORT = parseInt(process.env.PORT || '3001', 10);
+const HOST = process.env.HOST || '0.0.0.0';
 console.log(`🔧 Environment variables loaded:`);
 console.log(`   NODE_ENV: ${process.env.NODE_ENV}`);
 console.log(`   DEMO_MODE: ${process.env.DEMO_MODE}`);
@@ -53,6 +56,8 @@ app.use('/api/did', did_1.didRoutes);
 app.use('/api/admin', admin_1.default);
 app.use('/api/benchmark', benchmark_1.benchmarkRoutes);
 app.use('/api/premium', premium_routes_1.default);
+app.use('/api/monitor', monitoring_1.default);
+app.use('/api/simple-test', simple_test_1.default);
 app.use((err, req, res, next) => {
     console.error('Error:', err);
     if (err.name === 'ValidationError') {
@@ -78,10 +83,10 @@ app.use('*', (req, res) => {
         message: `Route ${req.originalUrl} not found`
     });
 });
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Decentralized Trust Platform Backend running on port ${PORT}`);
+app.listen(PORT, HOST, () => {
+    console.log(`🚀 Decentralized Trust Platform Backend running on ${HOST}:${PORT}`);
     console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
+    console.log(`🔗 Health check: http://${HOST}:${PORT}/api/health`);
     console.log(`🌐 Network access: http://192.168.1.100:${PORT}/api/health`);
     console.log(`📱 Mobile access: Use 192.168.1.100:${PORT} in your mobile app`);
 });
