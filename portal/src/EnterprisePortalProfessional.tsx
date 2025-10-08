@@ -3,6 +3,9 @@ import QRCode from 'qrcode';
 import Orb from './components/Orb';
 import PixelBlast from './components/backgrounds/PixelBlast';
 
+// API Configuration
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+
 // Employee data matching backend
 const employees = [
   { id: 'EMP001', name: 'Zaid', role: 'CEO & Founder', department: 'Engineering', email: 'zaid@company.com', address: '0xcB65d5364c1aF83Bf77344634EE4029b765F0167' },
@@ -64,7 +67,7 @@ const EnterprisePortalProfessional: React.FC = () => {
     const checkConnection = async () => {
       try {
         console.log('🔍 Checking backend health...');
-        const response = await fetch('/api/health');
+        const response = await fetch(`${API_BASE_URL}/health`);
         const isHealthy = response.ok;
         console.log(`🏥 Backend health check:`, { status: response.status, ok: response.ok, healthy: isHealthy });
         setIsConnected(isHealthy);
@@ -107,7 +110,7 @@ const EnterprisePortalProfessional: React.FC = () => {
     }
 
     try {
-      const response = await fetch('/api/auth/challenge', {
+      const response = await fetch(`${API_BASE_URL}/auth/challenge`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -141,7 +144,7 @@ const EnterprisePortalProfessional: React.FC = () => {
         companyId: "dtp_enterprise_001", 
         timestamp: challengeData.timestamp || Date.now(),
         expiresAt: (challengeData.timestamp || Date.now()) + (5 * 60 * 1000), // 5 minutes
-        apiEndpoint: "/api/auth/verify",
+        apiEndpoint: `${API_BASE_URL}/auth/verify`,
         employee: {
           id: employee.id,
           name: employee.name,
@@ -177,7 +180,7 @@ const EnterprisePortalProfessional: React.FC = () => {
   const startAuthenticationPolling = (challengeId: string) => {
     const pollInterval = setInterval(async () => {
       try {
-        const response = await fetch(`/api/auth/status/${challengeId}`);
+        const response = await fetch(`${API_BASE_URL}/auth/status/${challengeId}`);
         const statusResponse = await response.json();
         console.log('Polling response:', statusResponse); // Debug log
         
