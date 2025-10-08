@@ -23,6 +23,28 @@ export declare class BlockchainService {
         chainId: number;
         blockNumber: number;
     }>;
+    getContractInfo(): {
+        address: string;
+        abi: any[];
+    };
+    getAllRegisteredDIDs(): Promise<Array<{
+        address: string;
+        did: string;
+        publicKey: string;
+        txHash: string;
+        blockNumber: number;
+        timestamp?: string;
+    }>>;
+    getRecentTransactions(limit?: number): Promise<Array<{
+        hash: string;
+        from: string;
+        to: string;
+        blockNumber: number;
+        gasUsed: string;
+        timestamp: string;
+        type: 'DID_REGISTRATION' | 'CONTRACT_CALL';
+    }>>;
 }
+export declare const blockchainService: BlockchainService;
 export {};
 //# sourceMappingURL=blockchainService.d.ts.map

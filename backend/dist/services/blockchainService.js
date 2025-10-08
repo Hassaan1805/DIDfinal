@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BlockchainService = void 0;
+exports.blockchainService = exports.BlockchainService = void 0;
 const ethers_1 = require("ethers");
 const formatDID = (method, identifier) => {
     return `did:${method}:${identifier.toLowerCase()}`;
@@ -140,6 +140,114 @@ class BlockchainService {
             throw new Error(`Failed to get network info: ${error.message}`);
         }
     }
+    getContractInfo() {
+        return {
+            address: this.didRegistryContract.target,
+            abi: DID_REGISTRY_ABI
+        };
+    }
+    async getAllRegisteredDIDs() {
+        try {
+            console.log('🔍 Fetching all registered DIDs...');
+            const currentBlock = await this.provider.getBlockNumber();
+            const fromBlock = Math.max(0, currentBlock - 10000);
+            const filter = this.didRegistryContract.filters.DIDRegistered();
+            const events = await this.didRegistryContract.queryFilter(filter, fromBlock, currentBlock);
+            console.log(`📋 Found ${events.length} DID registration events`);
+            const registeredDIDs = [];
+            for (const event of events) {
+                try {
+                    if ('args' in event && event.args) {
+                        const args = event.args;
+                        const userAddress = args[0];
+                        const publicKey = args[2];
+                        const did = formatDID('ethr', userAddress);
+                        let timestamp = 'Unknown';
+                        try {
+                            const block = await this.provider.getBlock(event.blockNumber);
+                            if (block) {
+                                timestamp = new Date(block.timestamp * 1000).toLocaleString();
+                            }
+                        }
+                        catch (blockError) {
+                            console.warn(`⚠️ Could not fetch block ${event.blockNumber}:`, blockError);
+                        }
+                        registeredDIDs.push({
+                            address: userAddress,
+                            did: did,
+                            publicKey: publicKey,
+                            txHash: event.transactionHash,
+                            blockNumber: event.blockNumber,
+                            timestamp: timestamp
+                        });
+                    }
+                }
+                catch (parseError) {
+                    console.warn('⚠️ Error parsing DID event:', parseError);
+                }
+            }
+            registeredDIDs.sort((a, b) => b.blockNumber - a.blockNumber);
+            console.log(`✅ Processed ${registeredDIDs.length} registered DIDs`);
+            return registeredDIDs;
+        }
+        catch (error) {
+            console.error('❌ Error fetching registered DIDs:', error);
+            throw new Error(`Failed to fetch registered DIDs: ${error.message}`);
+        }
+    }
+    async getRecentTransactions(limit = 10) {
+        try {
+            console.log('🔍 Fetching recent transactions...');
+            const transactions = [];
+            const currentBlock = await this.provider.getBlockNumber();
+            const fromBlock = Math.max(0, currentBlock - 1000);
+            const filter = this.didRegistryContract.filters.DIDRegistered();
+            const events = await this.didRegistryContract.queryFilter(filter, fromBlock, currentBlock);
+            for (const event of events.slice(0, limit)) {
+                try {
+                    const tx = await this.provider.getTransaction(event.transactionHash);
+                    const receipt = await this.provider.getTransactionReceipt(event.transactionHash);
+                    if (!tx || !receipt)
+                        continue;
+                    let timestamp = 'Unknown';
+                    try {
+                        const block = await this.provider.getBlock(event.blockNumber);
+                        if (block) {
+                            timestamp = new Date(block.timestamp * 1000).toLocaleString();
+                        }
+                    }
+                    catch (blockError) {
+                        console.warn(`⚠️ Could not fetch block ${event.blockNumber}:`, blockError);
+                    }
+                    transactions.push({
+                        hash: event.transactionHash,
+                        from: tx.from,
+                        to: tx.to || this.didRegistryContract.target,
+                        blockNumber: event.blockNumber,
+                        gasUsed: receipt.gasUsed.toString(),
+                        timestamp: timestamp,
+                        type: 'DID_REGISTRATION'
+                    });
+                }
+                catch (txError) {
+                    console.warn('⚠️ Error fetching transaction details:', txError);
+                }
+            }
+            transactions.sort((a, b) => b.blockNumber - a.blockNumber);
+            console.log(`✅ Processed ${transactions.length} recent transactions`);
+            return transactions;
+        }
+        catch (error) {
+            console.error('❌ Error fetching recent transactions:', error);
+            throw new Error(`Failed to fetch recent transactions: ${error.message}`);
+        }
+    }
 }
 exports.BlockchainService = BlockchainService;
+const blockchainConfig = {
+    rpcUrl: process.env.ETHEREUM_RPC_URL || 'https://sepolia.infura.io/v3/your-project-id',
+    contractAddress: process.env.CONTRACT_ADDRESS || '0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48',
+    gasStationPrivateKey: process.env.GAS_STATION_PRIVATE_KEY || '0x1234567890123456789012345678901234567890123456789012345678901234'
+};
+exports.blockchainService = new BlockchainService(blockchainConfig);
 //# sourceMappingURL=blockchainService.js.map

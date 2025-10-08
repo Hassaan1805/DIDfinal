@@ -33,6 +33,7 @@ import zkpRoutes from './routes/zkp.routes';
 import premiumRoutes from './routes/premium.routes';
 import monitoringRoutes from './routes/monitoring';
 import simpleTestRoutes from './routes/simple-test';
+import blockchainRoutes from './routes/blockchain';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -49,7 +50,12 @@ console.log(`   JWT_SECRET: ${process.env.JWT_SECRET ? '[SET]' : '[NOT SET]'}`);
 app.use(helmet());
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://yourdomain.com'] 
+    ? [
+        'https://yourdomain.com',
+        /^https:\/\/.*\.railway\.app$/,  // Allow all Railway subdomains
+        'https://did-platform-portal.railway.app',
+        'https://did-platform-backend.railway.app'
+      ]
     : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://127.0.0.1:5175', 'http://127.0.0.1:8080', 'http://localhost:8080', 'http://localhost:3002', 'http://localhost:8081', 'http://localhost:8082', 'null', 'file://', '*'],
   credentials: true
 }));
@@ -71,6 +77,7 @@ app.use('/api/benchmark', benchmarkRoutes);
 app.use('/api/premium', premiumRoutes); // Premium content routes (ZK-proof protected)
 app.use('/api/monitor', monitoringRoutes); // Blockchain monitoring routes
 app.use('/api/simple-test', simpleTestRoutes); // Simple blockchain testing
+app.use('/api/blockchain', blockchainRoutes); // Blockchain data viewer routes
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

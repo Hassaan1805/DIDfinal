@@ -10,8 +10,13 @@ import '../models/network_diagnostic.dart';
 import '../models/auth_request.dart';
 
 class NetworkService extends ChangeNotifier {
-  // Base URLs to test - now includes network discovery
-  List<String> _baseUrls = [
+  // Base URLs to test - includes Railway deployment and local development
+  final List<String> _baseUrls = [
+    // Production Railway URLs (update these with your actual Railway URLs)
+    'https://did-platform-backend.railway.app',
+    'https://your-backend-service.railway.app',
+
+    // Local development URLs
     'http://192.168.1.100:3001', // Specific PC IP (Ethernet)
     'http://localhost:3001',
     'http://127.0.0.1:3001',
@@ -201,7 +206,7 @@ class NetworkService extends ChangeNotifier {
     // Check basic connectivity first
     final hasConnection = await checkConnectivity();
     if (!hasConnection) {
-      final noConnectionResult = NetworkTestResult(
+      const noConnectionResult = NetworkTestResult(
         success: false,
         method: 'connectivity',
         url: 'system',

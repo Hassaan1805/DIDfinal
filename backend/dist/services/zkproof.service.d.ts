@@ -1,6 +1,7 @@
 export declare class ZKProofService {
     private verificationKey;
     private readonly CORPORATE_EXCELLENCE_CONTRACT;
+    private isEnabled;
     constructor();
     private loadVerificationKey;
     verifyNFTOwnershipProof(proof: any, publicSignals: string[]): Promise<boolean>;

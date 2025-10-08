@@ -232,4 +232,167 @@ export class BlockchainService {
       throw new Error(`Failed to get network info: ${error.message}`);
     }
   }
+
+  /**
+   * Gets contract information
+   * @returns Contract details
+   */
+  getContractInfo(): { address: string; abi: any[] } {
+    return {
+      address: this.didRegistryContract.target as string,
+      abi: DID_REGISTRY_ABI
+    };
+  }
+
+  /**
+   * Gets all registered DIDs by querying events
+   * @returns Array of registered DID information
+   */
+  async getAllRegisteredDIDs(): Promise<Array<{
+    address: string;
+    did: string;
+    publicKey: string;
+    txHash: string;
+    blockNumber: number;
+    timestamp?: string;
+  }>> {
+    try {
+      console.log('🔍 Fetching all registered DIDs...');
+      
+      // Query DIDRegistered events from the contract
+      const currentBlock = await this.provider.getBlockNumber();
+      const fromBlock = Math.max(0, currentBlock - 10000); // Last 10k blocks
+      
+      const filter = this.didRegistryContract.filters.DIDRegistered();
+      const events = await this.didRegistryContract.queryFilter(filter, fromBlock, currentBlock);
+      
+      console.log(`📋 Found ${events.length} DID registration events`);
+      
+      const registeredDIDs = [];
+      
+      for (const event of events) {
+        try {
+          // Check if this is an EventLog (not a regular Log)
+          if ('args' in event && event.args) {
+            const args = event.args;
+            
+            const userAddress = args[0]; // owner
+            const publicKey = args[2]; // publicKey
+            const did = formatDID('ethr', userAddress);
+            
+            // Get block timestamp
+            let timestamp = 'Unknown';
+            try {
+              const block = await this.provider.getBlock(event.blockNumber);
+              if (block) {
+                timestamp = new Date(block.timestamp * 1000).toLocaleString();
+              }
+            } catch (blockError) {
+              console.warn(`⚠️ Could not fetch block ${event.blockNumber}:`, blockError);
+            }
+            
+            registeredDIDs.push({
+              address: userAddress,
+              did: did,
+              publicKey: publicKey,
+              txHash: event.transactionHash,
+              blockNumber: event.blockNumber,
+              timestamp: timestamp
+            });
+          }
+          
+        } catch (parseError) {
+          console.warn('⚠️ Error parsing DID event:', parseError);
+        }
+      }
+      
+      // Sort by block number (newest first)
+      registeredDIDs.sort((a, b) => b.blockNumber - a.blockNumber);
+      
+      console.log(`✅ Processed ${registeredDIDs.length} registered DIDs`);
+      return registeredDIDs;
+      
+    } catch (error: any) {
+      console.error('❌ Error fetching registered DIDs:', error);
+      throw new Error(`Failed to fetch registered DIDs: ${error.message}`);
+    }
+  }
+
+  /**
+   * Gets recent blockchain transactions related to our contract
+   * @param limit - Maximum number of transactions to return
+   * @returns Array of transaction information
+   */
+  async getRecentTransactions(limit: number = 10): Promise<Array<{
+    hash: string;
+    from: string;
+    to: string;
+    blockNumber: number;
+    gasUsed: string;
+    timestamp: string;
+    type: 'DID_REGISTRATION' | 'CONTRACT_CALL';
+  }>> {
+    try {
+      console.log('🔍 Fetching recent transactions...');
+      
+      const transactions = [];
+      const currentBlock = await this.provider.getBlockNumber();
+      const fromBlock = Math.max(0, currentBlock - 1000); // Last 1000 blocks
+      
+      // Get DID registration transactions
+      const filter = this.didRegistryContract.filters.DIDRegistered();
+      const events = await this.didRegistryContract.queryFilter(filter, fromBlock, currentBlock);
+      
+      for (const event of events.slice(0, limit)) {
+        try {
+          const tx = await this.provider.getTransaction(event.transactionHash);
+          const receipt = await this.provider.getTransactionReceipt(event.transactionHash);
+          
+          if (!tx || !receipt) continue;
+          
+          let timestamp = 'Unknown';
+          try {
+            const block = await this.provider.getBlock(event.blockNumber);
+            if (block) {
+              timestamp = new Date(block.timestamp * 1000).toLocaleString();
+            }
+          } catch (blockError) {
+            console.warn(`⚠️ Could not fetch block ${event.blockNumber}:`, blockError);
+          }
+          
+          transactions.push({
+            hash: event.transactionHash,
+            from: tx.from,
+            to: tx.to || this.didRegistryContract.target as string,
+            blockNumber: event.blockNumber,
+            gasUsed: receipt.gasUsed.toString(),
+            timestamp: timestamp,
+            type: 'DID_REGISTRATION' as const
+          });
+          
+        } catch (txError) {
+          console.warn('⚠️ Error fetching transaction details:', txError);
+        }
+      }
+      
+      // Sort by block number (newest first)
+      transactions.sort((a, b) => b.blockNumber - a.blockNumber);
+      
+      console.log(`✅ Processed ${transactions.length} recent transactions`);
+      return transactions;
+      
+    } catch (error: any) {
+      console.error('❌ Error fetching recent transactions:', error);
+      throw new Error(`Failed to fetch recent transactions: ${error.message}`);
+    }
+  }
 }
+
+// Create and export a blockchain service instance
+const blockchainConfig = {
+  rpcUrl: process.env.ETHEREUM_RPC_URL || 'https://sepolia.infura.io/v3/your-project-id',
+  contractAddress: process.env.CONTRACT_ADDRESS || '0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48',
+  gasStationPrivateKey: process.env.GAS_STATION_PRIVATE_KEY || '0x1234567890123456789012345678901234567890123456789012345678901234'
+};
+
+export const blockchainService = new BlockchainService(blockchainConfig);

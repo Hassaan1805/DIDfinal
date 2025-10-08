@@ -1,0 +1,31 @@
+version: "3"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+      - PORT=$PORT
+    expose:
+      - "$PORT"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:$PORT/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - ./circuits:/app/circuits:ro
+
+  frontend:
+    build:
+      context: ./portal
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+    expose:
+      - "80"
+    depends_on:
+      - backend

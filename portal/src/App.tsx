@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import EnterprisePortalProfessional from './EnterprisePortalProfessional'
 import BenchmarkPage from './pages/BenchmarkPage'
 import PremiumPage from './pages/PremiumPage'
+import BlockchainViewer from './pages/BlockchainViewer'
 import './App.css'
 
 function App() {
@@ -22,6 +23,10 @@ function App() {
             <Route 
               path="/premium" 
               element={<PremiumPage />} 
+            />
+            <Route 
+              path="/blockchain" 
+              element={<BlockchainViewer />} 
             />
           </Routes>
         </main>

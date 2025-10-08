@@ -542,6 +542,7 @@ const EnterprisePortalProfessional: React.FC = () => {
               { id: 'dashboard', label: 'Dashboard', icon: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z' },
               { id: 'projects', label: 'Projects', icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
               { id: 'security', label: 'Security', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
+              { id: 'blockchain', label: 'Blockchain', icon: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1' },
               { id: 'analytics', label: 'Analytics', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' }
             ].map(tab => (
               <button
@@ -805,6 +806,110 @@ const EnterprisePortalProfessional: React.FC = () => {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'blockchain' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-white">🔗 Blockchain Data</h2>
+              <button
+                onClick={() => window.open('/blockchain', '_blank')}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-2M7 7l10 10M17 7v4" />
+                </svg>
+                <span>Open Full Viewer</span>
+              </button>
+            </div>
+            
+            <div 
+              className="rounded-xl p-6 border border-white/20"
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(20px) saturate(150%)',
+                WebkitBackdropFilter: 'blur(20px) saturate(150%)',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+              }}
+            >
+              <h3 className="font-semibold text-white mb-4">📊 DID Registry Overview</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-400">🌐</div>
+                  <div className="text-lg font-bold text-white">Sepolia</div>
+                  <div className="text-xs text-gray-300">Network</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-400">📄</div>
+                  <div className="text-lg font-bold text-white">Live</div>
+                  <div className="text-xs text-gray-300">Contract Status</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-purple-400">👥</div>
+                  <div className="text-lg font-bold text-white">-</div>
+                  <div className="text-xs text-gray-300">Registered DIDs</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-orange-400">📋</div>
+                  <div className="text-lg font-bold text-white">-</div>
+                  <div className="text-xs text-gray-300">Transactions</div>
+                </div>
+              </div>
+            </div>
+
+            <div 
+              className="rounded-xl p-6 border border-white/20"
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(20px) saturate(150%)',
+                WebkitBackdropFilter: 'blur(20px) saturate(150%)',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+              }}
+            >
+              <h3 className="font-semibold text-white mb-4">🔗 Quick Links</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button
+                  onClick={() => window.open('https://sepolia.etherscan.io/address/0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48', '_blank')}
+                  className="flex items-center space-x-3 p-3 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-400/30 transition-colors"
+                >
+                  <span className="text-2xl">🔍</span>
+                  <div className="text-left">
+                    <div className="text-white font-medium">View Contract</div>
+                    <div className="text-blue-300 text-sm">Etherscan</div>
+                  </div>
+                </button>
+                
+                <button
+                  onClick={() => window.open('/blockchain', '_blank')}
+                  className="flex items-center space-x-3 p-3 rounded-lg bg-green-600/20 hover:bg-green-600/30 border border-green-400/30 transition-colors"
+                >
+                  <span className="text-2xl">📊</span>
+                  <div className="text-left">
+                    <div className="text-white font-medium">Live Dashboard</div>
+                    <div className="text-green-300 text-sm">Real-time Data</div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div 
+              className="rounded-xl p-6 border border-white/20"
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(20px) saturate(150%)',
+                WebkitBackdropFilter: 'blur(20px) saturate(150%)',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+              }}
+            >
+              <h3 className="font-semibold text-white mb-4">📖 About DID Storage</h3>
+              <div className="text-gray-300 space-y-2 text-sm">
+                <p>• <strong className="text-white">Decentralized Identifiers (DIDs)</strong> are stored on the Sepolia testnet blockchain</p>
+                <p>• <strong className="text-white">User addresses and public keys</strong> are registered when employees authenticate</p>
+                <p>• <strong className="text-white">Immutable records</strong> provide audit trails for all identity operations</p>
+                <p>• <strong className="text-white">Gas station pattern</strong> allows gasless transactions for users</p>
               </div>
             </div>
           </div>

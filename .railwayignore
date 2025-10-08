@@ -1,0 +1,87 @@
+# Railway Ignore File
+# Exclude files and directories from Railway deployment
+
+# Node modules (will be reinstalled)
+node_modules/
+*/node_modules/
+
+# Build outputs that will be regenerated
+dist/
+build/
+.next/
+out/
+
+# Development files
+.env.development
+.env.local
+*.log
+logs/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Git files
+.git/
+.gitignore
+
+# Flutter specific (for mobile directory)
+mobile_wallet/.flutter-plugins
+mobile_wallet/.flutter-plugins-dependencies
+mobile_wallet/build/
+mobile_wallet/.dart_tool/
+mobile_wallet/.packages
+mobile_wallet/pubspec.lock
+
+# APK files
+*.apk
+*.aab
+*.ipa
+
+# Test files
+test/
+tests/
+__tests__/
+*.test.js
+*.test.ts
+*.spec.js
+*.spec.ts
+
+# Documentation that's not needed in production
+docs/
+README.md
+DEPLOYMENT_GUIDE.md
+*.md
+
+# Scripts that are only for local development
+scripts/
+*.sh
+*.bat
+
+# Certificates and keys (should be in environment variables)
+*.pem
+*.key
+*.cert
+server.cert
+
+# Blockchain specific files that aren't needed
+contracts/cache/
+contracts/artifacts/
+contracts/typechain-types/
+
+# Temporary files
+tmp/
+temp/
+.tmp/

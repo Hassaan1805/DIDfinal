@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DID Wallet - Sepolia Blockchain</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .wallet-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 25px 45px rgba(0, 0, 0, 0.1);
+        }
+
+        .wallet-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .wallet-title {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 10px;
+        }
+
+        .wallet-subtitle {
+            color: #718096;
+            font-size: 1rem;
+        }
+
+        .employee-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f7fafc;
+            border-radius: 12px;
+            border: 2px solid #e2e8f0;
+        }
+
+        .employee-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 15px;
+        }
+
+        .employee-selector {
+            display: grid;
+            gap: 10px;
+        }
+
+        .employee-option {
+            padding: 15px;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: left;
+        }
+
+        .employee-option:hover {
+            border-color: #4299e1;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(66, 153, 225, 0.15);
+        }
+
+        .employee-option.selected {
+            border-color: #4299e1;
+            background: #ebf8ff;
+        }
+
+        .employee-name {
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .employee-details {
+            font-size: 0.9rem;
+            color: #718096;
+            margin-top: 5px;
+        }
+
+        .qr-section {
+            margin-bottom: 30px;
+        }
+
+        .qr-textarea {
+            width: 100%;
+            min-height: 120px;
+            padding: 15px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.9rem;
+            resize: vertical;
+            transition: border-color 0.2s;
+        }
+
+        .qr-textarea:focus {
+            outline: none;
+            border-color: #4299e1;
+        }
+
+        .button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 10px;
+        }
+
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(66, 153, 225, 0.3);
+        }
+
+        .button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .result.success {
+            background: #f0fff4;
+            border: 2px solid #9ae6b4;
+            color: #22543d;
+        }
+
+        .result.error {
+            background: #fed7d7;
+            border: 2px solid #fc8181;
+            color: #742a2a;
+        }
+
+        .result.info {
+            background: #ebf8ff;
+            border: 2px solid #90cdf4;
+            color: #2a4365;
+        }
+
+        .did-display {
+            font-family: monospace;
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 10px;
+            border-radius: 6px;
+            margin: 10px 0;
+            word-break: break-all;
+        }
+
+        .auth-details {
+            margin-top: 15px;
+            font-size: 0.85rem;
+        }
+
+        .step {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f7fafc;
+            border-left: 4px solid #4299e1;
+            border-radius: 0 6px 6px 0;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #e2e8f0;
+            border-radius: 50%;
+            border-top-color: #4299e1;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .blockchain-info {
+            background: #1a202c;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            font-family: monospace;
+            font-size: 0.8rem;
+        }
+
+        .blockchain-link {
+            color: #90cdf4;
+            text-decoration: none;
+        }
+
+        .blockchain-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="wallet-container">
+        <div class="wallet-header">
+            <h1 class="wallet-title">🔐 DID Wallet</h1>
+            <p class="wallet-subtitle">Sepolia Blockchain Authentication</p>
+        </div>
+
+        <div class="employee-section">
+            <h3 class="employee-title">Select Employee Profile</h3>
+            <div class="employee-selector" id="employeeSelector">
+                <!-- Employee options will be populated by JavaScript -->
+            </div>
+        </div>
+
+        <div class="qr-section">
+            <h3 class="employee-title">QR Code Authentication Data</h3>
+            <textarea 
+                id="qrInput" 
+                class="qr-textarea" 
+                placeholder="Paste QR code JSON data here or scan QR code from the portal..."
+            ></textarea>
+            <button class="button" onclick="authenticateWithQR()" id="authButton">
+                🔍 Scan & Authenticate
+            </button>
+        </div>
+
+        <div id="result"></div>
+    </div>
+
+    <script>
+        // Employee database with DID information
+        const employees = {
+            'EMP001': {
+                name: 'Zaid',
+                role: 'CEO & Founder',
+                department: 'Engineering',
+                email: 'zaid@company.com',
+                address: '0x742d35Cc6Dd03A30DE0F7b5A7A8a8Dd1CE4Aaa2F',
+                privateKey: '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' // Demo key
+            },
+            'EMP002': {
+                name: 'Hassaan',
+                role: 'CTO',
+                department: 'Engineering', 
+                email: 'hassaan@company.com',
+                address: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+                privateKey: '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a' // Demo key
+            },
+            'EMP003': {
+                name: 'Atharva',
+                role: 'Product Manager',
+                department: 'Product',
+                email: 'atharva@company.com',
+                address: '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC',
+                privateKey: '0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a' // Demo key
+            },
+            'EMP004': {
+                name: 'Gracian',
+                role: 'Senior Designer',
+                department: 'Design',
+                email: 'gracian@company.com',
+                address: '0x90F79bf6EB2c4f870365E785982E1f101E93b906',
+                privateKey: '0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba' // Demo key
+            }
+        };
+
+        let selectedEmployee = null;
+
+        // Initialize the wallet interface
+        function initializeWallet() {
+            displayEmployeeOptions();
+            selectEmployee('EMP001'); // Default to Zaid
+        }
+
+        function displayEmployeeOptions() {
+            const selector = document.getElementById('employeeSelector');
+            
+            Object.entries(employees).forEach(([empId, emp]) => {
+                const option = document.createElement('div');
+                option.className = 'employee-option';
+                option.setAttribute('data-employee-id', empId);
+                option.onclick = () => selectEmployee(empId);
+                
+                option.innerHTML = `
+                    <div class="employee-name">${emp.name}</div>
+                    <div class="employee-details">${emp.role} • ${emp.department}</div>
+                `;
+                
+                selector.appendChild(option);
+            });
+        }
+
+        function selectEmployee(employeeId) {
+            // Update selection visual state
+            document.querySelectorAll('.employee-option').forEach(option => {
+                option.classList.remove('selected');
+            });
+            document.querySelector(`[data-employee-id="${employeeId}"]`).classList.add('selected');
+            
+            selectedEmployee = employees[employeeId];
+            
+            showResult(`✅ Selected: ${selectedEmployee.name} (${selectedEmployee.role})
+                <div class="did-display">DID: did:ethr:${selectedEmployee.address}</div>`, 'info');
+        }
+
+        async function authenticateWithQR() {
+            if (!selectedEmployee) {
+                showResult('❌ Please select an employee profile first', 'error');
+                return;
+            }
+
+            const qrInput = document.getElementById('qrInput').value.trim();
+            if (!qrInput) {
+                showResult('❌ Please paste QR code data first', 'error');
+                return;
+            }
+
+            const authButton = document.getElementById('authButton');
+            authButton.disabled = true;
+            authButton.innerHTML = '<span class="loading"></span> Authenticating...';
+
+            try {
+                // Parse QR code data
+                let authRequest;
+                try {
+                    authRequest = JSON.parse(qrInput);
+                } catch (parseError) {
+                    throw new Error('Invalid QR code: Not valid JSON data');
+                }
+                
+                console.log('Parsed auth request:', authRequest);
+                
+                // Validate the auth request
+                if (authRequest.type !== 'did-auth-request') {
+                    throw new Error('Invalid QR code: Not a DID authentication request');
+                }
+                
+                // Check if request is expired
+                if (authRequest.expiresAt && Date.now() > authRequest.expiresAt) {
+                    throw new Error('Authentication request has expired');
+                }
+
+                showResult(`🔍 Processing authentication request...
+                    <div class="step">📱 Employee: ${selectedEmployee.name}</div>
+                    <div class="step">🔐 DID: did:ethr:${selectedEmployee.address}</div>
+                    <div class="step">🌐 Domain: ${authRequest.domain}</div>
+                    <div class="step">⏰ Challenge: ${authRequest.challenge.substring(0, 20)}...</div>`, 'info');
+
+                // Create authentication message
+                const message = `Authentication challenge: ${authRequest.challenge}`;
+                
+                // In a real wallet, this would use the actual private key to sign
+                // For demo purposes, we'll use a demo signature or Web3 if available
+                let signature;
+                try {
+                    if (window.ethereum && window.ethereum.request) {
+                        // Use MetaMask if available
+                        await window.ethereum.request({ method: 'eth_requestAccounts' });
+                        signature = await window.ethereum.request({
+                            method: 'personal_sign',
+                            params: [message, selectedEmployee.address]
+                        });
+                    } else {
+                        // Demo signature for development
+                        signature = 'demo_signature_0x' + Math.random().toString(16).substring(2, 66);
+                        console.log('🔧 Using demo signature for development');
+                    }
+                } catch (signingError) {
+                    console.log('Signing error:', signingError);
+                    // Fallback to demo signature
+                    signature = 'demo_signature_0x' + Math.random().toString(16).substring(2, 66);
+                    console.log('🔧 Using demo signature fallback');
+                }
+
+                // Determine the API endpoint - prefer Sepolia if available
+                const apiEndpoint = authRequest.apiEndpoint.replace('/api/auth/verify', '/api/auth/sepolia-verify');
+                console.log('🔗 Using Sepolia authentication endpoint:', apiEndpoint);
+
+                // Send authentication to backend
+                const authResponse = await fetch(apiEndpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        challengeId: authRequest.challengeId,
+                        signature: signature,
+                        address: selectedEmployee.address,
+                        message: message,
+                        storeOnChain: true // Enable blockchain storage
+                    })
+                });
+
+                console.log('📊 Authentication response status:', authResponse.status);
+
+                if (!authResponse.ok) {
+                    const errorData = await authResponse.json().catch(() => ({}));
+                    throw new Error(`Authentication failed: ${authResponse.status} ${authResponse.statusText}. ${errorData.error || ''}`);
+                }
+
+                const authResult = await authResponse.json();
+                console.log('✅ Authentication result:', authResult);
+
+                if (authResult.success) {
+                    let blockchainInfo = '';
+                    
+                    // Display blockchain information if available
+                    if (authResult.verification && authResult.verification.blockchain) {
+                        const blockchain = authResult.verification.blockchain;
+                        const txHash = blockchain.verification?.txHash;
+                        const contractAddress = blockchain.verification?.contractAddress;
+                        
+                        if (txHash) {
+                            blockchainInfo = `
+                                <div class="blockchain-info">
+                                    <div><strong>🔗 Blockchain Verification:</strong></div>
+                                    <div>Network: Sepolia Testnet</div>
+                                    <div>Transaction: <a href="https://sepolia.etherscan.io/tx/${txHash}" target="_blank" class="blockchain-link">${txHash.substring(0, 20)}...</a></div>
+                                    ${contractAddress ? `<div>Contract: <a href="https://sepolia.etherscan.io/address/${contractAddress}" target="_blank" class="blockchain-link">${contractAddress.substring(0, 20)}...</a></div>` : ''}
+                                    <div>Timestamp: ${new Date().toLocaleString()}</div>
+                                </div>
+                            `;
+                        }
+                    }
+
+                    showResult(`✅ Authentication Successful!
+                        <div class="auth-details">
+                            <div class="step">👤 Employee: ${selectedEmployee.name}</div>
+                            <div class="step">🔐 DID: did:ethr:${selectedEmployee.address}</div>
+                            <div class="step">✅ Signature verified</div>
+                            <div class="step">🎯 Portal access granted</div>
+                        </div>
+                        ${blockchainInfo}
+                        <div style="margin-top: 15px; font-size: 0.9rem; color: #22543d;">
+                            <strong>🎉 Authentication completed successfully!</strong><br>
+                            You can now return to the portal - it should detect your authentication automatically.
+                        </div>`, 'success');
+
+                } else {
+                    throw new Error(authResult.error || 'Authentication failed for unknown reason');
+                }
+
+            } catch (error) {
+                console.error('❌ Authentication error:', error);
+                showResult(`❌ Authentication Failed: ${error.message}
+                    <div class="auth-details">
+                        <div class="step">🔍 Check your QR code data</div>
+                        <div class="step">🌐 Verify backend connection</div>
+                        <div class="step">⏰ Ensure request hasn't expired</div>
+                        <div class="step">🔧 Try refreshing and scanning again</div>
+                    </div>`, 'error');
+            } finally {
+                authButton.disabled = false;
+                authButton.innerHTML = '🔍 Scan & Authenticate';
+            }
+        }
+
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.className = `result ${type}`;
+            resultDiv.innerHTML = message;
+        }
+
+        // Initialize wallet when page loads
+        document.addEventListener('DOMContentLoaded', initializeWallet);
+
+        // Add keyboard shortcuts
+        document.addEventListener('keydown', function(event) {
+            if (event.ctrlKey && event.key === 'Enter') {
+                authenticateWithQR();
+            }
+        });
+    </script>
+</body>
+</html>

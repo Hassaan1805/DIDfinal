@@ -31,6 +31,7 @@ const zkp_routes_1 = __importDefault(require("./routes/zkp.routes"));
 const premium_routes_1 = __importDefault(require("./routes/premium.routes"));
 const monitoring_1 = __importDefault(require("./routes/monitoring"));
 const simple_test_1 = __importDefault(require("./routes/simple-test"));
+const blockchain_1 = __importDefault(require("./routes/blockchain"));
 const app = (0, express_1.default)();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -42,7 +43,12 @@ console.log(`   JWT_SECRET: ${process.env.JWT_SECRET ? '[SET]' : '[NOT SET]'}`);
 app.use((0, helmet_1.default)());
 app.use((0, cors_1.default)({
     origin: process.env.NODE_ENV === 'production'
-        ? ['https://yourdomain.com']
+        ? [
+            'https://yourdomain.com',
+            /^https:\/\/.*\.railway\.app$/,
+            'https://did-platform-portal.railway.app',
+            'https://did-platform-backend.railway.app'
+        ]
         : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://127.0.0.1:5175', 'http://127.0.0.1:8080', 'http://localhost:8080', 'http://localhost:3002', 'http://localhost:8081', 'http://localhost:8082', 'null', 'file://', '*'],
     credentials: true
 }));
@@ -58,6 +64,7 @@ app.use('/api/benchmark', benchmark_1.benchmarkRoutes);
 app.use('/api/premium', premium_routes_1.default);
 app.use('/api/monitor', monitoring_1.default);
 app.use('/api/simple-test', simple_test_1.default);
+app.use('/api/blockchain', blockchain_1.default);
 app.use((err, req, res, next) => {
     console.error('Error:', err);
     if (err.name === 'ValidationError') {
