@@ -40,6 +40,13 @@ console.log(`   NODE_ENV: ${process.env.NODE_ENV}`);
 console.log(`   DEMO_MODE: ${process.env.DEMO_MODE}`);
 console.log(`   PORT: ${process.env.PORT}`);
 console.log(`   JWT_SECRET: ${process.env.JWT_SECRET ? '[SET]' : '[NOT SET]'}`);
+app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && process.env.NODE_ENV === 'production') {
+        console.log(`🌐 CORS request from origin: ${origin}`);
+    }
+    next();
+});
 app.use((0, helmet_1.default)());
 app.use((0, cors_1.default)({
     origin: process.env.NODE_ENV === 'production'
@@ -47,12 +54,45 @@ app.use((0, cors_1.default)({
             'https://yourdomain.com',
             /^https:\/\/.*\.railway\.app$/,
             /^https:\/\/.*\.vercel\.app$/,
+            /^https:\/\/.*\.vercel\.com$/,
             'https://did-platform-portal.railway.app',
             'https://did-platform-backend.railway.app',
-            'https://did-platform-portal.vercel.app'
+            'https://did-platform-portal.vercel.app',
+            'https://di-dfinal-portal.vercel.app',
+            'https://didfinal-portal.vercel.app',
+            /^https:\/\/did-platform.*\.vercel\.app$/,
+            /^https:\/\/di-dfinal.*\.vercel\.app$/,
+            /^https:\/\/didfinal.*\.vercel\.app$/
         ]
-        : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://127.0.0.1:5175', 'http://127.0.0.1:8080', 'http://localhost:8080', 'http://localhost:3002', 'http://localhost:8081', 'http://localhost:8082', 'null', 'file://', '*'],
-    credentials: true
+        : [
+            'http://localhost:3000',
+            'http://localhost:5173',
+            'http://localhost:5174',
+            'http://localhost:5175',
+            'http://127.0.0.1:5173',
+            'http://127.0.0.1:5174',
+            'http://127.0.0.1:5175',
+            'http://127.0.0.1:8080',
+            'http://localhost:8080',
+            'http://localhost:3002',
+            'http://localhost:8081',
+            'http://localhost:8082',
+            'null',
+            'file://',
+            '*'
+        ],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-Requested-With',
+        'Accept',
+        'Origin',
+        'Access-Control-Request-Method',
+        'Access-Control-Request-Headers'
+    ],
+    exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar']
 }));
 app.use((0, morgan_1.default)('combined'));
 app.use(express_1.default.json({ limit: '10mb' }));

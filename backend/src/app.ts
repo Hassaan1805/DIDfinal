@@ -46,7 +46,14 @@ console.log(`   DEMO_MODE: ${process.env.DEMO_MODE}`);
 console.log(`   PORT: ${process.env.PORT}`);
 console.log(`   JWT_SECRET: ${process.env.JWT_SECRET ? '[SET]' : '[NOT SET]'}`);
 
-// Security middleware
+// CORS debugging middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && process.env.NODE_ENV === 'production') {
+    console.log(`🌐 CORS request from origin: ${origin}`);
+  }
+  next();
+});
 app.use(helmet());
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
@@ -54,12 +61,46 @@ app.use(cors({
         'https://yourdomain.com',
         /^https:\/\/.*\.railway\.app$/,  // Allow all Railway subdomains
         /^https:\/\/.*\.vercel\.app$/,   // Allow all Vercel subdomains
+        /^https:\/\/.*\.vercel\.com$/,   // Allow Vercel custom domains
         'https://did-platform-portal.railway.app',
         'https://did-platform-backend.railway.app',
-        'https://did-platform-portal.vercel.app'
+        'https://did-platform-portal.vercel.app',
+        'https://di-dfinal-portal.vercel.app',
+        'https://didfinal-portal.vercel.app',
+        // Add common Vercel deployment patterns
+        /^https:\/\/did-platform.*\.vercel\.app$/,
+        /^https:\/\/di-dfinal.*\.vercel\.app$/,
+        /^https:\/\/didfinal.*\.vercel\.app$/
       ]
-    : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://127.0.0.1:5175', 'http://127.0.0.1:8080', 'http://localhost:8080', 'http://localhost:3002', 'http://localhost:8081', 'http://localhost:8082', 'null', 'file://', '*'],
-  credentials: true
+    : [
+        'http://localhost:3000', 
+        'http://localhost:5173', 
+        'http://localhost:5174', 
+        'http://localhost:5175', 
+        'http://127.0.0.1:5173', 
+        'http://127.0.0.1:5174', 
+        'http://127.0.0.1:5175', 
+        'http://127.0.0.1:8080', 
+        'http://localhost:8080', 
+        'http://localhost:3002', 
+        'http://localhost:8081', 
+        'http://localhost:8082', 
+        'null', 
+        'file://', 
+        '*'
+      ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With', 
+    'Accept', 
+    'Origin', 
+    'Access-Control-Request-Method', 
+    'Access-Control-Request-Headers'
+  ],
+  exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar']
 }));
 
 // Logging middleware

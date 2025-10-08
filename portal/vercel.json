@@ -1,5 +1,4 @@
 {
-  "name": "did-platform-portal",
   "version": 2,
   "builds": [
     {
@@ -28,7 +27,11 @@
   },
   "build": {
     "env": {
-      "NODE_ENV": "production"
+      "NODE_ENV": "production",
+      "VITE_API_BASE_URL": "https://did-platform-backend-production.up.railway.app/api",
+      "VITE_BACKEND_URL": "https://did-platform-backend-production.up.railway.app",
+      "VITE_CONTRACT_ADDRESS": "0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48",
+      "VITE_DEMO_MODE": "true"
     }
   }
 }
