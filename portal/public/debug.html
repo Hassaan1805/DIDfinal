@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug - API Configuration</title>
+    <style>
+        body { font-family: monospace; margin: 20px; background: #1a1a1a; color: #fff; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .success { background: #2d5a2d; }
+        .error { background: #5a2d2d; }
+        .info { background: #2d4a5a; }
+        pre { background: #333; padding: 10px; border-radius: 5px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔍 API Configuration Debug</h1>
+    
+    <div id="config" class="status info">
+        <h3>Environment Configuration</h3>
+        <pre id="config-data">Loading...</pre>
+    </div>
+    
+    <div id="health-check" class="status info">
+        <h3>Health Check</h3>
+        <pre id="health-data">Testing...</pre>
+    </div>
+    
+    <div id="cors-check" class="status info">
+        <h3>CORS Test</h3>
+        <pre id="cors-data">Testing...</pre>
+    </div>
+
+    <script>
+        // Show environment configuration
+        const config = {
+            NODE_ENV: 'production', // This would be injected by Vite
+            API_BASE_URL: 'https://did-platform-backend-production.up.railway.app/api',
+            BACKEND_URL: 'https://did-platform-backend-production.up.railway.app',
+            currentOrigin: window.location.origin,
+            currentHost: window.location.host
+        };
+        
+        document.getElementById('config-data').textContent = JSON.stringify(config, null, 2);
+        
+        // Test health endpoint
+        async function testHealth() {
+            try {
+                const response = await fetch('https://did-platform-backend-production.up.railway.app/api/health');
+                const data = await response.json();
+                
+                document.getElementById('health-data').textContent = JSON.stringify({
+                    status: response.status,
+                    ok: response.ok,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    data: data
+                }, null, 2);
+                
+                document.getElementById('health-check').className = response.ok ? 'status success' : 'status error';
+            } catch (error) {
+                document.getElementById('health-data').textContent = `Error: ${error.message}`;
+                document.getElementById('health-check').className = 'status error';
+            }
+        }
+        
+        // Test CORS
+        async function testCORS() {
+            try {
+                const response = await fetch('https://did-platform-backend-production.up.railway.app/api/health', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                document.getElementById('cors-data').textContent = JSON.stringify({
+                    status: response.status,
+                    ok: response.ok,
+                    corsHeaders: {
+                        'access-control-allow-origin': response.headers.get('access-control-allow-origin'),
+                        'access-control-allow-credentials': response.headers.get('access-control-allow-credentials'),
+                        'access-control-allow-methods': response.headers.get('access-control-allow-methods')
+                    }
+                }, null, 2);
+                
+                document.getElementById('cors-check').className = response.ok ? 'status success' : 'status error';
+            } catch (error) {
+                document.getElementById('cors-data').textContent = `CORS Error: ${error.message}`;
+                document.getElementById('cors-check').className = 'status error';
+            }
+        }
+        
+        // Run tests
+        testHealth();
+        testCORS();
+    </script>
+</body>
+</html>
