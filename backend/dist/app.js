@@ -46,8 +46,10 @@ app.use((0, cors_1.default)({
         ? [
             'https://yourdomain.com',
             /^https:\/\/.*\.railway\.app$/,
+            /^https:\/\/.*\.vercel\.app$/,
             'https://did-platform-portal.railway.app',
-            'https://did-platform-backend.railway.app'
+            'https://did-platform-backend.railway.app',
+            'https://did-platform-portal.vercel.app'
         ]
         : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://127.0.0.1:5175', 'http://127.0.0.1:8080', 'http://localhost:8080', 'http://localhost:3002', 'http://localhost:8081', 'http://localhost:8082', 'null', 'file://', '*'],
     credentials: true
