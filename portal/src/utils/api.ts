@@ -7,8 +7,8 @@
 
 // API Configuration
 const API_CONFIG = {
-  // Use relative paths to leverage Vite proxy
-  baseURL: '/api',
+  // Use environment variable for production, fallback to proxy for development
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 10000,
   retries: 3,
   retryDelay: 1000,
