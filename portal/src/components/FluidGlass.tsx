@@ -64,11 +64,12 @@ export default function FluidGlass({
   className = '',
   children,
   intensity = 0.5,
-  roughness = 0.0,
-  transmission = 0.9,
-  thickness = 0.5,
-  chromaticAberration = 0.1,
-  anisotropy = 0.1,
+  // Commenting out unused parameters to fix TypeScript warnings
+  // roughness = 0.0,
+  // transmission = 0.9,
+  // thickness = 0.5,
+  // chromaticAberration = 0.1,
+  // anisotropy = 0.1,
 }: FluidGlassProps) {
   return (
     <div className={`relative ${className}`}>

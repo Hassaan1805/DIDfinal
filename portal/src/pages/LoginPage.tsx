@@ -36,7 +36,7 @@ interface ApiResponse<T> {
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const [qrCodeData, setQrCodeData] = useState<string>('');
-  const [challengeId, setChallengeId] = useState<string>('');
+  // const [challengeId, setChallengeId] = useState<string>(''); // Removed unused variable
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
   const [authStatus, setAuthStatus] = useState<'pending' | 'completed' | 'expired'>('pending');
@@ -81,7 +81,7 @@ const LoginPage: React.FC = () => {
       const { challengeId, qrCodeData, expiresIn } = result.data;
       
       setQrCodeData(qrCodeData);
-      setChallengeId(challengeId);
+      // setChallengeId(challengeId); // Removed since challengeId state is not used
       setTimeRemaining(expiresIn);
       setAuthStatus('pending');
       

@@ -31,13 +31,14 @@ interface ApiResponse<T = any> {
 
 // Custom error class for API errors
 export class ApiError extends Error {
-  constructor(
-    message: string,
-    public status: number,
-    public response?: any
-  ) {
+  public status: number;
+  public response?: any;
+
+  constructor(message: string, status: number, response?: any) {
     super(message);
     this.name = 'ApiError';
+    this.status = status;
+    this.response = response;
   }
 }
 

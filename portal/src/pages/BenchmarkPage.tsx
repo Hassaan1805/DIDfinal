@@ -425,34 +425,22 @@ const BenchmarkPage: React.FC = () => {
                   title="DID Authentication"
                   subtitle="Decentralized Identity"
                   value={summary.didStats.totalTests.toString()}
-                  label="Tests Run"
-                  gradient="from-blue-500 to-indigo-600"
                   icon={
                     <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                     </svg>
                   }
-                  additionalStats={[
-                    { label: 'Failure Rate', value: `${summary.didStats.failureRate.toFixed(1)}%` },
-                    { label: 'Avg Duration', value: formatDuration(summary.didStats.averageDuration) }
-                  ]}
                 />
 
                 <StatsCard
                   title="OAuth 2.0 SSO"
                   subtitle="Traditional Authentication"
                   value={summary.oauthStats.totalTests.toString()}
-                  label="Tests Run"
-                  gradient="from-green-500 to-emerald-600"
                   icon={
                     <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
                     </svg>
                   }
-                  additionalStats={[
-                    { label: 'Failure Rate', value: `${summary.oauthStats.failureRate.toFixed(1)}%` },
-                    { label: 'Avg Duration', value: formatDuration(summary.oauthStats.averageDuration) }
-                  ]}
                 />
               </div>
 

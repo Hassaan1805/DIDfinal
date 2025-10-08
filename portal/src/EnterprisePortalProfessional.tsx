@@ -39,13 +39,13 @@ const EnterprisePortalProfessional: React.FC = () => {
   const [authStep, setAuthStep] = useState<'login' | 'qr' | 'scanning' | 'authenticated'>('login');
   
   // Quick access to authenticated dashboard for UI development
-  const quickAuthForTesting = () => {
-    const testEmployee = employees[0]; // Use Zaid as test user
-    setCurrentEmployee(testEmployee);
-    setAuthStep('authenticated');
-    localStorage.setItem('authToken', 'test-token-123');
-    localStorage.setItem('currentEmployee', JSON.stringify(testEmployee));
-  };
+  // const quickAuthForTesting = () => {
+  //   const testEmployee = employees[0]; // Use Zaid as test user
+  //   setCurrentEmployee(testEmployee);
+  //   setAuthStep('authenticated');
+  //   localStorage.setItem('authToken', 'test-token-123');
+  //   localStorage.setItem('currentEmployee', JSON.stringify(testEmployee));
+  // };
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [currentEmployee, setCurrentEmployee] = useState<Employee | null>(null);
   const [challenge, setChallenge] = useState<AuthChallenge | null>(null);
