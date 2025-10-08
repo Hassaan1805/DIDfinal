@@ -7,8 +7,8 @@
 
 // API Configuration
 const API_CONFIG = {
-  // Use environment variable for production, fallback to proxy for development
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+  // Use environment variable for production, fallback to Railway backend for deployment
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'https://did-platform-backend-production.up.railway.app/api',
   timeout: 10000,
   retries: 3,
   retryDelay: 1000,
