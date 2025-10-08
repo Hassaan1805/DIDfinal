@@ -67,12 +67,30 @@ const EnterprisePortalProfessional: React.FC = () => {
     const checkConnection = async () => {
       try {
         console.log('🔍 Checking backend health...');
+        console.log('🔧 API_BASE_URL:', API_BASE_URL);
+        console.log('🌐 Environment variables:', {
+          VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL,
+          NODE_ENV: import.meta.env.NODE_ENV,
+          MODE: import.meta.env.MODE
+        });
+        
         const response = await fetch(`${API_BASE_URL}/health`);
         const isHealthy = response.ok;
-        console.log(`🏥 Backend health check:`, { status: response.status, ok: response.ok, healthy: isHealthy });
+        console.log(`🏥 Backend health check:`, { 
+          url: `${API_BASE_URL}/health`,
+          status: response.status, 
+          ok: response.ok, 
+          healthy: isHealthy,
+          headers: Object.fromEntries(response.headers.entries())
+        });
         setIsConnected(isHealthy);
       } catch (error) {
         console.error('❌ Health check failed:', error);
+        console.error('❌ Error details:', {
+          message: (error as Error).message,
+          name: (error as Error).name,
+          stack: (error as Error).stack
+        });
         setIsConnected(false);
       }
     };
