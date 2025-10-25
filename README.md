@@ -32,7 +32,15 @@ A comprehensive decentralized identity platform that provides privacy-preserving
 - **Real-time Polling**: Auto-detection of session upgrades via ZK-proof verification
 - **Responsive Design**: Modern React + Vite + TypeScript interface
 
-### 📱 **Mobile DID Wallet** 
+### � **Certificate Authenticator** (NEW!)
+- **Certificate Generation**: Create official certificates with unique serial numbers and cryptographic hashes
+- **Multi-Platform Verification**: Verify certificates from Udemy, Great Learning, and Google Education
+- **OCR Support**: Extract text from certificate images using Tesseract
+- **QR Code Scanning**: Validate Google Education certificates via QR codes
+- **Secure Storage**: Store certificate metadata in MySQL database with SHA-256 hashes
+- **Web Interface**: Beautiful, animated UI for certificate management
+
+### �📱 **Mobile DID Wallet** 
 - **Self-sovereign Identity**: Create and manage Ethereum-based DIDs
 - **QR Scanner**: Authenticate with web portal via camera scanning
 - **ZK-Proof Engine**: Generate privacy-preserving proofs on-device
@@ -48,12 +56,13 @@ A comprehensive decentralized identity platform that provides privacy-preserving
 ### Monorepo Structure
 ```
 decentralized-trust-platform/
-├── contracts/          # Smart contracts (Solidity + Hardhat)
-├── backend/           # API server (Node.js + Express + TypeScript)  
-├── portal/            # Web dashboard (React + Vite + TypeScript)
-├── wallet/            # Mobile wallet (React Native + TypeScript)
-├── circuits/          # Zero-Knowledge Proof circuits (Circom)
-└── shared/            # Shared utilities and types
+├── contracts/              # Smart contracts (Solidity + Hardhat)
+├── backend/               # API server (Node.js + Express + TypeScript)  
+├── portal/                # Web dashboard (React + Vite + TypeScript)
+├── wallet/                # Mobile wallet (React Native + TypeScript)
+├── circuits/              # Zero-Knowledge Proof circuits (Circom)
+├── certificate_backend/   # Certificate Authenticator Flask Backend (NEW!)
+└── shared/                # Shared utilities and types
 ```
 
 ### Technology Stack
@@ -126,6 +135,7 @@ Copy `.env.example` to `.env` and configure:
 3. Select tasks:
    - "Start Backend API Server" (runs on localhost:3001)
    - "Start Portal Development Server" (runs on localhost:5173)
+   - "Start Certificate Backend" (runs on localhost:5000) **NEW!**
    - "Start React Native Metro" (for mobile development)
 
 #### Option 2: Manual Setup
@@ -136,11 +146,31 @@ cd backend && npm run dev
 # Terminal 2: Web Portal
 cd portal && npm run dev
 
-# Terminal 3: Mobile Metro Bundler
+# Terminal 3: Certificate Backend (NEW!)
+cd certificate_backend && python auth.py
+
+# Terminal 4: Mobile Metro Bundler
 cd wallet && npm start
 
-# Terminal 4: Android App (requires Android Studio/emulator)
+# Terminal 5: Android App (requires Android Studio/emulator)
 cd wallet && npm run android
+```
+
+### 📜 Certificate Authenticator Setup (NEW!)
+```bash
+# Install Python dependencies
+cd certificate_backend
+pip install -r requirements.txt
+
+# Install Tesseract OCR
+# Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki
+# Linux: sudo apt-get install tesseract-ocr
+# Mac: brew install tesseract
+
+# Setup MySQL database (see certificate_backend/README.md)
+
+# Run the Flask server
+python auth.py
 ```
 
 ### 📱 Android Setup (Mobile Wallet)
@@ -162,6 +192,7 @@ npm run android
 3. **Open mobile app**: Launch on Android emulator or device  
 4. **Test authentication**: Scan QR code from portal with mobile app
 5. **Test premium access**: Use ZK-proof features in the app
+6. **Test certificates** (NEW!): Navigate to `http://localhost:5173/certificates` to generate and verify certificates
 
 ## 🔧 Development Scripts
 
@@ -229,7 +260,23 @@ yarn dev          # Watch mode for development
 - **QR Code Authentication**: Scan-to-login workflow with mobile wallet
 - **Premium Content Gate**: Token-gated access requiring NFT ownership proof
 - **Real-time Session Polling**: Auto-detection of ZK-proof session upgrades
+- **Certificates Page** (NEW!): Integrated certificate generation and verification system
 - **Responsive Design**: Optimized for desktop and mobile viewing
+
+### Certificate Backend (`/certificate_backend`) (NEW!)
+- **Flask REST API**: Python-based backend for certificate operations
+- **Multi-Platform Verification**: Support for Udemy, Great Learning, and Google Education
+- **OCR Integration**: Tesseract for text extraction from certificate images
+- **QR Code Scanning**: OpenCV-based QR code detection and validation
+- **Database Storage**: MySQL-based certificate metadata storage with SHA-256 hashes
+- **Key Endpoints:**
+  - `POST /generate` - Generate new certificates with unique serial numbers
+  - `POST /authenticate` - Verify certificates by serial number
+  - `POST /upload` - Extract and verify uploaded certificate files
+  - `POST /upload_udemy` - Verify Udemy certificates via URL validation
+  - `POST /upload_great_learning` - Verify Great Learning certificates
+  - `POST /upload_google_education` - Verify Google Education certificates via QR codes
+  - `GET /download` - Download generated certificates
 
 ### Mobile Wallet (`/wallet`)
 - **React Native DID Wallet**: Cross-platform mobile identity management

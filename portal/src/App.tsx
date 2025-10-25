@@ -3,6 +3,7 @@ import EnterprisePortalProfessional from './EnterprisePortalProfessional'
 import BenchmarkPage from './pages/BenchmarkPage'
 import PremiumPage from './pages/PremiumPage'
 import BlockchainViewer from './pages/BlockchainViewer'
+import CertificatesPage from './pages/CertificatesPage'
 import './App.css'
 
 function App() {
@@ -27,6 +28,10 @@ function App() {
             <Route 
               path="/blockchain" 
               element={<BlockchainViewer />} 
+            />
+            <Route 
+              path="/certificates" 
+              element={<CertificatesPage />} 
             />
           </Routes>
         </main>

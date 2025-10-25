@@ -62,6 +62,19 @@ const EnterprisePortalProfessional: React.FC = () => {
     systemUptime: '99.9%'
   });
 
+  // Certificate states
+  const [showGenerate, setShowGenerate] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [issuingAuthority, setIssuingAuthority] = useState('other');
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string>('');
+  const [previewType, setPreviewType] = useState<'image' | 'pdf' | null>(null);
+  const [authenticateEnabled, setAuthenticateEnabled] = useState(false);
+  const [authResult, setAuthResult] = useState<any>(null);
+  const [generateResult, setGenerateResult] = useState<string>('');
+  
+  const FLASK_API_URL = 'http://127.0.0.1:5000';
+
   // Check connection status
   useEffect(() => {
     const checkConnection = async () => {
@@ -245,6 +258,83 @@ const EnterprisePortalProfessional: React.FC = () => {
     setQrCodeUrl('');
     setChallenge(null);
     setActiveTab('dashboard');
+  };
+
+  // Certificate handlers
+  const handleGenerateSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    
+    try {
+      const response = await fetch(`${FLASK_API_URL}/generate`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        setGenerateResult('Certificate generated successfully!');
+        window.open(`${FLASK_API_URL}/download?file=${data.file_path}`, '_blank');
+      } else {
+        setGenerateResult(`Error: ${data.error}`);
+      }
+    } catch (error: any) {
+      setGenerateResult(`Error: ${error.message}`);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadedFile(file);
+    
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setPreviewUrl(e.target?.result as string);
+        setPreviewType('image');
+      };
+      reader.readAsDataURL(file);
+    } else if (file.type === 'application/pdf') {
+      const pdfUrl = URL.createObjectURL(file);
+      setPreviewUrl(pdfUrl);
+      setPreviewType('pdf');
+    }
+    
+    setAuthenticateEnabled(true);
+  };
+
+  const handleAuthenticate = async () => {
+    if (!uploadedFile) {
+      alert('No certificate uploaded. Please upload a certificate first.');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', uploadedFile);
+
+    let url = `${FLASK_API_URL}/upload`;
+    if (issuingAuthority === 'udemy') {
+      url = `${FLASK_API_URL}/upload_udemy`;
+    } else if (issuingAuthority === 'great-learning') {
+      url = `${FLASK_API_URL}/upload_great_learning`;
+    } else if (issuingAuthority === 'google-education') {
+      url = `${FLASK_API_URL}/upload_google_education`;
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      const data = await response.json();
+      setAuthResult(data);
+    } catch (error: any) {
+      setAuthResult({ error: error.message });
+    }
   };
 
   const renderLoginScreen = () => (
@@ -564,7 +654,8 @@ const EnterprisePortalProfessional: React.FC = () => {
               { id: 'projects', label: 'Projects', icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
               { id: 'security', label: 'Security', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
               { id: 'blockchain', label: 'Blockchain', icon: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1' },
-              { id: 'analytics', label: 'Analytics', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' }
+              { id: 'analytics', label: 'Analytics', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
+              { id: 'certificates', label: 'Certificates', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -933,6 +1024,246 @@ const EnterprisePortalProfessional: React.FC = () => {
                 <p>• <strong className="text-white">Gas station pattern</strong> allows gasless transactions for users</p>
               </div>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'certificates' && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-white">📜 Certificate Management</h2>
+            
+            {/* Hero Section */}
+            <div 
+              className="p-10 rounded-2xl border border-purple-500"
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(20px) saturate(150%)',
+                WebkitBackdropFilter: 'blur(20px) saturate(150%)',
+              }}
+            >
+              <h3 className="text-3xl font-bold text-purple-400 mb-4">Welcome to Certificate Authenticator</h3>
+              <p className="text-lg text-gray-300 mb-6">
+                Your one-stop solution for secure digital certificates and authentication.
+                We ensure trust, transparency, and security in every step of your journey.
+              </p>
+
+              {/* Main Action Buttons */}
+              <div className="flex justify-center space-x-4 mt-10">
+                <button
+                  onClick={() => {
+                    setShowGenerate(!showGenerate);
+                    setShowUploadModal(false);
+                  }}
+                  className="bg-green-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg transition-all transform hover:scale-105"
+                >
+                  Generate
+                </button>
+                <button
+                  onClick={() => setShowUploadModal(!showUploadModal)}
+                  className="bg-blue-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg transition-all transform hover:scale-105"
+                >
+                  Upload
+                </button>
+                <button
+                  onClick={handleAuthenticate}
+                  disabled={!authenticateEnabled}
+                  className={`font-bold py-3 px-6 rounded-lg transition-all transform hover:scale-105 ${
+                    authenticateEnabled
+                      ? 'bg-red-600 hover:bg-purple-700 text-white'
+                      : 'bg-gray-500 text-gray-300 cursor-not-allowed'
+                  }`}
+                >
+                  Authenticate
+                </button>
+              </div>
+            </div>
+
+            {/* Certificate Generation Form */}
+            {showGenerate && (
+              <div
+                className="p-6 rounded-2xl border border-purple-500"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  backdropFilter: 'blur(20px) saturate(150%)',
+                  WebkitBackdropFilter: 'blur(20px) saturate(150%)',
+                }}
+              >
+                <h3 className="text-xl font-bold text-purple-400 mb-4">Generate Certificate</h3>
+                <form onSubmit={handleGenerateSubmit} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <input
+                      type="text"
+                      name="name"
+                      placeholder="Recipient Name *"
+                      required
+                      className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none"
+                    />
+                    <input
+                      type="text"
+                      name="organization"
+                      placeholder="Organization *"
+                      required
+                      className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none"
+                    />
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-gray-300 text-sm mb-1">Issue Date *</label>
+                      <input
+                        type="date"
+                        name="issue_date"
+                        required
+                        className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-300 text-sm mb-1">Expiry Date *</label>
+                      <input
+                        type="date"
+                        name="expiry_date"
+                        required
+                        className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-gray-300 text-sm mb-1">Completion Date *</label>
+                      <input
+                        type="date"
+                        name="completion_date"
+                        required
+                        className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      name="issuer"
+                      placeholder="Issuer Name *"
+                      required
+                      className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <input
+                    type="text"
+                    name="serial_number"
+                    placeholder="Serial Number (e.g., 1111, 555) *"
+                    required
+                    className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none"
+                  />
+
+                  <button
+                    type="submit"
+                    className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-lg transition-all"
+                  >
+                    Generate Certificate
+                  </button>
+                </form>
+                {generateResult && (
+                  <div className="mt-4 p-3 bg-green-600/20 border border-green-500/30 rounded-lg text-green-300">
+                    {generateResult}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Upload Modal */}
+            {showUploadModal && (
+              <div
+                className="p-6 rounded-2xl border border-purple-500"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  backdropFilter: 'blur(20px) saturate(150%)',
+                  WebkitBackdropFilter: 'blur(20px) saturate(150%)',
+                }}
+              >
+                <h3 className="text-xl font-bold text-purple-400 mb-4">Upload Certificate</h3>
+                
+                {/* Platform Selection */}
+                <div className="mb-4">
+                  <label className="block text-gray-300 mb-2">Select Issuing Authority:</label>
+                  <select
+                    value={issuingAuthority}
+                    onChange={(e) => setIssuingAuthority(e.target.value)}
+                    className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none"
+                  >
+                    <option value="udemy">Udemy</option>
+                    <option value="great-learning">Great Learning</option>
+                    <option value="google-education">Google Education</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+
+                {/* File Upload */}
+                <div className="mb-4">
+                  <label className="block text-gray-300 mb-2">Upload Certificate:</label>
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={handleFileUpload}
+                    className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-purple-600 file:text-white file:cursor-pointer hover:file:bg-purple-700"
+                  />
+                </div>
+
+                {/* Preview */}
+                {previewUrl && (
+                  <div className="mt-4">
+                    <h4 className="text-gray-300 mb-2">Preview:</h4>
+                    {previewType === 'image' ? (
+                      <img src={previewUrl} alt="Certificate Preview" className="w-full h-auto rounded-lg border border-purple-500/30" />
+                    ) : previewType === 'pdf' ? (
+                      <iframe src={previewUrl} className="w-full h-96 rounded-lg border border-purple-500/30" title="PDF Preview"></iframe>
+                    ) : null}
+                  </div>
+                )}
+
+                {/* Authentication Result */}
+                {authResult && (
+                  <div className={`mt-4 p-4 rounded-lg border ${
+                    authResult.message || authResult.certificate_url ? 'bg-green-600/20 border-green-500/30' : 'bg-red-600/20 border-red-500/30'
+                  }`}>
+                    <div className="flex items-start space-x-3">
+                      <div className="text-2xl">
+                        {authResult.message || authResult.certificate_url ? '✅' : '❌'}
+                      </div>
+                      <div className="flex-1">
+                        <h4 className={`font-bold mb-2 ${
+                          authResult.message || authResult.certificate_url ? 'text-green-300' : 'text-red-300'
+                        }`}>
+                          {authResult.message || authResult.certificate_url ? 'Certificate Authenticated Successfully!' : 'Authentication Failed'}
+                        </h4>
+                        
+                        {authResult.message && (
+                          <p className="text-gray-300 mb-2">{authResult.message}</p>
+                        )}
+                        
+                        {authResult.certificate_url && (
+                          <div className="space-y-2">
+                            <p className="text-gray-300">
+                              <strong>Certificate URL:</strong>{' '}
+                              <a 
+                                href={authResult.certificate_url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-400 hover:text-blue-300 underline break-all"
+                              >
+                                {authResult.certificate_url}
+                              </a>
+                            </p>
+                          </div>
+                        )}
+                        
+                        {authResult.error && (
+                          <p className="text-red-300">{authResult.error}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </main>
