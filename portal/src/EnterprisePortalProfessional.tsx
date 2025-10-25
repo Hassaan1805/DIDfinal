@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import Orb from './components/Orb';
 import PixelBlast from './components/backgrounds/PixelBlast';
+import ZKProofSection from './components/ZKProofSection';
 
 // API Configuration
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://192.168.1.100:3001/api';
@@ -1264,6 +1265,9 @@ const EnterprisePortalProfessional: React.FC = () => {
                 )}
               </div>
             )}
+
+            {/* ZK Proof Section */}
+            <ZKProofSection FLASK_API_URL={FLASK_API_URL} />
           </div>
         )}
       </main>

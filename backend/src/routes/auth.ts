@@ -29,6 +29,14 @@ interface AuthChallenge {
   employeeId?: string; // Employee ID for company portal access
   companyId?: string; // Company identifier
   requestType?: 'portal_access' | 'general_auth'; // Type of authentication request
+  blockchainResults?: {
+    registration: any;
+    authRecord: any;
+    verification: any;
+    didInfo: any;
+    completedAt: string;
+  }; // Blockchain operation results (populated after async operations complete)
+  blockchainError?: string; // Error message if blockchain operations failed
 }
 
 // Employee database simulation (in production, integrate with HR system)
@@ -995,57 +1003,94 @@ router.post('/sepolia-verify', async (req: Request, res: Response): Promise<void
       return;
     }
 
-    // Step 2: Blockchain operations (if enabled and configured)
+    // Step 2: Blockchain operations (ASYNC - don't block response!)
     let blockchainResults = null;
+    let blockchainPending = false;
     
     if (storeOnChain && sepoliaService.isConfigured()) {
-      console.log('💾 Processing blockchain operations on Sepolia...');
+      console.log('💾 Starting blockchain operations on Sepolia (ASYNC)...');
+      blockchainPending = true;
 
       // Convert to checksummed address for blockchain operations
       const checksummedAddress = ethers.getAddress(address.toLowerCase());
 
-      // Check if employee DID is registered
-      const didInfo = await sepoliaService.getEmployeeDIDInfo(checksummedAddress);
-      let registrationResult = null;
+      // ⚡ Process blockchain operations in background (don't await!)
+      (async () => {
+        try {
+          console.log('🔄 Background: Starting blockchain operations...');
+          
+          // Check if employee DID is registered
+          const didInfo = await sepoliaService.getEmployeeDIDInfo(checksummedAddress);
+          let registrationResult = null;
 
-      if (!didInfo.success || !didInfo.didInfo?.isActive) {
-        console.log('📝 Registering employee DID on Sepolia...');
-        
-        const did = `did:ethr:${checksummedAddress}`;
-        const publicKeyJwk = JSON.stringify({
-          kty: 'EC',
-          crv: 'secp256k1',
-          use: 'sig',
-          x: checksummedAddress.substring(2, 34),
-          y: checksummedAddress.substring(34, 66)
-        });
+          if (!didInfo.success || !didInfo.didInfo?.isActive) {
+            console.log('📝 Background: Registering employee DID on Sepolia...');
+            
+            const did = `did:ethr:${checksummedAddress}`;
+            const publicKeyJwk = JSON.stringify({
+              kty: 'EC',
+              crv: 'secp256k1',
+              use: 'sig',
+              x: checksummedAddress.substring(2, 34),
+              y: checksummedAddress.substring(34, 66)
+            });
 
-        registrationResult = await sepoliaService.registerEmployeeDID(
-          checksummedAddress,
-          did,
-          publicKeyJwk
-        );
-      }
+            registrationResult = await sepoliaService.registerEmployeeDID(
+              checksummedAddress,
+              did,
+              publicKeyJwk
+            );
+            
+            if (registrationResult.success) {
+              console.log('✅ Background: DID registration completed:', registrationResult.txHash);
+            }
+          }
 
-      // Record authentication on blockchain
-      const authRecordResult = await sepoliaService.recordAuthentication(
-        challengeId,
-        message,
-        checksummedAddress
-      );
+          // Record authentication on blockchain
+          console.log('📝 Background: Recording authentication...');
+          const authRecordResult = await sepoliaService.recordAuthentication(
+            challengeId,
+            message,
+            checksummedAddress
+          );
+          
+          if (authRecordResult.success) {
+            console.log('✅ Background: Authentication recorded:', authRecordResult.txHash);
+          }
 
-      // Verify authentication on blockchain
-      const verificationResult = await sepoliaService.verifyAuthentication(
-        challengeId,
-        signature
-      );
+          // Verify authentication on blockchain
+          console.log('🔍 Background: Verifying authentication...');
+          const verificationResult = await sepoliaService.verifyAuthentication(
+            challengeId,
+            signature
+          );
+          
+          if (verificationResult.success) {
+            console.log('✅ Background: Blockchain verification completed:', verificationResult.txHash);
+          }
 
-      blockchainResults = {
-        registration: registrationResult,
-        authRecord: authRecordResult,
-        verification: verificationResult,
-        didInfo: didInfo.didInfo
-      };
+          // Store results in challenge data for later retrieval
+          if (challengeData) {
+            challengeData.blockchainResults = {
+              registration: registrationResult,
+              authRecord: authRecordResult,
+              verification: verificationResult,
+              didInfo: didInfo.didInfo,
+              completedAt: new Date().toISOString()
+            };
+          }
+
+          console.log('🎉 Background: All blockchain operations completed successfully!');
+        } catch (error: any) {
+          console.error('❌ Background: Blockchain operations failed:', error);
+          if (challengeData) {
+            challengeData.blockchainError = error?.message || 'Unknown blockchain error';
+          }
+        }
+      })(); // Execute immediately but don't wait for completion
+
+      console.log('⚡ Response will be sent immediately (blockchain operations continue in background)');
+      
     } else if (storeOnChain && !sepoliaService.isConfigured()) {
       console.warn('⚠️ Blockchain storage requested but Sepolia service not configured');
     }
@@ -1062,7 +1107,7 @@ router.post('/sepolia-verify', async (req: Request, res: Response): Promise<void
       did: `did:ethr:${checksummedAddressForToken}`,
       challengeId: challengeId,
       authenticated: true,
-      blockchainVerified: !!blockchainResults?.verification?.success,
+      blockchainPending: blockchainPending, // Indicate blockchain ops are in progress
       timestamp: new Date().toISOString()
     };
 
@@ -1073,15 +1118,12 @@ router.post('/sepolia-verify', async (req: Request, res: Response): Promise<void
 
     challengeData.token = token;
 
-    // Step 4: Get network status
-    const networkStatus = sepoliaService.isConfigured() 
-      ? await sepoliaService.getNetworkStatus()
-      : { success: false, error: 'Service not configured' };
-
-    // Success response
+    // Success response (sent immediately, blockchain operations continue in background)
     const response = {
       success: true,
-      message: 'Authentication successful with Sepolia blockchain integration',
+      message: blockchainPending 
+        ? 'Authentication successful - Blockchain operations processing in background'
+        : 'Authentication successful',
       user: {
         address,
         did: `did:ethr:${address}`
@@ -1091,28 +1133,25 @@ router.post('/sepolia-verify', async (req: Request, res: Response): Promise<void
           signatureValid: isSignatureValid,
           timestamp: new Date().toISOString()
         },
-        blockchain: blockchainResults
-      },
-      network: networkStatus.success ? networkStatus.status : {
-        error: networkStatus.error,
-        configured: sepoliaService.isConfigured()
+        blockchain: blockchainPending ? {
+          status: 'pending',
+          message: 'Blockchain operations are being processed. Check /sepolia-history/:address for results.'
+        } : null
       },
       links: {
-        etherscan: blockchainResults?.verification?.txHash 
-          ? `https://sepolia.etherscan.io/tx/${blockchainResults.verification.txHash}`
-          : null,
         faucet: 'https://sepoliafaucet.com/',
-        explorer: 'https://sepolia.etherscan.io'
+        explorer: 'https://sepolia.etherscan.io',
+        statusCheck: `/api/auth/blockchain-status/${challengeId}`
       },
       token,
       expiresIn: '24h',
       timestamp: new Date().toISOString()
     };
 
-    console.log('✅ Sepolia blockchain authentication completed:', {
+    console.log('✅ Sepolia authentication response sent immediately:', {
       address,
-      blockchainStored: !!blockchainResults?.verification?.success,
-      transactionHash: blockchainResults?.verification?.txHash
+      blockchainPending,
+      responseTime: Date.now() - challengeData.timestamp + 'ms'
     });
 
     res.json(response);
@@ -1128,6 +1167,76 @@ router.post('/sepolia-verify', async (req: Request, res: Response): Promise<void
         configured: sepoliaService.isConfigured(),
         config: sepoliaService.getConfig()
       },
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/auth/blockchain-status/:challengeId
+ * Check the status of blockchain operations for a specific challenge
+ */
+router.get('/blockchain-status/:challengeId', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { challengeId } = req.params;
+    
+    const challengeData = challenges.get(challengeId);
+    
+    if (!challengeData) {
+      res.status(404).json({
+        success: false,
+        error: 'Challenge not found or expired',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+    
+    // Check if blockchain operations have completed
+    const blockchainResults = (challengeData as any).blockchainResults;
+    const blockchainError = (challengeData as any).blockchainError;
+    
+    if (blockchainResults) {
+      res.json({
+        success: true,
+        status: 'completed',
+        challengeId,
+        blockchain: {
+          registration: blockchainResults.registration,
+          authRecord: blockchainResults.authRecord,
+          verification: blockchainResults.verification,
+          didInfo: blockchainResults.didInfo,
+          completedAt: blockchainResults.completedAt
+        },
+        links: {
+          etherscan: blockchainResults.verification?.txHash
+            ? `https://sepolia.etherscan.io/tx/${blockchainResults.verification.txHash}`
+            : null
+        },
+        timestamp: new Date().toISOString()
+      });
+    } else if (blockchainError) {
+      res.json({
+        success: false,
+        status: 'failed',
+        challengeId,
+        error: blockchainError,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.json({
+        success: true,
+        status: 'pending',
+        challengeId,
+        message: 'Blockchain operations are still in progress',
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check blockchain status',
+      details: error.message,
       timestamp: new Date().toISOString()
     });
   }
