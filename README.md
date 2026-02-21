@@ -40,11 +40,13 @@ A comprehensive decentralized identity platform that provides privacy-preserving
 - **Secure Storage**: Store certificate metadata in MySQL database with SHA-256 hashes
 - **Web Interface**: Beautiful, animated UI for certificate management
 
-### �📱 **Mobile DID Wallet** 
+### 📱 **Mobile DID Wallet** (Expo React Native)
 - **Self-sovereign Identity**: Create and manage Ethereum-based DIDs
 - **QR Scanner**: Authenticate with web portal via camera scanning
-- **ZK-Proof Engine**: Generate privacy-preserving proofs on-device
-- **Secure Storage**: Encrypted private key management with React Native Keychain
+- **Dynamic Network Config**: Easy IP address management for WiFi changes
+- **Auto-Discovery**: Automatically find backend on local network
+- **In-App Settings**: Change backend URL without rebuilding
+- **Secure Storage**: Encrypted private key management
 
 ### 🔗 **Smart Contract Infrastructure**
 - **DID Registry**: Ethereum-based decentralized identity management
@@ -72,7 +74,7 @@ decentralized-trust-platform/
 - **DID/VC Libraries:** ethers.js, did-ethr, did-jwt
 - **Backend:** Node.js + Express + TypeScript
 - **Frontend:** React + Vite + TypeScript  
-- **Mobile:** React Native + TypeScript
+- **Mobile:** Expo + React Native + TypeScript
 - **Authentication:** JWT with session upgrade model
 
 ## 🚀 Complete Authentication Flow
@@ -156,7 +158,30 @@ cd wallet && npm start
 cd wallet && npm run android
 ```
 
-### 📜 Certificate Authenticator Setup (NEW!)
+### � Mobile Wallet Setup (Expo React Native)
+
+**Quick Start:**
+```bash
+# 1. Install Expo Go on your phone (App Store/Play Store)
+
+# 2. Update backend IP for your network
+update-wallet-ip.bat  # Windows
+./update-wallet-ip.sh # Mac/Linux
+
+# 3. Start wallet development server
+start-wallet.bat  # Windows  
+./start-wallet.sh # Mac/Linux
+
+# 4. Scan QR code with Expo Go app
+```
+
+**When WiFi Changes:**
+- Run `update-wallet-ip.bat` again, or
+- Use Settings screen in the app → Auto Discover
+
+See [WALLET_QUICKSTART.md](WALLET_QUICKSTART.md) for detailed instructions.
+
+### �📜 Certificate Authenticator Setup (NEW!)
 ```bash
 # Install Python dependencies
 cd certificate_backend
@@ -173,18 +198,8 @@ pip install -r requirements.txt
 python auth.py
 ```
 
-### 📱 Android Setup (Mobile Wallet)
-```bash
-# Install Android dependencies
-cd wallet
-npm install
-
-# Copy ZK circuit files (for proof generation)
-npm run copy-circuits
-
-# Build and run on Android
-npm run android
-```
+### 📱 Android Setup (Mobile Wallet - DEPRECATED)
+> **Note**: The Flutter wallet in `mobile_wallet/` is deprecated. Use the new Expo wallet in `wallet/` instead. See [WALLET_MIGRATION.md](WALLET_MIGRATION.md) for details.
 
 ### 🧪 Testing the Complete Flow
 1. **Start all services** using VS Code tasks or manual setup

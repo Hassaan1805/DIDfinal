@@ -69,3 +69,8 @@ web-build/
 # Temporary files
 *.tmp
 *.temp
+
+# Large files
+certificate_backend.zip
+*.zip
+

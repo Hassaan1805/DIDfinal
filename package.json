@@ -7,11 +7,10 @@
     "contracts",
     "backend",
     "portal",
-    "wallet",
     "shared"
   ],
   "scripts": {
-    "dev": "concurrently \"yarn workspace contracts dev\" \"yarn workspace backend dev\" \"yarn workspace portal dev\"",
+    "dev": "concurrently --names \"BACKEND,PORTAL,WALLET\" --prefix-colors \"blue,green,yellow\" \"npm --prefix backend run dev\" \"npm --prefix portal run dev\" \"cd wallet && npx expo start\"",
     "build": "yarn workspaces run build",
     "test": "yarn workspaces run test",
     "clean": "yarn workspaces run clean",

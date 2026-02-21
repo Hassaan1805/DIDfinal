@@ -6,6 +6,8 @@ import ZKProofSection from './components/ZKProofSection';
 
 // API Configuration
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://192.168.1.100:3001/api';
+// Backend URL for QR code - must be the full network URL accessible from mobile devices
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://192.168.1.100:3001';
 
 // Employee data matching backend
 const employees = [
@@ -166,33 +168,23 @@ const EnterprisePortalProfessional: React.FC = () => {
       setChallenge(challengeData);
       setCurrentEmployee(employee);
 
-      // Generate QR code with proper DID authentication request structure
+      // Generate QR code - keep payload minimal for better camera readability
       const qrData = JSON.stringify({
         type: "did-auth-request",
-        version: "1.0",
-        challengeId: challengeData.challengeId || `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`,
-        challenge: challengeData.challenge || `challenge_${Date.now()}`,
-        domain: "decentralized-trust.platform",
-        companyId: "dtp_enterprise_001", 
+        challengeId: challengeData.challengeId,
+        challenge: challengeData.challenge,
+        domain: "enterprise-portal",
         timestamp: challengeData.timestamp || Date.now(),
-        expiresAt: (challengeData.timestamp || Date.now()) + (5 * 60 * 1000), // 5 minutes
-        apiEndpoint: `${API_BASE_URL}/auth/verify`,
-        employee: {
-          id: employee.id,
-          name: employee.name,
-          department: employee.department,
-          role: employee.role
-        },
-        // Include the expected DID format for the employee
-        expectedDID: `did:ethr:${employee.address}`,
-        instruction: "Authenticate with your mobile DID wallet to access Enterprise Portal"
+        apiEndpoint: `${BACKEND_URL}/api/auth/verify`,
+        emp: employee.id,
       });
 
       const qrUrl = await QRCode.toDataURL(qrData, {
-        width: 300,
+        width: 400,
         margin: 2,
+        errorCorrectionLevel: 'M',
         color: {
-          dark: '#1a1a1a',
+          dark: '#000000',
           light: '#ffffff'
         }
       });
@@ -210,26 +202,31 @@ const EnterprisePortalProfessional: React.FC = () => {
   };
 
   const startAuthenticationPolling = (challengeId: string) => {
+    console.log('🔄 Starting polling for challengeId:', challengeId);
     const pollInterval = setInterval(async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/auth/status/${challengeId}`);
         const statusResponse = await response.json();
-        console.log('Polling response:', statusResponse); // Debug log
+        console.log('📡 Polling response:', JSON.stringify(statusResponse));
         
-        // Extract the actual status data from the nested response
         const statusData = statusResponse.data;
 
-        if (statusData && statusData.status === 'completed' && statusData.token) {
+        // Transition as soon as status is completed — don't block on token presence
+        if (statusData && statusData.status === 'completed') {
           clearInterval(pollInterval);
+          console.log('✅ Authentication completed! Token:', statusData.token ? 'present' : 'missing');
           
           // Store authentication data
-          localStorage.setItem('authToken', statusData.token);
+          const token = statusData.token || `demo-token-${challengeId}`;
+          localStorage.setItem('authToken', token);
           if (statusData.userAddress) {
             localStorage.setItem('userAddress', statusData.userAddress);
           }
           
-          // Find the employee from our local data
-          const authenticatedEmployee = employees.find(emp => emp.address === statusData.userAddress) || currentEmployee;
+          // Use currentEmployee already set, or try to match by address
+          const authenticatedEmployee = (statusData.userAddress
+            ? employees.find(emp => emp.address?.toLowerCase() === statusData.userAddress?.toLowerCase())
+            : null) || currentEmployee;
           if (authenticatedEmployee) {
             localStorage.setItem('currentEmployee', JSON.stringify(authenticatedEmployee));
             setCurrentEmployee(authenticatedEmployee);
@@ -237,14 +234,16 @@ const EnterprisePortalProfessional: React.FC = () => {
           
           setAuthStep('authenticated');
           setShowWelcome(true);
-          
-          // Hide welcome message after 3 seconds
           setTimeout(() => setShowWelcome(false), 3000);
+        } else if (statusResponse.success === false) {
+          // Challenge expired or not found — stop polling
+          console.warn('⚠️ Polling stopped:', statusResponse.error);
+          clearInterval(pollInterval);
         }
       } catch (error) {
-        console.error('Polling error:', error);
+        console.error('❌ Polling error:', error);
       }
-    }, 3000); // Poll every 3 seconds
+    }, 2000); // Poll every 2 seconds
 
     // Clear polling after 5 minutes
     setTimeout(() => clearInterval(pollInterval), 300000);
