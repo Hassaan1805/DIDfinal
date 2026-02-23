@@ -80,19 +80,21 @@ class NetworkService {
   }
 
   /**
-   * Initialize network service (load saved URL and test connection)
+   * Initialize network service — always start from the hardcoded config URL.
+   * Ignores any previously-cached URL in AsyncStorage to avoid stale IPs.
    */
   async initialize(): Promise<void> {
-    const savedUrl = await StorageService.getApiUrl();
-    if (savedUrl && isValidUrl(savedUrl)) {
-      this.currentUrl = savedUrl;
-      const result = await this.testUrl(savedUrl);
-      if (result.success) {
-        this.isConnected = true;
-        return;
-      }
+    // Always reset to the hardcoded URL from config (never use stale cached URL)
+    this.currentUrl = config.apiUrl;
+    await StorageService.saveApiUrl(config.apiUrl); // overwrite any stale cached value
+    const result = await this.testUrl(this.currentUrl);
+    if (result.success) {
+      this.isConnected = true;
     }
-    await this.discoverBestUrl();
+    // If the primary fails, try fallbacks silently — don't block startup
+    if (!this.isConnected) {
+      await this.discoverBestUrl();
+    }
   }
 
   /**

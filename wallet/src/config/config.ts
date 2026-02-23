@@ -1,5 +1,3 @@
-import Constants from 'expo-constants';
-
 export interface AppConfig {
   apiUrl: string;
   fallbackUrls: string[];
@@ -9,22 +7,21 @@ export interface AppConfig {
   network: string;
 }
 
-// Get environment variables with fallbacks
-const getEnvVar = (key: string, defaultValue: string): string => {
-  return Constants.expoConfig?.extra?.[key] || process.env[key] || defaultValue;
-};
+// ── Hardcoded configuration ──────────────────────────────────────────────────
+// Change BACKEND_IP to match your machine's LAN IP (same network as the phone).
+// Run `ipconfig` and look for the Ethernet/Wi-Fi IPv4 address.
+const BACKEND_IP = '192.168.1.100';
+const BACKEND_PORT = 3001;
 
-// Main configuration
 export const config: AppConfig = {
-  apiUrl: getEnvVar('EXPO_PUBLIC_API_URL', 'http://192.168.1.100:3001'),
+  apiUrl: `http://${BACKEND_IP}:${BACKEND_PORT}`,
   fallbackUrls: [
-    getEnvVar('EXPO_PUBLIC_API_URL_FALLBACK_1', 'http://localhost:3001'),
-    getEnvVar('EXPO_PUBLIC_API_URL_FALLBACK_2', 'https://did-platform-backend.railway.app'),
+    'https://did-platform-backend.railway.app',
   ],
-  networkTimeout: parseInt(getEnvVar('EXPO_PUBLIC_NETWORK_TIMEOUT', '10000'), 10),
-  autoDiscover: getEnvVar('EXPO_PUBLIC_AUTO_DISCOVER', 'true') === 'true',
-  chainId: parseInt(getEnvVar('EXPO_PUBLIC_CHAIN_ID', '11155111'), 10),
-  network: getEnvVar('EXPO_PUBLIC_NETWORK', 'sepolia'),
+  networkTimeout: 10000,
+  autoDiscover: false,
+  chainId: 11155111,
+  network: 'sepolia',
 };
 
 // Network discovery configuration

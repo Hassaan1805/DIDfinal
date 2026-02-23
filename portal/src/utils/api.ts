@@ -8,7 +8,7 @@
 // API Configuration
 const API_CONFIG = {
   // Use environment variable for production, fallback to local backend for development
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://192.168.1.100:3001/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 10000,
   retries: 3,
   retryDelay: 1000,

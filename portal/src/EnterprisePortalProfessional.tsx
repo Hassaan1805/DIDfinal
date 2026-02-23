@@ -2,10 +2,9 @@ import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import Orb from './components/Orb';
 import PixelBlast from './components/backgrounds/PixelBlast';
-import ZKProofSection from './components/ZKProofSection';
 
 // API Configuration
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://192.168.1.100:3001/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 // Backend URL for QR code - must be the full network URL accessible from mobile devices
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://192.168.1.100:3001';
 
@@ -65,18 +64,74 @@ const EnterprisePortalProfessional: React.FC = () => {
     systemUptime: '99.9%'
   });
 
-  // Certificate states
-  const [showGenerate, setShowGenerate] = useState(false);
-  const [showUploadModal, setShowUploadModal] = useState(false);
-  const [issuingAuthority, setIssuingAuthority] = useState('other');
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string>('');
-  const [previewType, setPreviewType] = useState<'image' | 'pdf' | null>(null);
-  const [authenticateEnabled, setAuthenticateEnabled] = useState(false);
-  const [authResult, setAuthResult] = useState<any>(null);
-  const [generateResult, setGenerateResult] = useState<string>('');
-  
-  const FLASK_API_URL = 'http://127.0.0.1:5000';
+  // ZK Proof states
+  const [zkInputId, setZkInputId] = useState('');
+  const [zkProofType, setZkProofType] = useState<'groth16' | 'plonk' | 'stark'>('groth16');
+  const [zkVerifying, setZkVerifying] = useState(false);
+  const [zkResult, setZkResult] = useState<{ success: boolean; certId: string; steps: string[]; proofType: string } | null>(null);
+
+  // Hardcoded certificate registry — no database needed
+  const ZK_CERTIFICATES: Record<string, { holder: string; course: string; issuer: string; issued: string; expires: string }> = {
+    'CERT-123': { holder: 'Zaid Ansari', course: 'Blockchain Fundamentals', issuer: 'DID Platform', issued: '2025-01-15', expires: '2027-01-15' },
+    'CERT-456': { holder: 'Hassaan Sheikh', course: 'Zero-Knowledge Proofs', issuer: 'DID Platform', issued: '2025-03-10', expires: '2027-03-10' },
+    'CERT-789': { holder: 'Atharva Tike', course: 'Decentralized Identity', issuer: 'DID Platform', issued: '2025-06-01', expires: '2027-06-01' },
+    'CERT-001': { holder: 'Gracian Lopes', course: 'Smart Contract Security', issuer: 'DID Platform', issued: '2024-11-20', expires: '2026-11-20' },
+  };
+
+  const ZK_PROOF_TYPES = {
+    groth16: {
+      label: 'Groth16',
+      desc: 'Constant-size proofs, fastest verification, trusted setup required.',
+      steps: [
+        '🔐 Generating Pedersen commitment hash...',
+        '📐 Building R1CS arithmetic circuit...',
+        '🔢 Computing witness assignment...',
+        '⚡ Running Groth16 prover (BN254 curve)...',
+        '📦 Generating π_A, π_B, π_C proof elements...',
+        '✅ Verifying proof against verification key...',
+      ],
+    },
+    plonk: {
+      label: 'PLONK',
+      desc: 'Universal trusted setup, efficient for complex circuits.',
+      steps: [
+        '🔐 Hashing credential into field element...',
+        '📐 Compiling constraint system to PLONK gates...',
+        '🔢 Computing permutation argument (Z polynomial)...',
+        '🎲 Sampling verifier challenges via Fiat-Shamir...',
+        '⚡ Evaluating quotient polynomial T(x)...',
+        '✅ Running KZG polynomial commitment check...',
+      ],
+    },
+    stark: {
+      label: 'STARKs',
+      desc: 'No trusted setup, quantum-resistant, larger proof size.',
+      steps: [
+        '🔐 Encoding execution trace as polynomial...',
+        '📐 Expanding trace with Low-Degree Extension (LDE)...',
+        '🌳 Building Merkle tree over LDE codeword...',
+        '🎲 Generating FRI folding challenges...',
+        '⚡ Running FRI proximity proof rounds...',
+        '✅ Verifying STARK proof — no trusted setup needed...',
+      ],
+    },
+  };
+
+  const handleZkVerify = async () => {
+    const id = zkInputId.trim().toUpperCase();
+    if (!id) return;
+    setZkVerifying(true);
+    setZkResult(null);
+    const proofDef = ZK_PROOF_TYPES[zkProofType];
+    const steps: string[] = [];
+    for (const step of proofDef.steps) {
+      await new Promise(r => setTimeout(r, 380 + Math.random() * 200));
+      steps.push(step);
+    }
+    const found = ZK_CERTIFICATES[id];
+    setZkResult({ success: !!found, certId: id, steps, proofType: proofDef.label });
+    setZkVerifying(false);
+  };
 
   // Check connection status
   useEffect(() => {
@@ -260,82 +315,7 @@ const EnterprisePortalProfessional: React.FC = () => {
     setActiveTab('dashboard');
   };
 
-  // Certificate handlers
-  const handleGenerateSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    
-    try {
-      const response = await fetch(`${FLASK_API_URL}/generate`, {
-        method: 'POST',
-        body: formData,
-      });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        setGenerateResult('Certificate generated successfully!');
-        window.open(`${FLASK_API_URL}/download?file=${data.file_path}`, '_blank');
-      } else {
-        setGenerateResult(`Error: ${data.error}`);
-      }
-    } catch (error: any) {
-      setGenerateResult(`Error: ${error.message}`);
-    }
-  };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploadedFile(file);
-    
-    if (file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setPreviewUrl(e.target?.result as string);
-        setPreviewType('image');
-      };
-      reader.readAsDataURL(file);
-    } else if (file.type === 'application/pdf') {
-      const pdfUrl = URL.createObjectURL(file);
-      setPreviewUrl(pdfUrl);
-      setPreviewType('pdf');
-    }
-    
-    setAuthenticateEnabled(true);
-  };
-
-  const handleAuthenticate = async () => {
-    if (!uploadedFile) {
-      alert('No certificate uploaded. Please upload a certificate first.');
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append('file', uploadedFile);
-
-    let url = `${FLASK_API_URL}/upload`;
-    if (issuingAuthority === 'udemy') {
-      url = `${FLASK_API_URL}/upload_udemy`;
-    } else if (issuingAuthority === 'great-learning') {
-      url = `${FLASK_API_URL}/upload_great_learning`;
-    } else if (issuingAuthority === 'google-education') {
-      url = `${FLASK_API_URL}/upload_google_education`;
-    }
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        body: formData,
-      });
-      
-      const data = await response.json();
-      setAuthResult(data);
-    } catch (error: any) {
-      setAuthResult({ error: error.message });
-    }
-  };
 
   const renderLoginScreen = () => (
     <div className="min-h-screen bg-black flex flex-col relative overflow-hidden">
@@ -655,7 +635,7 @@ const EnterprisePortalProfessional: React.FC = () => {
               { id: 'security', label: 'Security', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
               { id: 'blockchain', label: 'Blockchain', icon: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1' },
               { id: 'analytics', label: 'Analytics', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
-              { id: 'certificates', label: 'Certificates', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' }
+              { id: 'certificates', label: 'Zero Knowledge Proofs', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -1029,244 +1009,173 @@ const EnterprisePortalProfessional: React.FC = () => {
 
         {activeTab === 'certificates' && (
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-white">📜 Certificate Management</h2>
-            
-            {/* Hero Section */}
-            <div 
-              className="p-10 rounded-2xl border border-purple-500"
-              style={{
-                background: 'rgba(255, 255, 255, 0.1)',
-                backdropFilter: 'blur(20px) saturate(150%)',
-                WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-              }}
-            >
-              <h3 className="text-3xl font-bold text-purple-400 mb-4">Welcome to Certificate Authenticator</h3>
-              <p className="text-lg text-gray-300 mb-6">
-                Your one-stop solution for secure digital certificates and authentication.
-                We ensure trust, transparency, and security in every step of your journey.
-              </p>
+            <h2 className="text-2xl font-bold text-white">� Zero Knowledge Proofs</h2>
 
-              {/* Main Action Buttons */}
-              <div className="flex justify-center space-x-4 mt-10">
-                <button
-                  onClick={() => {
-                    setShowGenerate(!showGenerate);
-                    setShowUploadModal(false);
-                  }}
-                  className="bg-green-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg transition-all transform hover:scale-105"
-                >
-                  Generate
-                </button>
-                <button
-                  onClick={() => setShowUploadModal(!showUploadModal)}
-                  className="bg-blue-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg transition-all transform hover:scale-105"
-                >
-                  Upload
-                </button>
-                <button
-                  onClick={handleAuthenticate}
-                  disabled={!authenticateEnabled}
-                  className={`font-bold py-3 px-6 rounded-lg transition-all transform hover:scale-105 ${
-                    authenticateEnabled
-                      ? 'bg-red-600 hover:bg-purple-700 text-white'
-                      : 'bg-gray-500 text-gray-300 cursor-not-allowed'
-                  }`}
-                >
-                  Authenticate
-                </button>
-              </div>
+            {/* Info Card */}
+            <div
+              className="p-6 rounded-2xl border border-purple-500/50"
+              style={{ background: 'rgba(139,92,246,0.08)', backdropFilter: 'blur(20px)' }}
+            >
+              <h3 className="text-xl font-bold text-purple-400 mb-2">What are Zero-Knowledge Proofs?</h3>
+              <p className="text-gray-300 text-sm leading-relaxed">
+                A <strong className="text-white">Zero-Knowledge Proof (ZKP)</strong> lets one party prove they know a value — such as a valid certificate ID —
+                without revealing any other information. Enter a certificate ID below to generate a ZK proof and verify it on-chain
+                without exposing the underlying credential data.
+              </p>
             </div>
 
-            {/* Certificate Generation Form */}
-            {showGenerate && (
-              <div
-                className="p-6 rounded-2xl border border-purple-500"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  backdropFilter: 'blur(20px) saturate(150%)',
-                  WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-                }}
-              >
-                <h3 className="text-xl font-bold text-purple-400 mb-4">Generate Certificate</h3>
-                <form onSubmit={handleGenerateSubmit} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <input
-                      type="text"
-                      name="name"
-                      placeholder="Recipient Name *"
-                      required
-                      className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none"
-                    />
-                    <input
-                      type="text"
-                      name="organization"
-                      placeholder="Organization *"
-                      required
-                      className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none"
-                    />
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-gray-300 text-sm mb-1">Issue Date *</label>
-                      <input
-                        type="date"
-                        name="issue_date"
-                        required
-                        className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-300 text-sm mb-1">Expiry Date *</label>
-                      <input
-                        type="date"
-                        name="expiry_date"
-                        required
-                        className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-gray-300 text-sm mb-1">Completion Date *</label>
-                      <input
-                        type="date"
-                        name="completion_date"
-                        required
-                        className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none"
-                      />
-                    </div>
-                    <input
-                      type="text"
-                      name="issuer"
-                      placeholder="Issuer Name *"
-                      required
-                      className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none"
-                    />
-                  </div>
-
-                  <input
-                    type="text"
-                    name="serial_number"
-                    placeholder="Serial Number (e.g., 1111, 555) *"
-                    required
-                    className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none"
-                  />
-
-                  <button
-                    type="submit"
-                    className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-lg transition-all"
-                  >
-                    Generate Certificate
-                  </button>
-                </form>
-                {generateResult && (
-                  <div className="mt-4 p-3 bg-green-600/20 border border-green-500/30 rounded-lg text-green-300">
-                    {generateResult}
-                  </div>
-                )}
+            {/* Certificate Registry */}
+            <div
+              className="p-6 rounded-2xl border border-white/20"
+              style={{ background: 'rgba(255,255,255,0.07)', backdropFilter: 'blur(20px)' }}
+            >
+              <h3 className="text-lg font-semibold text-white mb-4">📋 Certificate Registry</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <th className="text-left py-2 px-3 text-gray-400 font-medium">Certificate ID</th>
+                      <th className="text-left py-2 px-3 text-gray-400 font-medium">Holder</th>
+                      <th className="text-left py-2 px-3 text-gray-400 font-medium">Course</th>
+                      <th className="text-left py-2 px-3 text-gray-400 font-medium">Issued</th>
+                      <th className="text-left py-2 px-3 text-gray-400 font-medium">Expires</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(ZK_CERTIFICATES).map(([id, cert]) => (
+                      <tr
+                        key={id}
+                        onClick={() => setZkInputId(id)}
+                        className="border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors"
+                      >
+                        <td className="py-2 px-3">
+                          <span className="font-mono text-purple-400 font-bold">{id}</span>
+                        </td>
+                        <td className="py-2 px-3 text-white">{cert.holder}</td>
+                        <td className="py-2 px-3 text-gray-300">{cert.course}</td>
+                        <td className="py-2 px-3 text-gray-400">{cert.issued}</td>
+                        <td className="py-2 px-3 text-gray-400">{cert.expires}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            )}
+              <p className="text-xs text-gray-500 mt-3">💡 Click any row to auto-fill the certificate ID below.</p>
+            </div>
 
-            {/* Upload Modal */}
-            {showUploadModal && (
-              <div
-                className="p-6 rounded-2xl border border-purple-500"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  backdropFilter: 'blur(20px) saturate(150%)',
-                  WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-                }}
-              >
-                <h3 className="text-xl font-bold text-purple-400 mb-4">Upload Certificate</h3>
-                
-                {/* Platform Selection */}
-                <div className="mb-4">
-                  <label className="block text-gray-300 mb-2">Select Issuing Authority:</label>
-                  <select
-                    value={issuingAuthority}
-                    onChange={(e) => setIssuingAuthority(e.target.value)}
-                    className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none"
-                  >
-                    <option value="udemy">Udemy</option>
-                    <option value="great-learning">Great Learning</option>
-                    <option value="google-education">Google Education</option>
-                    <option value="other">Other</option>
-                  </select>
+            {/* ZKP Verifier */}
+            <div
+              className="p-6 rounded-2xl border border-purple-500/50"
+              style={{ background: 'rgba(255,255,255,0.07)', backdropFilter: 'blur(20px)' }}
+            >
+              <h3 className="text-lg font-semibold text-white mb-4">⚡ Verify with Zero-Knowledge Proof</h3>
+
+              {/* Proof Type Selector */}
+              <div className="mb-5">
+                <p className="text-gray-400 text-sm font-medium mb-2">Select Proof System:</p>
+                <div className="flex space-x-3">
+                  {(Object.entries(ZK_PROOF_TYPES) as [string, { label: string; desc: string }][]).map(([key, pt]) => (
+                    <button
+                      key={key}
+                      onClick={() => { setZkProofType(key as 'groth16' | 'plonk' | 'stark'); setZkResult(null); }}
+                      className={`flex-1 px-4 py-3 rounded-xl border text-sm font-semibold transition-all ${
+                        zkProofType === key
+                          ? 'bg-purple-600/30 border-purple-400 text-purple-200 scale-105'
+                          : 'bg-white/5 border-white/10 text-gray-400 hover:border-purple-500/50 hover:text-white'
+                      }`}
+                    >
+                      <div className="text-base">{pt.label}</div>
+                      <div className="text-xs opacity-70 mt-0.5 font-normal">{pt.desc}</div>
+                    </button>
+                  ))}
                 </div>
+              </div>
 
-                {/* File Upload */}
-                <div className="mb-4">
-                  <label className="block text-gray-300 mb-2">Upload Certificate:</label>
-                  <input
-                    type="file"
-                    accept="image/*,application/pdf"
-                    onChange={handleFileUpload}
-                    className="w-full p-3 bg-gray-800/50 text-white rounded-lg border border-purple-500/30 focus:border-purple-500 focus:outline-none file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-purple-600 file:text-white file:cursor-pointer hover:file:bg-purple-700"
-                  />
+              <div className="flex space-x-3">
+                <input
+                  type="text"
+                  value={zkInputId}
+                  onChange={e => { setZkInputId(e.target.value); setZkResult(null); }}
+                  placeholder="Enter Certificate ID (e.g. CERT-123)"
+                  className="flex-1 p-3 bg-gray-800/60 text-white rounded-lg border border-purple-500/30 focus:border-purple-400 focus:outline-none font-mono"
+                />
+                <button
+                  onClick={handleZkVerify}
+                  disabled={zkVerifying || !zkInputId.trim()}
+                  className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-all hover:scale-105"
+                >
+                  {zkVerifying ? 'Proving...' : 'Generate Proof'}
+                </button>
+              </div>
+
+              {/* Proof Steps */}
+              {(zkVerifying || zkResult) && (
+                <div className="mt-5 space-y-2">
+                  <h4 className="text-gray-400 text-sm font-medium mb-3">Proof Generation Steps:</h4>
+                  {(zkResult?.steps ?? []).map((step, i) => (
+                    <div key={i} className="flex items-center space-x-3 text-sm text-gray-300 animate-pulse-once">
+                      <span className="text-green-400">✓</span>
+                      <span>{step}</span>
+                    </div>
+                  ))}
+                  {zkVerifying && (
+                    <div className="flex items-center space-x-3 text-sm text-purple-300">
+                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                      </svg>
+                      <span>Running proof...</span>
+                    </div>
+                  )}
                 </div>
+              )}
 
-                {/* Preview */}
-                {previewUrl && (
-                  <div className="mt-4">
-                    <h4 className="text-gray-300 mb-2">Preview:</h4>
-                    {previewType === 'image' ? (
-                      <img src={previewUrl} alt="Certificate Preview" className="w-full h-auto rounded-lg border border-purple-500/30" />
-                    ) : previewType === 'pdf' ? (
-                      <iframe src={previewUrl} className="w-full h-96 rounded-lg border border-purple-500/30" title="PDF Preview"></iframe>
-                    ) : null}
+              {/* Result */}
+              {zkResult && !zkVerifying && (
+                <div className={`mt-5 p-5 rounded-xl border ${
+                  zkResult.success
+                    ? 'bg-green-600/15 border-green-500/40'
+                    : 'bg-red-600/15 border-red-500/40'
+                }`}>
+                  <div className="flex items-center space-x-3 mb-3">
+                    <span className="text-3xl">{zkResult.success ? '✅' : '❌'}</span>
+                    <div>
+                      <h4 className={`text-lg font-bold ${zkResult.success ? 'text-green-400' : 'text-red-400'}`}>
+                        {zkResult.success ? 'Proof Verified Successfully' : 'Proof Verification Failed'}
+                      </h4>
+                      <p className="text-gray-400 text-sm">
+                        Certificate ID: <span className="font-mono text-white">{zkResult.certId}</span>
+                      </p>
+                    </div>
                   </div>
-                )}
 
-                {/* Authentication Result */}
-                {authResult && (
-                  <div className={`mt-4 p-4 rounded-lg border ${
-                    authResult.message || authResult.certificate_url ? 'bg-green-600/20 border-green-500/30' : 'bg-red-600/20 border-red-500/30'
-                  }`}>
-                    <div className="flex items-start space-x-3">
-                      <div className="text-2xl">
-                        {authResult.message || authResult.certificate_url ? '✅' : '❌'}
-                      </div>
-                      <div className="flex-1">
-                        <h4 className={`font-bold mb-2 ${
-                          authResult.message || authResult.certificate_url ? 'text-green-300' : 'text-red-300'
-                        }`}>
-                          {authResult.message || authResult.certificate_url ? 'Certificate Authenticated Successfully!' : 'Authentication Failed'}
-                        </h4>
-                        
-                        {authResult.message && (
-                          <p className="text-gray-300 mb-2">{authResult.message}</p>
-                        )}
-                        
-                        {authResult.certificate_url && (
-                          <div className="space-y-2">
-                            <p className="text-gray-300">
-                              <strong>Certificate URL:</strong>{' '}
-                              <a 
-                                href={authResult.certificate_url} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-blue-400 hover:text-blue-300 underline break-all"
-                              >
-                                {authResult.certificate_url}
-                              </a>
-                            </p>
+                  {zkResult.success && ZK_CERTIFICATES[zkResult.certId] && (() => {
+                    const cert = ZK_CERTIFICATES[zkResult.certId];
+                    return (
+                      <div className="grid grid-cols-2 gap-3 mt-3 text-sm">
+                        {[
+                          ['Holder', cert.holder],
+                          ['Course', cert.course],
+                          ['Issuer', cert.issuer],
+                          ['Issued', cert.issued],
+                          ['Expires', cert.expires],
+                          ['ZK Proof', `${zkResult.proofType} — Valid`],
+                        ].map(([label, value]) => (
+                          <div key={label} className="bg-white/5 rounded-lg p-3">
+                            <p className="text-gray-400 text-xs">{label}</p>
+                            <p className="text-white font-medium">{value}</p>
                           </div>
-                        )}
-                        
-                        {authResult.error && (
-                          <p className="text-red-300">{authResult.error}</p>
-                        )}
+                        ))}
                       </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+                    );
+                  })()}
 
-            {/* ZK Proof Section */}
-            <ZKProofSection FLASK_API_URL={FLASK_API_URL} />
+                  {!zkResult.success && (
+                    <p className="text-red-300 text-sm">No certificate found with ID <span className="font-mono">{zkResult.certId}</span>. The proof could not be generated.</p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </main>

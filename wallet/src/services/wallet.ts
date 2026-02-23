@@ -1,7 +1,7 @@
 import { ethers } from 'ethers';
 import { StorageService } from './storage';
 import { networkService } from './network';
-import { isValidEthereumAddress } from '../config/config';
+import { config, isValidEthereumAddress } from '../config/config';
 
 export interface Employee {
   id: string;
@@ -162,23 +162,26 @@ class WalletService {
       : `Challenge: ${challengeId}\nDID: ${employeeDID}`;
     const signature = await this.signMessage(message);
 
-    // Use the apiEndpoint from QR if available, otherwise fall back
+    // Always use the wallet's own config URL — never trust the host in the QR's
+    // apiEndpoint since it may contain 'localhost' or a stale IP from the portal.
+    const verifyUrl = `${config.apiUrl}/api/auth/verify`;
+    console.log('📡 Submitting auth to:', verifyUrl, '(apiEndpoint from QR was:', apiEndpoint, ')');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     let response: any;
-    if (apiEndpoint) {
-      // Direct POST to the full URL from QR code
-      const res = await fetch(apiEndpoint, {
+    try {
+      const res = await fetch(verifyUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ challengeId, signature, address, message }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       response = await res.json();
-    } else {
-      response = await networkService.post('/api/auth/verify', {
-        challengeId,
-        signature,
-        address,
-        message,
-      });
+    } catch (err: any) {
+      clearTimeout(timeout);
+      const label = err.name === 'AbortError' ? 'Request timed out' : err.message;
+      throw new Error(`${label} → ${verifyUrl}`);
     }
 
     // Save to history
