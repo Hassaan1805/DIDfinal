@@ -3,7 +3,7 @@
 ## 📍 **Current Configuration (Your System)**
 
 ```
-Backend API:          http://192.168.1.100:3001
+Backend API:          http://192.168.1.33:3001
 Certificate Backend:  http://127.0.0.1:5000
 Portal Frontend:      http://localhost:5173
 Wallet Server:        http://localhost:3002
@@ -41,7 +41,7 @@ ip addr show
 
 ```bash
 # Change this line:
-LOCAL_IP=192.168.1.100  # ← Change to your new IP
+LOCAL_IP=192.168.1.33  # ← Change to your new IP
 
 # Example for different system:
 LOCAL_IP=192.168.0.25
@@ -62,7 +62,7 @@ nano .env.development  # Edit with your values
 
 ```bash
 # Change this line:
-VITE_API_BASE_URL=http://192.168.1.100:3001/api
+VITE_API_BASE_URL=http://192.168.1.33:3001/api
 
 # Example for different system:
 VITE_API_BASE_URL=http://192.168.0.25:3001/api
@@ -116,8 +116,8 @@ Some files have hardcoded IPs that need manual changes:
 
 ```typescript
 // BEFORE:
-console.log(`🌐 Network access: http://192.168.1.100:${PORT}/api/health`);
-console.log(`📱 Mobile access: Use 192.168.1.100:${PORT} in your mobile app`);
+console.log(`🌐 Network access: http://192.168.1.33:${PORT}/api/health`);
+console.log(`📱 Mobile access: Use 192.168.1.33:${PORT} in your mobile app`);
 
 // AFTER (use environment variable):
 console.log(`🌐 Network access: http://${process.env.LOCAL_IP || 'localhost'}:${PORT}/api/health`);
@@ -130,7 +130,7 @@ console.log(`📱 Mobile access: Use ${process.env.LOCAL_IP || 'localhost'}:${PO
 
 ```typescript
 // BEFORE:
-apiEndpoint: 'http://192.168.1.100:3001/api/auth/sepolia-verify',
+apiEndpoint: 'http://192.168.1.33:3001/api/auth/sepolia-verify',
 
 // AFTER (use environment variable):
 apiEndpoint: `http://${process.env.LOCAL_IP || 'localhost'}:3001/api/auth/sepolia-verify`,
@@ -142,7 +142,7 @@ apiEndpoint: `http://${process.env.LOCAL_IP || 'localhost'}:3001/api/auth/sepoli
 
 ```typescript
 // BEFORE:
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://192.168.1.100:3001/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://192.168.1.33:3001/api';
 
 // AFTER (reads from .env):
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
@@ -152,7 +152,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001
 
 ```typescript
 // BEFORE:
-baseURL: import.meta.env.VITE_API_BASE_URL || 'http://192.168.1.100:3001/api',
+baseURL: import.meta.env.VITE_API_BASE_URL || 'http://192.168.1.33:3001/api',
 
 // AFTER:
 baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api',
@@ -164,7 +164,7 @@ baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api',
 
 ```typescript
 // BEFORE:
-target: 'http://192.168.1.100:3001',
+target: 'http://192.168.1.33:3001',
 
 // AFTER (use environment variable):
 target: process.env.VITE_API_BASE_URL?.replace('/api', '') || 'http://localhost:3001',
@@ -178,7 +178,7 @@ target: process.env.VITE_API_BASE_URL?.replace('/api', '') || 'http://localhost:
 
 ```dart
 // Change this:
-const String API_BASE_URL = 'http://192.168.1.100:3001/api';
+const String API_BASE_URL = 'http://192.168.1.33:3001/api';
 
 // To your new IP:
 const String API_BASE_URL = 'http://192.168.0.25:3001/api';
@@ -218,8 +218,8 @@ flutter run
 ### **Must Change:**
 | File | What to Change | Default Value |
 |------|---------------|---------------|
-| `backend/.env.development` | LOCAL_IP | 192.168.1.100 |
-| `portal/.env` | VITE_API_BASE_URL | http://192.168.1.100:3001/api |
+| `backend/.env.development` | LOCAL_IP | 192.168.1.33 |
+| `portal/.env` | VITE_API_BASE_URL | http://192.168.1.33:3001/api |
 | `certificate_backend/.env` | ALLOWED_ORIGINS | Add your new IP |
 
 ### **Should Change (Hardcoded):**
@@ -238,7 +238,7 @@ flutter run
 
 ## 🎯 **Example: Moving from One System to Another**
 
-### **Scenario:** Moving from IP `192.168.1.100` to `192.168.0.50`
+### **Scenario:** Moving from IP (example: changing networks)
 
 1. **Update Environment Files:**
    ```bash
@@ -253,7 +253,7 @@ flutter run
    ```
 
 2. **Update Code Files:**
-   - Search for `192.168.1.100` in entire project
+   - Search for old IP in entire project
    - Replace with `192.168.0.50`
    - OR use environment variables (better!)
 

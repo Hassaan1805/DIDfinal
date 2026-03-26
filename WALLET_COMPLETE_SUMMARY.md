@@ -263,7 +263,7 @@ eas build --platform android --profile preview
 **Workflow Example**:
 ```
 Morning at Office:
-  → WiFi: Office-Network (192.168.1.100)
+  → WiFi: Office-Network (192.168.1.33)
   → Use app normally
 
 Evening at Home:

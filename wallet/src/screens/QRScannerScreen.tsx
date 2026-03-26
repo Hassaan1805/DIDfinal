@@ -39,6 +39,10 @@ const QRScannerScreen: React.FC = () => {
         apiEndpoint: authRequest.apiEndpoint,
         employeeName: authRequest.employee?.name,
         employeeId: authRequest.employee?.id,
+        expectedDID: authRequest.expectedDID,
+        badgeType: authRequest.badge?.type || authRequest.employee?.badge,
+        badgePermissions: authRequest.badge?.permissions,
+        employeeHashId: authRequest.employeeHashId || authRequest.employee?.hashId,
       });
     } else {
       Alert.alert(

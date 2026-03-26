@@ -22,14 +22,22 @@ export interface AuthRequest {
     name: string;
     department?: string;
     role?: string;
+    badge?: string;
+    hashId?: string;
   };
+  badge?: {
+    type: string;
+    label?: string;
+    permissions?: string[];
+  };
+  employeeHashId?: string;
   expectedDID?: string;
   type?: string;
   domain?: string;
 }
 
 class WalletService {
-  private wallet: ethers.Wallet | null = null;
+  private wallet: ethers.HDNodeWallet | ethers.Wallet | null = null;
   private employees: Employee[] = [];
 
   /**
@@ -66,7 +74,7 @@ class WalletService {
   /**
    * Create a new wallet
    */
-  async createWallet(): Promise<ethers.Wallet> {
+  async createWallet(): Promise<ethers.HDNodeWallet | ethers.Wallet> {
     const wallet = ethers.Wallet.createRandom();
     await StorageService.savePrivateKey(wallet.privateKey);
     
@@ -80,7 +88,7 @@ class WalletService {
   /**
    * Get current wallet
    */
-  getWallet(): ethers.Wallet | null {
+  getWallet(): ethers.HDNodeWallet | ethers.Wallet | null {
     return this.wallet;
   }
 
@@ -154,7 +162,13 @@ class WalletService {
   /**
    * Submit auth response
    */
-  async submitAuthResponse(challengeId: string, employeeDID: string, challenge?: string, apiEndpoint?: string): Promise<any> {
+  async submitAuthResponse(
+    challengeId: string,
+    employeeDID: string,
+    challenge?: string,
+    apiEndpoint?: string,
+    employeeId?: string,
+  ): Promise<any> {
     const address = this.getAddress();
     // Sign a message that includes the actual challenge string (backend verifies this)
     const message = challenge
@@ -167,21 +181,23 @@ class WalletService {
     const verifyUrl = `${config.apiUrl}/api/auth/verify`;
     console.log('📡 Submitting auth to:', verifyUrl, '(apiEndpoint from QR was:', apiEndpoint, ')');
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const timeout = setTimeout(() => controller.abort(), 30000); // 30 seconds for network latency
     let response: any;
     try {
       const res = await fetch(verifyUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ challengeId, signature, address, message }),
-        signal: controller.signal,
+        body: JSON.stringify({ challengeId, signature, address, message, employeeId }),
+        signal: controller.signal as any,
       });
       clearTimeout(timeout);
       response = await res.json();
     } catch (err: any) {
       clearTimeout(timeout);
-      const label = err.name === 'AbortError' ? 'Request timed out' : err.message;
-      throw new Error(`${label} → ${verifyUrl}`);
+      if (err.name === 'AbortError') {
+        throw new Error(`Request timed out after 30 seconds. Check network connection and backend availability → ${verifyUrl}`);
+      }
+      throw new Error(`${err.message} → ${verifyUrl}`);
     }
 
     // Save to history

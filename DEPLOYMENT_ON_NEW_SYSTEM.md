@@ -64,7 +64,7 @@ ifconfig | grep "inet " | grep -v 127.0.0.1
 
 **Backend Environment** (`backend/.env.development`):
 ```bash
-# Replace 192.168.1.100 with your system's IP
+# Replace 192.168.1.33 with your system's IP
 PORT=3001
 NODE_ENV=development
 HOST=0.0.0.0
@@ -76,7 +76,7 @@ SEPOLIA_CONTRACT_ADDRESS=0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48
 
 **Frontend Environment** (`portal/.env.development`):
 ```bash
-# Replace 192.168.1.100 with your system's IP
+# Replace 192.168.1.33 with your system's IP
 VITE_API_BASE_URL=http://YOUR_SYSTEM_IP:3001/api
 VITE_API_URL=/api
 VITE_DEV_MODE=true

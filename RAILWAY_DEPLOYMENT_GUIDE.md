@@ -103,7 +103,7 @@ When prompted, enter your Railway backend URL (e.g., `https://your-backend.railw
    ```dart
    final List<String> _baseUrls = [
      'https://your-backend.railway.app',  // Add this line
-     'http://192.168.1.100:3001',
+     'http://192.168.1.33:3001',
      // ... other URLs
    ];
    ```

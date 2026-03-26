@@ -29,6 +29,10 @@ export type RootStackParamList = {
     apiEndpoint?: string;    // where to submit the response
     employeeName?: string;   // pre-filled from QR
     employeeId?: string;
+    expectedDID?: string;
+    badgeType?: string;
+    badgePermissions?: string[];
+    employeeHashId?: string;
   };
 };
 

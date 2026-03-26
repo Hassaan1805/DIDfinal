@@ -144,7 +144,7 @@ const SettingsScreen: React.FC = () => {
           style={styles.input}
           value={customUrl}
           onChangeText={setCustomUrl}
-          placeholder="http://192.168.1.100:3001"
+          placeholder="http://192.168.1.33:3001"
           placeholderTextColor="#64748b"
           autoCapitalize="none"
           autoCorrect={false}

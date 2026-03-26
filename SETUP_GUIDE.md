@@ -75,7 +75,7 @@ npm run dev
 ```bash
 cd portal
 npm install
-echo "VITE_API_BASE_URL=http://192.168.1.100:3001/api" > .env.local
+echo "VITE_API_BASE_URL=http://192.168.1.33:3001/api" > .env.local
 npm run dev
 ```
 
@@ -89,7 +89,7 @@ npm run dev
 ### For Same Network Usage:
 
 1. **Backend** automatically binds to `0.0.0.0:3001` (all interfaces)
-2. **Frontend** configured to use `192.168.1.100:3001/api`
+2. **Frontend** configured to use `192.168.1.33:3001/api`
 3. **Mobile** discovers backend via network scanning
 4. **CORS** allows all local origins for development
 
@@ -267,7 +267,7 @@ SEPOLIA_CONTRACT_ADDRESS=0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48
 
 ### Frontend (.env.local)
 ```bash
-VITE_API_BASE_URL=http://192.168.1.100:3001/api
+VITE_API_BASE_URL=http://192.168.1.33:3001/api
 VITE_NODE_ENV=development
 VITE_DEBUG=true
 ```

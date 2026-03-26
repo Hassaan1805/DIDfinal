@@ -10,7 +10,13 @@ interface WalletContextType {
   removeEmployee: (id: string) => Promise<void>;
   signMessage: (message: string) => Promise<string>;
   getAuthChallenge: () => Promise<AuthRequest>;
-  submitAuthResponse: (challengeId: string, employeeDID: string, challenge?: string, apiEndpoint?: string) => Promise<any>;
+  submitAuthResponse: (
+    challengeId: string,
+    employeeDID: string,
+    challenge?: string,
+    apiEndpoint?: string,
+    employeeId?: string,
+  ) => Promise<any>;
   parseQRCode: (data: string) => AuthRequest | null;
   exportWallet: () => Promise<{ privateKey: string; did: string; address: string }>;
   importWallet: (privateKey: string) => Promise<void>;
@@ -60,8 +66,14 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return await walletService.getAuthChallenge();
   };
 
-  const submitAuthResponse = async (challengeId: string, employeeDID: string, challenge?: string, apiEndpoint?: string): Promise<any> => {
-    return await walletService.submitAuthResponse(challengeId, employeeDID, challenge, apiEndpoint);
+  const submitAuthResponse = async (
+    challengeId: string,
+    employeeDID: string,
+    challenge?: string,
+    apiEndpoint?: string,
+    employeeId?: string,
+  ): Promise<any> => {
+    return await walletService.submitAuthResponse(challengeId, employeeDID, challenge, apiEndpoint, employeeId);
   };
 
   const parseQRCode = (data: string): AuthRequest | null => {

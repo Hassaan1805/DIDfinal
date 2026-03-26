@@ -5,7 +5,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Your Current System                       │
-│                    IP: 192.168.1.100                        │
+│                    IP: 192.168.1.33                        │
 └─────────────────────────────────────────────────────────────┘
 
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
@@ -41,10 +41,10 @@
 
 | File | Line | Current Value | Change To |
 |------|------|---------------|-----------|
-| `backend/.env.development` | 1 | `LOCAL_IP=192.168.1.100` | Your new IP |
-| `portal/.env` | 1 | `VITE_API_BASE_URL=http://192.168.1.100:3001/api` | Your new IP |
+| `backend/.env.development` | 1 | `LOCAL_IP=192.168.1.33` | Your new IP |
+| `portal/.env` | 1 | `VITE_API_BASE_URL=http://192.168.1.33:3001/api` | Your new IP |
 | `certificate_backend/.env` | 9 | `ALLOWED_ORIGINS=...` | Add your IP |
-| `mobile_wallet/lib/config.dart` | * | `API_BASE_URL = 'http://192.168.1.100:3001/api'` | Your new IP |
+| `mobile_wallet/lib/config.dart` | * | `API_BASE_URL = 'http://192.168.1.33:3001/api'` | Your new IP |
 
 ---
 
@@ -52,15 +52,15 @@
 
 | File | Line | Current Value | Purpose |
 |------|------|---------------|---------|
-| `backend/src/app.ts` | 163 | `http://192.168.1.100:${PORT}` | Console log |
-| `backend/src/app.ts` | 164 | `192.168.1.100:${PORT}` | Mobile instructions |
-| `backend/src/routes/auth.ts` | 205 | `http://192.168.1.100:3001/api/auth/sepolia-verify` | QR code endpoint |
-| `portal/src/EnterprisePortalProfessional.tsx` | 8 | `http://192.168.1.100:3001/api` | API base URL fallback |
+| `backend/src/app.ts` | 163 | `http://192.168.1.33:${PORT}` | Console log |
+| `backend/src/app.ts` | 164 | `192.168.1.33:${PORT}` | Mobile instructions |
+| `backend/src/routes/auth.ts` | 205 | `http://192.168.1.33:3001/api/auth/sepolia-verify` | QR code endpoint |
+| `portal/src/EnterprisePortalProfessional.tsx` | 8 | `http://192.168.1.33:3001/api` | API base URL fallback |
 | `portal/src/EnterprisePortalProfessional.tsx` | 77 | `http://127.0.0.1:5000` | Flask API URL |
-| `portal/src/utils/api.ts` | 11 | `http://192.168.1.100:3001/api` | Axios base URL |
-| `portal/src/pages/LoginPage.tsx` | 47 | `http://192.168.1.100:3001/api` | Login API URL |
+| `portal/src/utils/api.ts` | 11 | `http://192.168.1.33:3001/api` | Axios base URL |
+| `portal/src/pages/LoginPage.tsx` | 47 | `http://192.168.1.33:3001/api` | Login API URL |
 | `portal/src/pages/CertificatesPage.tsx` | 17 | `http://127.0.0.1:5000` | Certificate API |
-| `portal/vite.config.ts` | 16 | `http://192.168.1.100:3001` | Dev proxy target |
+| `portal/vite.config.ts` | 16 | `http://192.168.1.33:3001` | Dev proxy target |
 
 ---
 
@@ -80,7 +80,7 @@
 ```
 1. Mobile Wallet scans QR code
    ↓
-2. QR contains: http://192.168.1.100:3001/api/auth/sepolia-verify
+2. QR contains: http://192.168.1.33:3001/api/auth/sepolia-verify
    ↓
 3. Wallet signs message & sends to backend
    ↓

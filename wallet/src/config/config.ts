@@ -9,8 +9,9 @@ export interface AppConfig {
 
 // ── Hardcoded configuration ──────────────────────────────────────────────────
 // Change BACKEND_IP to match your machine's LAN IP (same network as the phone).
-// Run `ipconfig` and look for the Ethernet/Wi-Fi IPv4 address.
-const BACKEND_IP = '192.168.1.100';
+// Run `ipconfig` (Windows) or `ifconfig` (Mac/Linux) and look for the IPv4 address.
+// IMPORTANT: This IP MUST match the IP in backend/.env PRIMARY_HOST_IP
+const BACKEND_IP = '192.168.1.33';  // ← Your actual IP
 const BACKEND_PORT = 3001;
 
 export const config: AppConfig = {
@@ -18,7 +19,7 @@ export const config: AppConfig = {
   fallbackUrls: [
     'https://did-platform-backend.railway.app',
   ],
-  networkTimeout: 10000,
+  networkTimeout: 30000,  // Increased to 30 seconds for slow networks
   autoDiscover: false,
   chainId: 11155111,
   network: 'sepolia',

@@ -50,12 +50,29 @@ export declare class SepoliaBlockchainService {
         };
         error?: string;
     }>;
+    getLatestDidRegistrationTx(employeeAddress: string): Promise<{
+        success: boolean;
+        txHash?: string;
+        blockNumber?: number;
+        timestamp?: string;
+        error?: string;
+    }>;
+    getLatestAuthenticationTx(employeeAddress: string): Promise<{
+        success: boolean;
+        txHash?: string;
+        blockNumber?: number;
+        timestamp?: string;
+        error?: string;
+    }>;
     getConfig(): {
         rpcUrl: string;
         contractAddress: string;
         chainId: number;
         walletAddress: string;
+        adminGasPayerAddress: string;
     };
+    getGasPayerAddress(): string;
+    getGasPayerEtherscanUrl(): string;
     isConfigured(): boolean;
     isReady(): boolean;
 }

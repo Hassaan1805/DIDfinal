@@ -17,7 +17,7 @@ class NetworkService extends ChangeNotifier {
     'https://your-backend-service.railway.app',
 
     // Local development URLs
-    'http://192.168.1.100:3001', // Specific PC IP (Ethernet)
+    'http://192.168.1.33:3001', // Specific PC IP (Ethernet)
     'http://localhost:3001',
     'http://127.0.0.1:3001',
     'http://10.0.2.2:3001', // Android emulator

@@ -1,1194 +1,1277 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Orb from './components/Orb';
-import PixelBlast from './components/backgrounds/PixelBlast';
 
-// API Configuration
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
-// Backend URL for QR code - must be the full network URL accessible from mobile devices
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://192.168.1.100:3001';
 
-// Employee data matching backend
-const employees = [
-  { id: 'EMP001', name: 'Zaid', role: 'CEO & Founder', department: 'Engineering', email: 'zaid@company.com', address: '0xcB65d5364c1aF83Bf77344634EE4029b765F0167' },
-  { id: 'EMP002', name: 'Sarah', role: 'CTO', department: 'Engineering', email: 'sarah@company.com', address: '0x2345678901234567890123456789012345678901' },
-  { id: 'EMP003', name: 'Mike', role: 'Head of Security', department: 'Security', email: 'mike@company.com', address: '0x3456789012345678901234567890123456789012' },
-  { id: 'EMP004', name: 'Lisa', role: 'Product Manager', department: 'Product', email: 'lisa@company.com', address: '0x4567890123456789012345678901234567890123' }
-];
+type PortalMode = 'login' | 'admin';
+type BadgeType = 'employee' | 'manager' | 'admin' | 'auditor';
+type AuthStep = 'login' | 'qr' | 'authenticated';
+type PortalSection = 'dashboard' | 'projects' | 'security' | 'blockchain' | 'analytics' | 'audit';
 
-interface AuthChallenge {
-  challengeId: string;
-  challenge: string;
-  message: string;
-  timestamp: number;
-}
-
-interface Employee {
+interface EmployeeRecord {
   id: string;
   name: string;
-  role: string;
   department: string;
   email: string;
   address: string;
+  did: string;
+  active: boolean;
+  badge: BadgeType;
+  permissions: string[];
+  hashId: string;
+  challengeFingerprint?: string;
 }
 
-interface DashboardStats {
-  totalEmployees: number;
-  activeProjects: number;
-  securityScore: number;
-  systemUptime: string;
+interface ChallengeData {
+  challengeId: string;
+  challenge: string;
+  qrCodeData: string;
+  employee?: EmployeeRecord;
 }
+
+interface StatusData {
+  status: 'pending' | 'completed';
+  token?: string;
+  did?: string;
+  userAddress?: string;
+  employeeId?: string;
+  employeeName?: string;
+  badge?: BadgeType;
+  permissions?: string[];
+  hashId?: string;
+}
+
+interface AdminBadgeData {
+  employee: EmployeeRecord;
+  badge: {
+    badge: BadgeType;
+    label: string;
+    challengeScope: string;
+    permissions: string[];
+  };
+}
+
+interface ProjectRecord {
+  code: string;
+  name: string;
+  ownerId: string;
+  owner: string;
+  progress: number;
+  risk: 'Low' | 'Medium' | 'High';
+  networkTx: number;
+  budget: string;
+  eta: string;
+  teamMembers: string[];
+}
+
+const BADGE_OPTIONS: Array<{ value: BadgeType; label: string }> = [
+  { value: 'employee', label: 'Employee' },
+  { value: 'manager', label: 'Manager' },
+  { value: 'admin', label: 'Admin' },
+  { value: 'auditor', label: 'Auditor' },
+];
+
+const PROJECT_DATASET: {
+  managerTeamMap: Record<string, string[]>;
+  catalog: ProjectRecord[];
+} = {
+  managerTeamMap: {
+    EMP001: ['EMP001', 'EMP002', 'EMP003', 'EMP004'],
+    EMP002: ['EMP002', 'EMP003', 'EMP004'],
+  },
+  catalog: [
+  {
+    code: 'PRJ-001',
+    name: 'DID Wallet Authentication Revamp',
+    ownerId: 'EMP001',
+    owner: 'Zaid',
+    progress: 84,
+    risk: 'Medium',
+    networkTx: 128,
+    budget: '$46,000',
+    eta: '6 days',
+    teamMembers: ['EMP001', 'EMP002', 'EMP003'],
+  },
+  {
+    code: 'PRJ-002',
+    name: 'Role Credential Issuance Automation',
+    ownerId: 'EMP002',
+    owner: 'Hassaan',
+    progress: 71,
+    risk: 'Low',
+    networkTx: 93,
+    budget: '$32,500',
+    eta: '11 days',
+    teamMembers: ['EMP002', 'EMP003', 'EMP004'],
+  },
+  {
+    code: 'PRJ-003',
+    name: 'Enterprise Access Insights Dashboard',
+    ownerId: 'EMP003',
+    owner: 'Atharva',
+    progress: 63,
+    risk: 'Medium',
+    networkTx: 77,
+    budget: '$27,300',
+    eta: '15 days',
+    teamMembers: ['EMP003', 'EMP004'],
+  },
+  {
+    code: 'PRJ-004',
+    name: 'Auditor Evidence Vault Integration',
+    ownerId: 'EMP004',
+    owner: 'Gracian',
+    progress: 58,
+    risk: 'Medium',
+    networkTx: 42,
+    budget: '$19,800',
+    eta: '19 days',
+    teamMembers: ['EMP004', 'EMP001'],
+  },
+  {
+    code: 'PRJ-005',
+    name: 'Sepolia Traceability Control Plane',
+    ownerId: 'EMP002',
+    owner: 'Hassaan',
+    progress: 52,
+    risk: 'High',
+    networkTx: 156,
+    budget: '$54,900',
+    eta: '24 days',
+    teamMembers: ['EMP001', 'EMP002', 'EMP003', 'EMP004'],
+  },
+  ],
+};
 
 const EnterprisePortalProfessional: React.FC = () => {
-  const [employeeId, setEmployeeId] = useState('');
-  const [authStep, setAuthStep] = useState<'login' | 'qr' | 'scanning' | 'authenticated'>('login');
-  
-  // Quick access to authenticated dashboard for UI development
-  // const quickAuthForTesting = () => {
-  //   const testEmployee = employees[0]; // Use Zaid as test user
-  //   setCurrentEmployee(testEmployee);
-  //   setAuthStep('authenticated');
-  //   localStorage.setItem('authToken', 'test-token-123');
-  //   localStorage.setItem('currentEmployee', JSON.stringify(testEmployee));
-  // };
-  const [qrCodeUrl, setQrCodeUrl] = useState('');
-  const [currentEmployee, setCurrentEmployee] = useState<Employee | null>(null);
-  const [challenge, setChallenge] = useState<AuthChallenge | null>(null);
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const [mode, setMode] = useState<PortalMode>(location.pathname.startsWith('/admin') ? 'admin' : 'login');
   const [isConnected, setIsConnected] = useState(false);
-  const [showWelcome, setShowWelcome] = useState(false);
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [dashboardStats] = useState<DashboardStats>({
-    totalEmployees: 2847,
-    activeProjects: 127,
-    securityScore: 98,
-    systemUptime: '99.9%'
-  });
+  const [employeeId, setEmployeeId] = useState('');
+  const [authStep, setAuthStep] = useState<AuthStep>('login');
+  const [challengeData, setChallengeData] = useState<ChallengeData | null>(null);
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [authStatus, setAuthStatus] = useState<StatusData | null>(null);
+  const [portalSection, setPortalSection] = useState<PortalSection>('dashboard');
 
-  // ZK Proof states
-  const [zkInputId, setZkInputId] = useState('');
-  const [zkProofType, setZkProofType] = useState<'groth16' | 'plonk' | 'stark'>('groth16');
-  const [zkVerifying, setZkVerifying] = useState(false);
-  const [zkResult, setZkResult] = useState<{ success: boolean; certId: string; steps: string[]; proofType: string } | null>(null);
+  const [adminToken, setAdminToken] = useState(localStorage.getItem('admin_token') || 'admin-dev-token');
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('EMP001');
+  const [selectedBadge, setSelectedBadge] = useState<BadgeType>('employee');
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminMessage, setAdminMessage] = useState('');
 
-  // Hardcoded certificate registry — no database needed
-  const ZK_CERTIFICATES: Record<string, { holder: string; course: string; issuer: string; issued: string; expires: string }> = {
-    'CERT-123': { holder: 'Zaid Ansari', course: 'Blockchain Fundamentals', issuer: 'DID Platform', issued: '2025-01-15', expires: '2027-01-15' },
-    'CERT-456': { holder: 'Hassaan Sheikh', course: 'Zero-Knowledge Proofs', issuer: 'DID Platform', issued: '2025-03-10', expires: '2027-03-10' },
-    'CERT-789': { holder: 'Atharva Tike', course: 'Decentralized Identity', issuer: 'DID Platform', issued: '2025-06-01', expires: '2027-06-01' },
-    'CERT-001': { holder: 'Gracian Lopes', course: 'Smart Contract Security', issuer: 'DID Platform', issued: '2024-11-20', expires: '2026-11-20' },
-  };
+  const [error, setError] = useState('');
 
-  const ZK_PROOF_TYPES = {
-    groth16: {
-      label: 'Groth16',
-      desc: 'Constant-size proofs, fastest verification, trusted setup required.',
-      steps: [
-        '🔐 Generating Pedersen commitment hash...',
-        '📐 Building R1CS arithmetic circuit...',
-        '🔢 Computing witness assignment...',
-        '⚡ Running Groth16 prover (BN254 curve)...',
-        '📦 Generating π_A, π_B, π_C proof elements...',
-        '✅ Verifying proof against verification key...',
-      ],
-    },
-    plonk: {
-      label: 'PLONK',
-      desc: 'Universal trusted setup, efficient for complex circuits.',
-      steps: [
-        '🔐 Hashing credential into field element...',
-        '📐 Compiling constraint system to PLONK gates...',
-        '🔢 Computing permutation argument (Z polynomial)...',
-        '🎲 Sampling verifier challenges via Fiat-Shamir...',
-        '⚡ Evaluating quotient polynomial T(x)...',
-        '✅ Running KZG polynomial commitment check...',
-      ],
-    },
-    stark: {
-      label: 'STARKs',
-      desc: 'No trusted setup, quantum-resistant, larger proof size.',
-      steps: [
-        '🔐 Encoding execution trace as polynomial...',
-        '📐 Expanding trace with Low-Degree Extension (LDE)...',
-        '🌳 Building Merkle tree over LDE codeword...',
-        '🎲 Generating FRI folding challenges...',
-        '⚡ Running FRI proximity proof rounds...',
-        '✅ Verifying STARK proof — no trusted setup needed...',
-      ],
-    },
-  };
+  const currentEmployee = useMemo(() => {
+    const sourceEmployeeId = authStatus?.employeeId || challengeData?.employee?.id;
+    return employees.find((employee) => employee.id === sourceEmployeeId) || challengeData?.employee || null;
+  }, [authStatus?.employeeId, challengeData?.employee, employees]);
 
-  const handleZkVerify = async () => {
-    const id = zkInputId.trim().toUpperCase();
-    if (!id) return;
-    setZkVerifying(true);
-    setZkResult(null);
-    const proofDef = ZK_PROOF_TYPES[zkProofType];
-    const steps: string[] = [];
-    for (const step of proofDef.steps) {
-      await new Promise(r => setTimeout(r, 380 + Math.random() * 200));
-      steps.push(step);
-    }
-    const found = ZK_CERTIFICATES[id];
-    setZkResult({ success: !!found, certId: id, steps, proofType: proofDef.label });
-    setZkVerifying(false);
-  };
-
-  // Check connection status
   useEffect(() => {
     const checkConnection = async () => {
       try {
-        console.log('🔍 Checking backend health...');
-        console.log('🔧 API_BASE_URL:', API_BASE_URL);
-        console.log('🌐 Environment variables:', {
-          VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL,
-          NODE_ENV: import.meta.env.NODE_ENV,
-          MODE: import.meta.env.MODE
-        });
-        
         const response = await fetch(`${API_BASE_URL}/health`);
-        const isHealthy = response.ok;
-        console.log(`🏥 Backend health check:`, { 
-          url: `${API_BASE_URL}/health`,
-          status: response.status, 
-          ok: response.ok, 
-          healthy: isHealthy,
-          headers: Object.fromEntries(response.headers.entries())
-        });
-        setIsConnected(isHealthy);
-      } catch (error) {
-        console.error('❌ Health check failed:', error);
-        console.error('❌ Error details:', {
-          message: (error as Error).message,
-          name: (error as Error).name,
-          stack: (error as Error).stack
-        });
+        setIsConnected(response.ok);
+      } catch {
         setIsConnected(false);
       }
     };
-    
-    // Initial check
+
     checkConnection();
-    
-    // Set up periodic health checks every 10 seconds
-    const healthInterval = setInterval(checkConnection, 10000);
-    
-    return () => clearInterval(healthInterval);
+    const intervalId = setInterval(checkConnection, 10000);
+    return () => clearInterval(intervalId);
   }, []);
 
-  // Check for existing session
   useEffect(() => {
-    const token = localStorage.getItem('authToken');
-    const employeeData = localStorage.getItem('currentEmployee');
-    
-    if (token && employeeData) {
-      setCurrentEmployee(JSON.parse(employeeData));
-      setAuthStep('authenticated');
-    }
-  }, []);
+    setMode(location.pathname.startsWith('/admin') ? 'admin' : 'login');
+  }, [location.pathname]);
 
-  const handleLogin = async () => {
+  useEffect(() => {
+    if (mode === 'admin') {
+      void loadEmployees();
+    }
+  }, [mode]);
+
+  const getAuthHeaders = (tokenOverride?: string) => ({
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${tokenOverride || adminToken}`,
+  });
+
+  const loadEmployees = async () => {
+    setAdminLoading(true);
+    setError('');
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/employees`, {
+        headers: getAuthHeaders(),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || 'Failed to load employees');
+      }
+      setEmployees(payload.data || []);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load employees');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const applyBadge = async () => {
+    if (!selectedEmployeeId) return;
+    setAdminLoading(true);
+    setAdminMessage('');
+    setError('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/employees/${selectedEmployeeId}/badge`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ badge: selectedBadge }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || 'Failed to assign badge');
+      }
+
+      const data = payload.data as AdminBadgeData;
+      setAdminMessage(`Badge updated: ${data.employee.name} -> ${data.badge.label}. New challenge scope: ${data.badge.challengeScope}`);
+      await loadEmployees();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to assign badge');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const startLogin = async () => {
+    setError('');
+    setAuthStatus(null);
+
     if (!employeeId.trim()) {
-      alert('Please enter your Employee ID');
-      return;
-    }
-
-    const employee = employees.find(emp => emp.id === employeeId.trim());
-    if (!employee) {
-      alert('Employee ID not found. Please contact your administrator.');
+      setError('Please enter employee ID');
       return;
     }
 
     try {
       const response = await fetch(`${API_BASE_URL}/auth/challenge`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          employeeId: employee.id,
-          address: employee.address,
-          domain: 'enterprise.portal.com'
+          employeeId: employeeId.trim().toUpperCase(),
+          requestType: 'portal_access',
+          companyId: 'dtp_enterprise_001',
         }),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to generate challenge');
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || 'Failed to generate challenge');
       }
 
-      const challengeResponse = await response.json();
-      console.log('Challenge data received:', JSON.stringify(challengeResponse, null, 2)); // More detailed debug log
-      
-      // Extract the actual challenge data from the nested response
-      const challengeData = challengeResponse.data;
-      setChallenge(challengeData);
-      setCurrentEmployee(employee);
-
-      // Generate QR code - keep payload minimal for better camera readability
-      const qrData = JSON.stringify({
-        type: "did-auth-request",
-        challengeId: challengeData.challengeId,
-        challenge: challengeData.challenge,
-        domain: "enterprise-portal",
-        timestamp: challengeData.timestamp || Date.now(),
-        apiEndpoint: `${BACKEND_URL}/api/auth/verify`,
-        emp: employee.id,
-      });
-
-      const qrUrl = await QRCode.toDataURL(qrData, {
-        width: 400,
+      const data = payload.data as ChallengeData;
+      setChallengeData(data);
+      const qr = await QRCode.toDataURL(data.qrCodeData, {
+        width: 360,
         margin: 2,
-        errorCorrectionLevel: 'M',
-        color: {
-          dark: '#000000',
-          light: '#ffffff'
-        }
+        color: { dark: '#000000', light: '#ffffff' },
       });
-
-      setQrCodeUrl(qrUrl);
+      setQrCodeUrl(qr);
       setAuthStep('qr');
-      
-      // Start polling for authentication using the actual challengeId from the API response
-      startAuthenticationPolling(challengeData.challengeId);
-      
-    } catch (error) {
-      console.error('Authentication error:', error);
-      alert('Authentication failed. Please try again.');
+
+      startPolling(data.challengeId);
+    } catch (err: any) {
+      setError(err?.message || 'Authentication request failed');
     }
   };
 
-  const startAuthenticationPolling = (challengeId: string) => {
-    console.log('🔄 Starting polling for challengeId:', challengeId);
-    const pollInterval = setInterval(async () => {
+  const startPolling = (challengeId: string) => {
+    const intervalId = setInterval(async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/auth/status/${challengeId}`);
-        const statusResponse = await response.json();
-        console.log('📡 Polling response:', JSON.stringify(statusResponse));
-        
-        const statusData = statusResponse.data;
+        const payload = await response.json();
 
-        // Transition as soon as status is completed — don't block on token presence
-        if (statusData && statusData.status === 'completed') {
-          clearInterval(pollInterval);
-          console.log('✅ Authentication completed! Token:', statusData.token ? 'present' : 'missing');
-          
-          // Store authentication data
-          const token = statusData.token || `demo-token-${challengeId}`;
-          localStorage.setItem('authToken', token);
-          if (statusData.userAddress) {
-            localStorage.setItem('userAddress', statusData.userAddress);
-          }
-          
-          // Use currentEmployee already set, or try to match by address
-          const authenticatedEmployee = (statusData.userAddress
-            ? employees.find(emp => emp.address?.toLowerCase() === statusData.userAddress?.toLowerCase())
-            : null) || currentEmployee;
-          if (authenticatedEmployee) {
-            localStorage.setItem('currentEmployee', JSON.stringify(authenticatedEmployee));
-            setCurrentEmployee(authenticatedEmployee);
-          }
-          
-          setAuthStep('authenticated');
-          setShowWelcome(true);
-          setTimeout(() => setShowWelcome(false), 3000);
-        } else if (statusResponse.success === false) {
-          // Challenge expired or not found — stop polling
-          console.warn('⚠️ Polling stopped:', statusResponse.error);
-          clearInterval(pollInterval);
+        if (!response.ok || !payload.success) {
+          clearInterval(intervalId);
+          return;
         }
-      } catch (error) {
-        console.error('❌ Polling error:', error);
+
+        const data = payload.data as StatusData;
+        if (data.status === 'completed' && data.token) {
+          clearInterval(intervalId);
+          setAuthStatus(data);
+          localStorage.setItem('authToken', data.token);
+          localStorage.setItem('rbac_badge', data.badge || 'employee');
+          localStorage.setItem('rbac_permissions', JSON.stringify(data.permissions || []));
+          setAuthStep('authenticated');
+        }
+      } catch {
+        clearInterval(intervalId);
       }
-    }, 2000); // Poll every 2 seconds
+    }, 2000);
 
-    // Clear polling after 5 minutes
-    setTimeout(() => clearInterval(pollInterval), 300000);
+    setTimeout(() => clearInterval(intervalId), 5 * 60 * 1000);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('currentEmployee');
-    setCurrentEmployee(null);
+  const logout = () => {
     setAuthStep('login');
-    setEmployeeId('');
+    setChallengeData(null);
     setQrCodeUrl('');
-    setChallenge(null);
-    setActiveTab('dashboard');
+    setAuthStatus(null);
+    setEmployeeId('');
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('rbac_badge');
+    localStorage.removeItem('rbac_permissions');
+    setPortalSection('dashboard');
+    navigate('/login');
   };
 
+  const saveAdminToken = () => {
+    localStorage.setItem('admin_token', adminToken);
+    void loadEmployees();
+  };
 
-
-  const renderLoginScreen = () => (
-    <div className="min-h-screen bg-black flex flex-col relative overflow-hidden">
-      {/* Animated Orb Background - Single Central Orb */}
-      <div className="absolute inset-0 opacity-60">
-        <Orb hue={242} hoverIntensity={2.0} rotateOnHover={true} />
+  const renderTopNav = () => (
+    <div className="relative z-20 border-b border-white/10 bg-black/30 backdrop-blur-xl">
+      <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-center">
+        <h1 className="text-white text-xl font-bold">Decentralized Authentication Platform</h1>
       </div>
+    </div>
+  );
 
-      {/* Navigation Header */}
-      <nav style={{
-        background: 'rgba(255, 255, 255, 0.05)',
-        backdropFilter: 'blur(20px) saturate(150%)',
-        WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
-      }} className="relative z-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-center items-center py-6">
-            <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 via-purple-600 to-indigo-700 rounded-xl flex items-center justify-center shadow-xl shadow-purple-500/20">
-                <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                </svg>
-              </div>
-              <h1 className="text-2xl font-bold text-white tracking-tight drop-shadow-lg">
-                Decentralized Identity Authentication
-              </h1>
-            </div>
-          </div>
-        </div>
-      </nav>
+  const renderLoginPortal = () => {
+    if (authStep === 'authenticated') {
+      const badge = authStatus?.badge || 'employee';
+      const permissions = authStatus?.permissions || [];
+      const isEmployee = badge === 'employee';
+      const isManager = badge === 'manager';
+      const isAuditor = badge === 'auditor';
+      const isManagerOrHigher = badge === 'manager' || badge === 'admin';
+      const isAdmin = badge === 'admin';
+      const canSeeAnalytics = isManager || isAdmin;
+      const canSeeAuditSections = isAuditor || isAdmin;
+      const etherscanBase = 'https://sepolia.etherscan.io';
 
-      {/* Login Content */}
-      <div className="flex-1 flex items-center justify-center p-6">
-        {/* Main Login Card */}
-        <div className="relative w-full max-w-lg z-10">
-        <div className="bg-white/10 backdrop-blur-2xl backdrop-saturate-150 rounded-2xl shadow-2xl p-8 border border-white/20 shadow-black/20">
-          {/* Header Card */}
-          <div className="text-center mb-8">
-            <div className="w-20 h-20 bg-gradient-to-br from-blue-600 via-purple-600 to-indigo-700 rounded-2xl mx-auto mb-6 flex items-center justify-center shadow-lg transform rotate-3 hover:rotate-0 transition-transform duration-300">
-              <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-            </div>
-            <h1 className="text-3xl font-bold text-white mb-2">Enterprise Portal</h1>
-            <p className="text-gray-300 font-medium">Secure • Decentralized • Innovative</p>
-          </div>
+      const roleTabs: Array<{ key: PortalSection; label: string }> = [
+        { key: 'dashboard', label: 'Dashboard' },
+        { key: 'projects', label: 'Projects' },
+        { key: 'security', label: 'Security' },
+        { key: 'blockchain', label: 'Blockchain' },
+      ];
 
-          {/* Connection Status Card */}
-          <div className={`flex items-center justify-center mb-6 p-4 rounded-xl border backdrop-blur-md transition-all ${
-            isConnected 
-              ? 'bg-green-500/20 text-green-200 border-green-400/30 shadow-green-500/20' 
-              : 'bg-red-500/20 text-red-200 border-red-400/30 shadow-red-500/20'
-          } shadow-lg`}>
-            <div className={`w-3 h-3 rounded-full mr-3 animate-pulse ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
-            <span className="font-semibold">{isConnected ? '🟢 System Online' : '🔴 System Offline'}</span>
-          </div>
+      if (canSeeAnalytics) {
+        roleTabs.push({ key: 'analytics', label: 'Analytics' });
+      }
 
-          {/* Login Form Card */}
-          <div className="bg-white/10 backdrop-blur-md rounded-xl p-6 mb-6 border border-white/20 shadow-inner">
+      if (canSeeAuditSections) {
+        roleTabs.push({ key: 'audit', label: 'Audit & Compliance' });
+      }
+
+      const currentEmployeeId = authStatus?.employeeId || currentEmployee?.id || '';
+      const managerTeam = PROJECT_DATASET.managerTeamMap[currentEmployeeId] || [currentEmployeeId];
+
+      const projectPortfolio = PROJECT_DATASET.catalog.filter((project) => {
+        if (isAdmin || isAuditor) return true;
+        if (isManager) return managerTeam.includes(project.ownerId) || project.teamMembers.some((member) => managerTeam.includes(member));
+        return project.ownerId === currentEmployeeId || project.teamMembers.includes(currentEmployeeId);
+      });
+
+      const securityEvents = [
+        { id: 'SEC-2481', severity: 'high', title: 'Repeated failed signature verification attempts', status: 'Investigating', owner: 'SOC Team', eta: '2h' },
+        { id: 'SEC-2482', severity: 'medium', title: 'Suspicious role escalation request blocked', status: 'Mitigated', owner: 'IAM Team', eta: 'Closed' },
+        { id: 'SEC-2483', severity: 'low', title: 'Outdated employee session token expired', status: 'Closed', owner: 'Platform Ops', eta: 'Closed' },
+      ];
+
+      const threatLandscape = [
+        { vector: 'Credential Replay', probability: 'Medium', impact: 'High', control: 'Nonce binding + short TTL' },
+        { vector: 'Phishing-driven signing', probability: 'Medium', impact: 'High', control: 'Domain-bound challenge + wallet warnings' },
+        { vector: 'Insider role abuse', probability: 'Low', impact: 'High', control: 'Dual approval + audit trail' },
+      ];
+
+      const incidentPlaybook = [
+        { phase: 'Detect', action: 'SIEM alerting on anomalous signature and role mutation patterns' },
+        { phase: 'Contain', action: 'Auto-suspend suspicious sessions and freeze badge changes' },
+        { phase: 'Eradicate', action: 'Rotate affected keys, revoke compromised credentials' },
+        { phase: 'Recover', action: 'Reissue credentials and verify policy baselines' },
+        { phase: 'Review', action: 'Post-incident RCA with control backlog updates' },
+      ];
+
+      const blockchainRoutes = [
+        { route: 'Auth Gateway -> Credential Router', fromBlock: 5567131, toBlock: 5567159, level: 'L1', confidence: 'Finalized' },
+        { route: 'Credential Router -> Policy Engine', fromBlock: 5567160, toBlock: 5567204, level: 'L2', confidence: 'Confirmed' },
+        { route: 'Policy Engine -> Audit Anchor', fromBlock: 5567205, toBlock: 5567240, level: 'L3', confidence: 'Conceptual' },
+      ];
+
+      const weeklyVerificationSeries = [1220, 1290, 1335, 1410, 1482, 1540, 1610];
+      const blockDepthDistribution = [12, 24, 38, 52, 67, 58, 44, 31, 19, 10];
+      const incidentLoadSeries = [11, 9, 13, 7, 5, 6, 4];
+      const projectBurnupSeries = [42, 48, 56, 61, 68, 74, 81, 88];
+
+      const walletAddress = authStatus?.userAddress || currentEmployee?.address || '';
+      const didAddress = currentEmployee?.did?.replace('did:ethr:', '') || '';
+      const txHref = walletAddress ? `${etherscanBase}/address/${walletAddress}` : etherscanBase;
+      const didHref = didAddress ? `${etherscanBase}/address/${didAddress}` : etherscanBase;
+      const contractHref = `${etherscanBase}/address/0x7f9A20f9B2AB78f98A4f0E4e1FdEaA67543D1bA2`;
+
+      const exportWholeReport = () => {
+        const report = {
+          generatedAt: new Date().toISOString(),
+          employee: {
+            id: currentEmployee?.id,
+            name: currentEmployee?.name,
+            badge,
+            permissions,
+          },
+          projects: projectPortfolio,
+          securityEvents,
+          threatLandscape,
+          incidentPlaybook,
+          blockchainRoutes,
+        };
+
+        const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `enterprise-report-${currentEmployee?.id || 'user'}-${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      };
+
+      const renderSection = () => {
+        if (portalSection === 'dashboard') {
+          return (
             <div className="space-y-5">
-              <div>
-                <label className="block text-sm font-semibold text-gray-200 mb-3">Employee Identification</label>
-                <input
-                  type="text"
-                  value={employeeId}
-                  onChange={(e) => setEmployeeId(e.target.value)}
-                  className="w-full px-4 py-3 bg-white/20 backdrop-blur-sm border border-white/30 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:border-blue-400/60 focus:ring-4 focus:ring-blue-400/20 transition-all font-medium"
-                  placeholder="Enter your Employee ID (e.g., EMP001)"
-                  onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
-                />
+              <div className="grid md:grid-cols-4 gap-4">
+                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
+                  <p className="text-slate-300 text-sm">Identity Health</p>
+                  <p className="text-white text-2xl font-semibold">97.2%</p>
+                </div>
+                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
+                  <p className="text-slate-300 text-sm">Active Sessions</p>
+                  <p className="text-white text-2xl font-semibold">412</p>
+                </div>
+                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
+                  <p className="text-slate-300 text-sm">Credential Validity</p>
+                  <p className="text-white text-2xl font-semibold">99.1%</p>
+                </div>
+                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
+                  <p className="text-slate-300 text-sm">Open Risks</p>
+                  <p className="text-white text-2xl font-semibold">6</p>
+                </div>
               </div>
 
-              <button
-                onClick={handleLogin}
-                disabled={!isConnected}
-                className="w-full bg-gradient-to-r from-blue-500/80 to-purple-600/80 hover:from-blue-600/90 hover:to-purple-700/90 disabled:from-gray-500/60 disabled:to-gray-600/60 backdrop-blur-sm text-white font-bold py-4 px-6 rounded-xl transition-all transform hover:scale-[1.02] hover:shadow-xl disabled:scale-100 disabled:cursor-not-allowed active:scale-[0.98] shadow-lg border border-white/20"
-              >
-                <div className="flex items-center justify-center space-x-2">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              <div className="grid md:grid-cols-2 gap-5">
+                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                  <h3 className="text-white font-semibold mb-3">Operational Highlights</h3>
+                  <ul className="text-slate-200 text-sm space-y-2">
+                    <li>Challenge success rate improved by 18.4% after badge-aware flow rollout.</li>
+                    <li>Median login round trip: 2.3s across the last 500 verifications.</li>
+                    <li>No unauthorized privilege grants in the last 14 days.</li>
+                  </ul>
+                </div>
+                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                  <h3 className="text-white font-semibold mb-3">Current Employee Context</h3>
+                  <p className="text-slate-200 text-sm">Name: {currentEmployee?.name || '-'}</p>
+                  <p className="text-slate-200 text-sm">Employee ID: {currentEmployee?.id || '-'}</p>
+                  <p className="text-slate-200 text-sm">Badge: <span className="uppercase">{badge}</span></p>
+                  <p className="text-slate-200 text-sm">Department: {currentEmployee?.department || '-'}</p>
+                  <p className="text-slate-200 text-sm break-all">Hash: {authStatus?.hashId || currentEmployee?.hashId || '-'}</p>
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-5">
+                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                  <h3 className="text-white font-semibold mb-3">Weekly Verification Volume</h3>
+                  <svg viewBox="0 0 420 160" className="w-full h-36">
+                    <polyline
+                      fill="none"
+                      stroke="#34d399"
+                      strokeWidth="3"
+                      points={weeklyVerificationSeries.map((v, i) => `${i * 70},${150 - (v - 1100) / 5}`).join(' ')}
+                    />
+                    <polyline
+                      fill="rgba(52, 211, 153, 0.15)"
+                      stroke="none"
+                      points={`0,150 ${weeklyVerificationSeries.map((v, i) => `${i * 70},${150 - (v - 1100) / 5}`).join(' ')} 420,150`}
+                    />
                   </svg>
-                  <span>{!isConnected ? 'System Offline' : 'Authenticate with Wallet'}</span>
                 </div>
-              </button>
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="text-center mt-6 pt-4 border-t border-white/20">
-            <p className="text-xs text-gray-400">Powered by Decentralized Identity Technology</p>
-          </div>
-        </div>
-      </div>
-      </div>
-    </div>
-  );
-
-  const renderQRScreen = () => (
-    <div className="min-h-screen bg-black flex flex-col relative overflow-hidden">
-      {/* Animated Orb Background - Single Central Orb */}
-      <div className="absolute inset-0 opacity-60">
-        <Orb hue={242} hoverIntensity={2.0} rotateOnHover={true} />
-      </div>
-
-      {/* Navigation Header */}
-      <nav style={{
-        background: 'rgba(255, 255, 255, 0.05)',
-        backdropFilter: 'blur(20px) saturate(150%)',
-        WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
-      }} className="relative z-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-center items-center py-6">
-            <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 via-purple-600 to-indigo-700 rounded-xl flex items-center justify-center shadow-xl shadow-purple-500/20">
-                <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                </svg>
-              </div>
-              <h1 className="text-2xl font-bold text-white tracking-tight drop-shadow-lg">
-                Decentralized Identity Authentication
-              </h1>
-            </div>
-          </div>
-        </div>
-      </nav>
-
-      {/* QR Content */}
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div className="relative bg-white/10 backdrop-blur-xl rounded-3xl shadow-2xl p-8 w-full max-w-lg border border-white/20 z-10">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-gradient-to-r from-green-500 to-blue-600 rounded-2xl mx-auto mb-4 flex items-center justify-center shadow-xl">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <h2 className="text-2xl font-bold text-white mb-2">Wallet Authentication</h2>
-          <p className="text-blue-200">Scan QR code with your mobile wallet</p>
-        </div>
-
-        {/* Employee Info */}
-        {currentEmployee && (
-          <div className="bg-white/10 rounded-xl p-4 mb-6 border border-white/20">
-            <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white font-bold text-lg">
-                {currentEmployee.name[0]}
-              </div>
-              <div>
-                <h3 className="text-white font-semibold">{currentEmployee.name}</h3>
-                <p className="text-blue-200 text-sm">{currentEmployee.role}</p>
-                <p className="text-blue-300 text-xs">{currentEmployee.department}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* QR Code with Glassmorphism */}
-        <div 
-          className="rounded-2xl p-6 mb-6 border border-white/20"
-          style={{
-            background: 'rgba(255, 255, 255, 0.1)',
-            backdropFilter: 'blur(20px) saturate(150%)',
-            WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-          }}
-        >
-          {qrCodeUrl && (
-            <div className="bg-white rounded-xl p-4 mx-auto w-fit">
-              <img src={qrCodeUrl} alt="Authentication QR Code" className="w-full max-w-xs mx-auto" />
-            </div>
-          )}
-        </div>
-
-        {/* Instructions */}
-        <div className="space-y-4 text-center">
-          <div className="flex items-center justify-center space-x-2 text-blue-200">
-            <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
-            <span>Waiting for wallet authentication...</span>
-          </div>
-          
-          <div className="text-sm text-blue-300">
-            <div className="mb-2">📱 Open your DID wallet (e.g., secure-wallet-local.html)</div>
-            <div className="mb-2">📷 Copy and paste the QR data into the wallet</div>
-            <div className="mb-2">🔐 The wallet will show your DID: did:ethr:your-address</div>
-            <div>✅ Approve the authentication request</div>
-          </div>
-          
-          {/* Debug info for developers */}
-          <div className="mt-4 p-3 bg-black/20 rounded-lg text-xs text-gray-300">
-            <div className="font-mono break-all">
-              Challenge ID: {challenge?.challengeId}
-            </div>
-            <div className="mt-2">
-              Expected DID: did:ethr:{currentEmployee?.address}
-            </div>
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="space-y-3 mt-6">
-          <button
-            onClick={() => {
-              // Open the wallet server in a new tab for easy testing
-              window.open('http://localhost:3002', '_blank');
-            }}
-            className="w-full bg-green-500/80 hover:bg-green-600/90 backdrop-blur-sm text-white py-3 px-6 rounded-xl transition-all border border-white/20"
-          >
-            🔓 Open DID Wallet
-          </button>
-          
-          <button
-            onClick={() => setAuthStep('login')}
-            className="w-full bg-white/10 hover:bg-white/20 border border-white/20 text-white py-3 px-6 rounded-xl transition-all"
-          >
-            Cancel Authentication
-          </button>
-        </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderDashboard = () => (
-    <div className="min-h-screen bg-black relative overflow-hidden">
-      {/* PixelBlast Background Animation */}
-      <div className="absolute inset-0 opacity-70">
-        <PixelBlast
-          variant="circle"
-          pixelSize={6}
-          color="#8B5CF6"
-          patternScale={3}
-          patternDensity={1.8}
-          enableRipples={true}
-          rippleIntensityScale={1.5}
-          rippleSpeed={0.4}
-          speed={0.8}
-          transparent={true}
-          edgeFade={0.3}
-        />
-      </div>
-
-      {/* Header with Glassmorphism */}
-      <header style={{
-        background: 'rgba(255, 255, 255, 0.05)',
-        backdropFilter: 'blur(20px) saturate(150%)',
-        WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
-      }} className="relative z-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center space-x-4">
-              <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                </svg>
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-white">Enterprise Portal</h1>
-                <p className="text-sm text-gray-300">Decentralized Trust Platform</p>
-              </div>
-            </div>
-
-            {currentEmployee && (
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white font-bold">
-                    {currentEmployee.name[0]}
-                  </div>
-                  <div className="hidden md:block">
-                    <p className="text-sm font-medium text-white">{currentEmployee.name}</p>
-                    <p className="text-xs text-gray-300">{currentEmployee.role}</p>
-                  </div>
-                </div>
-                <button
-                  onClick={handleLogout}
-                  className="bg-red-500/80 hover:bg-red-600/90 backdrop-blur-sm text-white px-4 py-2 rounded-lg text-sm font-medium transition-all border border-white/20 hover:scale-105"
-                >
-                  Logout
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* Welcome Message with Glassmorphism */}
-      {showWelcome && (
-        <div 
-          className="fixed top-4 right-4 z-50 text-white px-6 py-4 rounded-lg shadow-xl transform transition-all animate-pulse border border-white/20"
-          style={{
-            background: 'rgba(34, 197, 94, 0.2)',
-            backdropFilter: 'blur(20px) saturate(150%)',
-            WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-            boxShadow: '0 8px 32px rgba(34, 197, 94, 0.3)'
-          }}
-        >
-          <div className="flex items-center space-x-2">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            <span className="font-medium">Welcome back, {currentEmployee?.name}!</span>
-          </div>
-        </div>
-      )}
-
-      {/* Navigation - Invisible Background with Glassmorphism Buttons */}
-      <nav className="relative z-10 border-b border-white/10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex space-x-4">
-            {[
-              { id: 'dashboard', label: 'Dashboard', icon: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z' },
-              { id: 'projects', label: 'Projects', icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
-              { id: 'security', label: 'Security', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
-              { id: 'blockchain', label: 'Blockchain', icon: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1' },
-              { id: 'analytics', label: 'Analytics', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
-              { id: 'certificates', label: 'Zero Knowledge Proofs', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' }
-            ].map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center space-x-2 my-4 px-4 py-3 rounded-xl font-medium text-sm transition-all duration-300 hover:scale-105 border ${
-                  activeTab === tab.id
-                    ? 'text-blue-400 border-blue-400/30'
-                    : 'text-gray-300 hover:text-white border-white/20'
-                }`}
-                style={{
-                  background: activeTab === tab.id 
-                    ? 'rgba(59, 130, 246, 0.15)' 
-                    : 'rgba(255, 255, 255, 0.1)',
-                  backdropFilter: 'blur(20px) saturate(150%)',
-                  WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-                  boxShadow: activeTab === tab.id
-                    ? '0 8px 32px rgba(59, 130, 246, 0.2)'
-                    : '0 8px 32px rgba(0, 0, 0, 0.1)',
-                }}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} />
-                </svg>
-                <span>{tab.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </nav>
-
-      {/* Main Content with Dark Theme */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
-        {activeTab === 'dashboard' && (
-          <div className="space-y-6">
-            {/* Stats Grid with Glassmorphism */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {[
-                { label: 'Total Employees', value: dashboardStats.totalEmployees, icon: '👥', color: 'blue' },
-                { label: 'Active Projects', value: dashboardStats.activeProjects, icon: '📊', color: 'green' },
-                { label: 'Security Score', value: `${dashboardStats.securityScore}%`, icon: '🛡️', color: 'purple' },
-                { label: 'System Uptime', value: dashboardStats.systemUptime, icon: '⚡', color: 'yellow' }
-              ].map((stat, index) => (
-                <div 
-                  key={index} 
-                  className="rounded-xl p-6 border border-white/20 hover:scale-105 transition-all"
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    backdropFilter: 'blur(20px) saturate(150%)',
-                    WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-                  }}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-gray-300">{stat.label}</p>
-                      <p className="text-2xl font-bold text-white mt-1">{stat.value}</p>
-                    </div>
-                    <div className="text-2xl">{stat.icon}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Recent Activity with Glassmorphism */}
-            <div 
-              className="rounded-xl border border-white/20"
-              style={{
-                background: 'rgba(255, 255, 255, 0.1)',
-                backdropFilter: 'blur(20px) saturate(150%)',
-                WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              <div className="p-6 border-b border-white/20">
-                <h3 className="text-lg font-semibold text-white">Recent Activity</h3>
-              </div>
-              <div className="p-6">
-                <div className="space-y-4">
-                  {[
-                    { user: 'Sarah Chen', action: 'logged in via mobile wallet', time: '2 minutes ago', type: 'login' },
-                    { user: 'Mike Johnson', action: 'completed security audit', time: '15 minutes ago', type: 'security' },
-                    { user: 'Lisa Wong', action: 'created new project proposal', time: '1 hour ago', type: 'project' },
-                    { user: 'System', action: 'backup completed successfully', time: '2 hours ago', type: 'system' }
-                  ].map((activity, index) => (
-                    <div key={index} className="flex items-center space-x-3">
-                      <div className={`w-2 h-2 rounded-full ${
-                        activity.type === 'login' ? 'bg-green-400' :
-                        activity.type === 'security' ? 'bg-red-400' :
-                        activity.type === 'project' ? 'bg-blue-400' : 'bg-gray-400'
-                      }`}></div>
-                      <div className="flex-1">
-                        <p className="text-sm text-white">
-                          <span className="font-medium">{activity.user}</span> {activity.action}
-                        </p>
-                        <p className="text-xs text-gray-300">{activity.time}</p>
-                      </div>
-                    </div>
-                  ))}
+                <div className="rounded-xl bg-white/10 border border-white/15 p-5 overflow-x-auto">
+                  <h3 className="text-white font-semibold mb-3">Executive Snapshot</h3>
+                  <table className="w-full text-sm min-w-[420px]">
+                    <tbody>
+                      <tr className="border-b border-white/10">
+                        <td className="py-2 text-slate-300">Access SLA Compliance</td>
+                        <td className="py-2 text-slate-100 text-right">99.4%</td>
+                      </tr>
+                      <tr className="border-b border-white/10">
+                        <td className="py-2 text-slate-300">Privileged Role Drift</td>
+                        <td className="py-2 text-slate-100 text-right">0.7%</td>
+                      </tr>
+                      <tr className="border-b border-white/10">
+                        <td className="py-2 text-slate-300">On-chain Anchor Latency</td>
+                        <td className="py-2 text-slate-100 text-right">1.9s</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 text-slate-300">Audit Readiness</td>
+                        <td className="py-2 text-slate-100 text-right">High</td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        }
 
-        {activeTab === 'projects' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold text-white">Active Projects</h2>
-              <button 
-                className="px-6 py-2 rounded-lg font-medium transition-all duration-300 hover:scale-105 border border-white/20"
-                style={{
-                  background: 'rgba(59, 130, 246, 0.3)',
-                  backdropFilter: 'blur(20px) saturate(150%)',
-                  WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-                  color: 'white',
-                  boxShadow: '0 8px 32px rgba(59, 130, 246, 0.1)',
-                }}
-              >
-                New Project
-              </button>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {[
-                { name: 'DID Authentication Platform', progress: 85, team: 4, status: 'active' },
-                { name: 'Zero-Knowledge Proof System', progress: 60, team: 6, status: 'active' },
-                { name: 'Mobile Wallet Integration', progress: 95, team: 3, status: 'review' },
-                { name: 'Enterprise Portal Redesign', progress: 30, team: 5, status: 'planning' }
-              ].map((project, index) => (
-                <div 
-                  key={index} 
-                  className="rounded-xl p-6 border border-white/20 hover:scale-105 transition-all"
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    backdropFilter: 'blur(20px) saturate(150%)',
-                    WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-                  }}
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold text-white">{project.name}</h3>
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                      project.status === 'active' ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
-                      project.status === 'review' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' :
-                      'bg-gray-500/20 text-gray-400 border border-gray-500/30'
-                    }`}>
-                      {project.status}
-                    </span>
-                  </div>
-                  
-                  <div className="mb-4">
-                    <div className="flex justify-between text-sm text-gray-300 mb-1">
-                      <span>Progress</span>
-                      <span>{project.progress}%</span>
-                    </div>
-                    <div className="w-full bg-gray-700/50 rounded-full h-2">
-                      <div 
-                        className="bg-blue-400 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${project.progress}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center text-sm text-gray-300">
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                    {project.team} team members
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'security' && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-white">Security Dashboard</h2>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div 
-                className="rounded-xl p-6 border border-white/20"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  backdropFilter: 'blur(20px) saturate(150%)',
-                  WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-                  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-                }}
-              >
-                <h3 className="font-semibold text-white mb-4">Security Score</h3>
-                <div className="text-center">
-                  <div className="text-4xl font-bold text-green-400 mb-2">98%</div>
-                  <p className="text-sm text-gray-300">Excellent security posture</p>
-                </div>
-              </div>
-              
-              <div 
-                className="rounded-xl p-6 border border-white/20"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  backdropFilter: 'blur(20px) saturate(150%)',
-                  WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-                  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-                }}
-              >
-                <h3 className="font-semibold text-white mb-4">Recent Logins</h3>
-                <div className="space-y-3">
-                  {[
-                    { user: 'Zaid', time: '2 minutes ago', location: 'Mumbai, India' },
-                    { user: 'Sarah', time: '15 minutes ago', location: 'San Francisco, USA' },
-                    { user: 'Mike', time: '1 hour ago', location: 'London, UK' }
-                  ].map((login, index) => (
-                    <div key={index} className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-white">{login.user}</p>
-                        <p className="text-xs text-gray-300">{login.location}</p>
-                      </div>
-                      <span className="text-xs text-gray-300">{login.time}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'analytics' && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-white">Analytics Overview</h2>
-            
-            <div 
-              className="rounded-xl p-6 border border-white/20"
-              style={{
-                background: 'rgba(255, 255, 255, 0.1)',
-                backdropFilter: 'blur(20px) saturate(150%)',
-                WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              <h3 className="font-semibold text-white mb-4">Authentication Methods</h3>
-              <div className="space-y-4">
-                {[
-                  { method: 'Mobile Wallet', percentage: 75, count: 2135 },
-                  { method: 'Hardware Token', percentage: 20, count: 568 },
-                  { method: 'Biometric', percentage: 5, count: 142 }
-                ].map((method, index) => (
-                  <div key={index} className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <span className="text-sm font-medium text-white">{method.method}</span>
-                      <span className="text-xs text-gray-300">({method.count} users)</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <div className="w-24 bg-gray-700/50 rounded-full h-2">
-                        <div 
-                          className="bg-blue-400 h-2 rounded-full"
-                          style={{ width: `${method.percentage}%` }}
-                        ></div>
-                      </div>
-                      <span className="text-sm text-gray-300 w-10">{method.percentage}%</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'blockchain' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-white">🔗 Blockchain Data</h2>
-              <button
-                onClick={() => window.open('/blockchain', '_blank')}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-2M7 7l10 10M17 7v4" />
-                </svg>
-                <span>Open Full Viewer</span>
-              </button>
-            </div>
-            
-            <div 
-              className="rounded-xl p-6 border border-white/20"
-              style={{
-                background: 'rgba(255, 255, 255, 0.1)',
-                backdropFilter: 'blur(20px) saturate(150%)',
-                WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              <h3 className="font-semibold text-white mb-4">📊 DID Registry Overview</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-400">🌐</div>
-                  <div className="text-lg font-bold text-white">Sepolia</div>
-                  <div className="text-xs text-gray-300">Network</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-400">📄</div>
-                  <div className="text-lg font-bold text-white">Live</div>
-                  <div className="text-xs text-gray-300">Contract Status</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-purple-400">👥</div>
-                  <div className="text-lg font-bold text-white">-</div>
-                  <div className="text-xs text-gray-300">Registered DIDs</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-orange-400">📋</div>
-                  <div className="text-lg font-bold text-white">-</div>
-                  <div className="text-xs text-gray-300">Transactions</div>
-                </div>
-              </div>
-            </div>
-
-            <div 
-              className="rounded-xl p-6 border border-white/20"
-              style={{
-                background: 'rgba(255, 255, 255, 0.1)',
-                backdropFilter: 'blur(20px) saturate(150%)',
-                WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              <h3 className="font-semibold text-white mb-4">🔗 Quick Links</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <button
-                  onClick={() => window.open('https://sepolia.etherscan.io/address/0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48', '_blank')}
-                  className="flex items-center space-x-3 p-3 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-400/30 transition-colors"
-                >
-                  <span className="text-2xl">🔍</span>
-                  <div className="text-left">
-                    <div className="text-white font-medium">View Contract</div>
-                    <div className="text-blue-300 text-sm">Etherscan</div>
-                  </div>
-                </button>
-                
-                <button
-                  onClick={() => window.open('/blockchain', '_blank')}
-                  className="flex items-center space-x-3 p-3 rounded-lg bg-green-600/20 hover:bg-green-600/30 border border-green-400/30 transition-colors"
-                >
-                  <span className="text-2xl">📊</span>
-                  <div className="text-left">
-                    <div className="text-white font-medium">Live Dashboard</div>
-                    <div className="text-green-300 text-sm">Real-time Data</div>
-                  </div>
-                </button>
-              </div>
-            </div>
-
-            <div 
-              className="rounded-xl p-6 border border-white/20"
-              style={{
-                background: 'rgba(255, 255, 255, 0.1)',
-                backdropFilter: 'blur(20px) saturate(150%)',
-                WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              <h3 className="font-semibold text-white mb-4">📖 About DID Storage</h3>
-              <div className="text-gray-300 space-y-2 text-sm">
-                <p>• <strong className="text-white">Decentralized Identifiers (DIDs)</strong> are stored on the Sepolia testnet blockchain</p>
-                <p>• <strong className="text-white">User addresses and public keys</strong> are registered when employees authenticate</p>
-                <p>• <strong className="text-white">Immutable records</strong> provide audit trails for all identity operations</p>
-                <p>• <strong className="text-white">Gas station pattern</strong> allows gasless transactions for users</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'certificates' && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-white">� Zero Knowledge Proofs</h2>
-
-            {/* Info Card */}
-            <div
-              className="p-6 rounded-2xl border border-purple-500/50"
-              style={{ background: 'rgba(139,92,246,0.08)', backdropFilter: 'blur(20px)' }}
-            >
-              <h3 className="text-xl font-bold text-purple-400 mb-2">What are Zero-Knowledge Proofs?</h3>
-              <p className="text-gray-300 text-sm leading-relaxed">
-                A <strong className="text-white">Zero-Knowledge Proof (ZKP)</strong> lets one party prove they know a value — such as a valid certificate ID —
-                without revealing any other information. Enter a certificate ID below to generate a ZK proof and verify it on-chain
-                without exposing the underlying credential data.
-              </p>
-            </div>
-
-            {/* Certificate Registry */}
-            <div
-              className="p-6 rounded-2xl border border-white/20"
-              style={{ background: 'rgba(255,255,255,0.07)', backdropFilter: 'blur(20px)' }}
-            >
-              <h3 className="text-lg font-semibold text-white mb-4">📋 Certificate Registry</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+        if (portalSection === 'projects') {
+          return (
+            <div className="space-y-5">
+              <div className="rounded-xl bg-white/10 border border-white/15 p-5 overflow-x-auto">
+                <h3 className="text-white font-semibold mb-4">Team Project Portfolio</h3>
+                <p className="text-xs text-slate-400 mb-4">
+                  Showing projects scoped to {isManager ? 'manager and team' : isEmployee ? 'current employee' : 'authorized role visibility'}.
+                </p>
+                <table className="w-full text-sm min-w-[860px]">
                   <thead>
-                    <tr className="border-b border-white/10">
-                      <th className="text-left py-2 px-3 text-gray-400 font-medium">Certificate ID</th>
-                      <th className="text-left py-2 px-3 text-gray-400 font-medium">Holder</th>
-                      <th className="text-left py-2 px-3 text-gray-400 font-medium">Course</th>
-                      <th className="text-left py-2 px-3 text-gray-400 font-medium">Issued</th>
-                      <th className="text-left py-2 px-3 text-gray-400 font-medium">Expires</th>
+                    <tr className="text-slate-300 border-b border-white/15">
+                      <th className="text-left py-2 pr-3">Code</th>
+                      <th className="text-left py-2 pr-3">Project</th>
+                      <th className="text-left py-2 pr-3">Owner</th>
+                      <th className="text-left py-2 pr-3">Progress</th>
+                      <th className="text-left py-2 pr-3">Risk</th>
+                      <th className="text-left py-2 pr-3">Sepolia Tx</th>
+                      <th className="text-left py-2 pr-3">Budget</th>
+                      <th className="text-left py-2 pr-3">ETA</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {Object.entries(ZK_CERTIFICATES).map(([id, cert]) => (
-                      <tr
-                        key={id}
-                        onClick={() => setZkInputId(id)}
-                        className="border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors"
-                      >
-                        <td className="py-2 px-3">
-                          <span className="font-mono text-purple-400 font-bold">{id}</span>
+                    {projectPortfolio.map((project) => (
+                      <tr key={project.code} className="border-b border-white/10 text-slate-100">
+                        <td className="py-3 pr-3 font-mono">{project.code}</td>
+                        <td className="py-3 pr-3">{project.name}</td>
+                        <td className="py-3 pr-3">{project.owner}</td>
+                        <td className="py-3 pr-3">
+                          <div className="w-36 bg-slate-800 rounded-full h-2 mb-1">
+                            <div className="bg-cyan-400 h-2 rounded-full" style={{ width: `${project.progress}%` }} />
+                          </div>
+                          <span className="text-xs text-slate-300">{project.progress}%</span>
                         </td>
-                        <td className="py-2 px-3 text-white">{cert.holder}</td>
-                        <td className="py-2 px-3 text-gray-300">{cert.course}</td>
-                        <td className="py-2 px-3 text-gray-400">{cert.issued}</td>
-                        <td className="py-2 px-3 text-gray-400">{cert.expires}</td>
+                        <td className="py-3 pr-3">{project.risk}</td>
+                        <td className="py-3 pr-3">{project.networkTx}</td>
+                        <td className="py-3 pr-3">{project.budget}</td>
+                        <td className="py-3 pr-3">{project.eta}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <p className="text-xs text-gray-500 mt-3">💡 Click any row to auto-fill the certificate ID below.</p>
-            </div>
 
-            {/* ZKP Verifier */}
-            <div
-              className="p-6 rounded-2xl border border-purple-500/50"
-              style={{ background: 'rgba(255,255,255,0.07)', backdropFilter: 'blur(20px)' }}
-            >
-              <h3 className="text-lg font-semibold text-white mb-4">⚡ Verify with Zero-Knowledge Proof</h3>
-
-              {/* Proof Type Selector */}
-              <div className="mb-5">
-                <p className="text-gray-400 text-sm font-medium mb-2">Select Proof System:</p>
-                <div className="flex space-x-3">
-                  {(Object.entries(ZK_PROOF_TYPES) as [string, { label: string; desc: string }][]).map(([key, pt]) => (
-                    <button
-                      key={key}
-                      onClick={() => { setZkProofType(key as 'groth16' | 'plonk' | 'stark'); setZkResult(null); }}
-                      className={`flex-1 px-4 py-3 rounded-xl border text-sm font-semibold transition-all ${
-                        zkProofType === key
-                          ? 'bg-purple-600/30 border-purple-400 text-purple-200 scale-105'
-                          : 'bg-white/5 border-white/10 text-gray-400 hover:border-purple-500/50 hover:text-white'
-                      }`}
-                    >
-                      <div className="text-base">{pt.label}</div>
-                      <div className="text-xs opacity-70 mt-0.5 font-normal">{pt.desc}</div>
-                    </button>
-                  ))}
+              <div className="grid md:grid-cols-3 gap-4">
+                <div className="rounded-xl bg-cyan-500/10 border border-cyan-300/30 p-4">
+                  <p className="text-cyan-100 text-sm">Delivery Confidence</p>
+                  <p className="text-cyan-50 text-2xl font-semibold">{Math.max(72, 96 - projectPortfolio.length)}%</p>
+                </div>
+                <div className="rounded-xl bg-fuchsia-500/10 border border-fuchsia-300/30 p-4">
+                  <p className="text-fuchsia-100 text-sm">Cross-team Dependencies</p>
+                  <p className="text-fuchsia-50 text-2xl font-semibold">23</p>
+                </div>
+                <div className="rounded-xl bg-amber-500/10 border border-amber-300/30 p-4">
+                  <p className="text-amber-100 text-sm">Critical Blockers</p>
+                  <p className="text-amber-50 text-2xl font-semibold">{projectPortfolio.filter((p) => p.risk === 'High').length}</p>
                 </div>
               </div>
 
-              <div className="flex space-x-3">
-                <input
-                  type="text"
-                  value={zkInputId}
-                  onChange={e => { setZkInputId(e.target.value); setZkResult(null); }}
-                  placeholder="Enter Certificate ID (e.g. CERT-123)"
-                  className="flex-1 p-3 bg-gray-800/60 text-white rounded-lg border border-purple-500/30 focus:border-purple-400 focus:outline-none font-mono"
-                />
-                <button
-                  onClick={handleZkVerify}
-                  disabled={zkVerifying || !zkInputId.trim()}
-                  className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-all hover:scale-105"
-                >
-                  {zkVerifying ? 'Proving...' : 'Generate Proof'}
-                </button>
-              </div>
-
-              {/* Proof Steps */}
-              {(zkVerifying || zkResult) && (
-                <div className="mt-5 space-y-2">
-                  <h4 className="text-gray-400 text-sm font-medium mb-3">Proof Generation Steps:</h4>
-                  {(zkResult?.steps ?? []).map((step, i) => (
-                    <div key={i} className="flex items-center space-x-3 text-sm text-gray-300 animate-pulse-once">
-                      <span className="text-green-400">✓</span>
-                      <span>{step}</span>
-                    </div>
-                  ))}
-                  {zkVerifying && (
-                    <div className="flex items-center space-x-3 text-sm text-purple-300">
-                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-                      </svg>
-                      <span>Running proof...</span>
-                    </div>
-                  )}
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                  <h3 className="text-white font-semibold mb-3">Project Burn-up Trend</h3>
+                  <svg viewBox="0 0 420 150" className="w-full h-36">
+                    <polyline
+                      fill="none"
+                      stroke="#22d3ee"
+                      strokeWidth="3"
+                      points={projectBurnupSeries.map((v, i) => `${i * 60},${140 - v}`).join(' ')}
+                    />
+                  </svg>
                 </div>
-              )}
-
-              {/* Result */}
-              {zkResult && !zkVerifying && (
-                <div className={`mt-5 p-5 rounded-xl border ${
-                  zkResult.success
-                    ? 'bg-green-600/15 border-green-500/40'
-                    : 'bg-red-600/15 border-red-500/40'
-                }`}>
-                  <div className="flex items-center space-x-3 mb-3">
-                    <span className="text-3xl">{zkResult.success ? '✅' : '❌'}</span>
-                    <div>
-                      <h4 className={`text-lg font-bold ${zkResult.success ? 'text-green-400' : 'text-red-400'}`}>
-                        {zkResult.success ? 'Proof Verified Successfully' : 'Proof Verification Failed'}
-                      </h4>
-                      <p className="text-gray-400 text-sm">
-                        Certificate ID: <span className="font-mono text-white">{zkResult.certId}</span>
-                      </p>
+                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                  <h3 className="text-white font-semibold mb-3">Risk Distribution</h3>
+                  <div className="flex items-center gap-6">
+                    <div
+                      className="w-28 h-28 rounded-full"
+                      style={{
+                        background: 'conic-gradient(#22d3ee 0% 42%, #f59e0b 42% 78%, #ef4444 78% 100%)',
+                      }}
+                    />
+                    <div className="text-sm text-slate-200 space-y-1">
+                      <p><span className="text-cyan-300">Low:</span> 42%</p>
+                      <p><span className="text-amber-300">Medium:</span> 36%</p>
+                      <p><span className="text-red-300">High:</span> 22%</p>
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+          );
+        }
 
-                  {zkResult.success && ZK_CERTIFICATES[zkResult.certId] && (() => {
-                    const cert = ZK_CERTIFICATES[zkResult.certId];
-                    return (
-                      <div className="grid grid-cols-2 gap-3 mt-3 text-sm">
-                        {[
-                          ['Holder', cert.holder],
-                          ['Course', cert.course],
-                          ['Issuer', cert.issuer],
-                          ['Issued', cert.issued],
-                          ['Expires', cert.expires],
-                          ['ZK Proof', `${zkResult.proofType} — Valid`],
-                        ].map(([label, value]) => (
-                          <div key={label} className="bg-white/5 rounded-lg p-3">
-                            <p className="text-gray-400 text-xs">{label}</p>
-                            <p className="text-white font-medium">{value}</p>
-                          </div>
-                        ))}
+        if (portalSection === 'security') {
+          return (
+            <div className="space-y-5">
+              <div className="grid md:grid-cols-3 gap-4">
+                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
+                  <p className="text-slate-300 text-sm">MFA Enforcement</p>
+                  <p className="text-white text-2xl font-semibold">100%</p>
+                </div>
+                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
+                  <p className="text-slate-300 text-sm">Policy Drift</p>
+                  <p className="text-white text-2xl font-semibold">1.8%</p>
+                </div>
+                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
+                  <p className="text-slate-300 text-sm">Threat Index</p>
+                  <p className="text-white text-2xl font-semibold">Low</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                <h3 className="text-white font-semibold mb-4">Recent Security Events</h3>
+                <div className="space-y-3">
+                  {securityEvents.map((event) => (
+                    <div key={event.id} className="rounded-lg border border-white/10 p-3 bg-slate-900/40">
+                      <div className="flex items-center justify-between">
+                        <p className="text-slate-100 font-medium">{event.title}</p>
+                        <span className="text-xs uppercase text-slate-300">{event.severity}</span>
                       </div>
-                    );
-                  })()}
+                      <p className="text-xs text-slate-400 mt-1">{event.id} • {event.status} • Owner: {event.owner} • ETA: {event.eta}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-                  {!zkResult.success && (
-                    <p className="text-red-300 text-sm">No certificate found with ID <span className="font-mono">{zkResult.certId}</span>. The proof could not be generated.</p>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                  <h3 className="text-white font-semibold mb-3">Threat Landscape</h3>
+                  <div className="space-y-3 text-sm">
+                    {threatLandscape.map((threat) => (
+                      <div key={threat.vector} className="rounded-lg bg-slate-900/50 border border-white/10 p-3">
+                        <p className="text-slate-100 font-medium">{threat.vector}</p>
+                        <p className="text-slate-400">Probability: {threat.probability} • Impact: {threat.impact}</p>
+                        <p className="text-slate-300">Control: {threat.control}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                  <h3 className="text-white font-semibold mb-3">Incident Response Playbook</h3>
+                  <div className="space-y-3 text-sm">
+                    {incidentPlaybook.map((item) => (
+                      <div key={item.phase} className="rounded-lg bg-slate-900/50 border border-white/10 p-3">
+                        <p className="text-slate-100 font-medium">{item.phase}</p>
+                        <p className="text-slate-300">{item.action}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                  <h3 className="text-white font-semibold mb-3">Incident Load (7-day)</h3>
+                  <div className="flex items-end gap-2 h-32">
+                    {incidentLoadSeries.map((v, idx) => (
+                      <div key={idx} className="flex-1 bg-slate-800 rounded-t" style={{ height: `${v * 8}px` }} />
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-white/10 border border-white/15 p-5 overflow-x-auto">
+                  <h3 className="text-white font-semibold mb-3">Incident Response SLA</h3>
+                  <table className="w-full text-sm min-w-[420px]">
+                    <tbody>
+                      <tr className="border-b border-white/10">
+                        <td className="py-2 text-slate-300">MTTD</td>
+                        <td className="py-2 text-slate-100 text-right">11m</td>
+                      </tr>
+                      <tr className="border-b border-white/10">
+                        <td className="py-2 text-slate-300">MTTR</td>
+                        <td className="py-2 text-slate-100 text-right">38m</td>
+                      </tr>
+                      <tr className="border-b border-white/10">
+                        <td className="py-2 text-slate-300">Containment SLA</td>
+                        <td className="py-2 text-slate-100 text-right">97%</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 text-slate-300">Postmortem Completion</td>
+                        <td className="py-2 text-slate-100 text-right">92%</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        if (portalSection === 'blockchain') {
+          return (
+            <div className="space-y-5">
+              <div className="grid md:grid-cols-3 gap-4">
+                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
+                  <p className="text-slate-300 text-sm">Network</p>
+                  <p className="text-white text-2xl font-semibold">Sepolia</p>
+                </div>
+                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
+                  <p className="text-slate-300 text-sm">24h On-chain Auth Tx</p>
+                  <p className="text-white text-2xl font-semibold">319</p>
+                </div>
+                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
+                  <p className="text-slate-300 text-sm">Median Gas Cost</p>
+                  <p className="text-white text-2xl font-semibold">0.00042 ETH</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-white/10 border border-white/15 p-5 space-y-3">
+                <h3 className="text-white font-semibold">Sepolia Blockchain Explorer</h3>
+                
+                {/* Show the actual contract that manages all DIDs */}
+                <a 
+                  href={`${etherscanBase}/address/0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48`} 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="block text-cyan-300 hover:text-cyan-200 break-all p-2 bg-white/5 rounded border border-white/10"
+                >
+                  <div className="text-xs text-gray-300 mb-1">📋 SimpleDIDRegistry Contract</div>
+                  <div className="font-mono text-sm">0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48</div>
+                  <div className="text-xs text-gray-400 mt-1">All employee DIDs and authentications are stored here</div>
+                </a>
+
+                {/* Employee's personal wallet (if available) */}
+                {walletAddress && (
+                  <a 
+                    href={`${etherscanBase}/address/${walletAddress}`} 
+                    target="_blank" 
+                    rel="noreferrer" 
+                    className="block text-cyan-300 hover:text-cyan-200 break-all p-2 bg-white/5 rounded border border-white/10"
+                  >
+                    <div className="text-xs text-gray-300 mb-1">👤 {currentEmployee?.name || 'Employee'}'s Wallet</div>
+                    <div className="font-mono text-sm">{walletAddress}</div>
+                    <div className="text-xs text-gray-400 mt-1">Personal blockchain wallet address</div>
+                  </a>
+                )}
+
+                {/* Link to see all recent contract transactions */}
+                <a 
+                  href={`${etherscanBase}/address/0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48#internaltx`} 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="block text-green-300 hover:text-green-200 break-all p-2 bg-white/5 rounded border border-white/10"
+                >
+                  <div className="text-xs text-gray-300 mb-1">📊 View All Authentication Transactions</div>
+                  <div className="text-sm">Recent DID registrations and authentications</div>
+                  <div className="text-xs text-gray-400 mt-1">Click to see live blockchain activity</div>
+                </a>
+
+                {/* Gas payer wallet (the one that actually sends transactions) */}
+                <a 
+                  href={`${etherscanBase}/address/0xBdA3AC10e1403cFC54Ab2195Aad7Da8a39B775B9`} 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="block text-orange-300 hover:text-orange-200 break-all p-2 bg-white/5 rounded border border-white/10"
+                >
+                  <div className="text-xs text-gray-300 mb-1">⛽ Gas Payer Wallet (Backend)</div>
+                  <div className="font-mono text-sm">0xBdA3AC10e1403cFC54Ab2195Aad7Da8a39B775B9</div>
+                  <div className="text-xs text-gray-400 mt-1">This wallet pays transaction fees for all employees</div>
+                </a>
+              </div>
+
+              {/* Add helpful explanation */}
+              <div className="rounded-xl bg-blue-900/20 border border-blue-500/30 p-5">
+                <h3 className="text-blue-300 font-semibold mb-3">🔍 How to Use These Links</h3>
+                <div className="space-y-2 text-sm text-gray-300">
+                  <p><strong>SimpleDIDRegistry Contract:</strong> This is where ALL employee data is stored. You'll see hundreds of transactions from different employees.</p>
+                  <p><strong>Employee Wallet:</strong> {currentEmployee?.name || 'This employee'}'s personal blockchain address. May show their transaction history.</p>
+                  <p><strong>Authentication Transactions:</strong> Live feed of all recent logins and DID registrations across your organization.</p>
+                  <p><strong>Gas Payer Wallet:</strong> The backend wallet that pays blockchain fees. You'll see it sending transactions to the contract.</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-white/10 border border-white/15 p-5 overflow-x-auto">
+                <h3 className="text-white font-semibold mb-4">Contract Information</h3>
+                <table className="w-full text-sm min-w-[760px]">
+                  <thead>
+                    <tr className="text-slate-300 border-b border-white/15">
+                      <th className="text-left py-2 pr-3">Contract</th>
+                      <th className="text-left py-2 pr-3">Address</th>
+                      <th className="text-left py-2 pr-3">Network</th>
+                      <th className="text-left py-2 pr-3">Purpose</th>
+                      <th className="text-left py-2 pr-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-white/10 text-slate-100">
+                      <td className="py-3 pr-3">SimpleDIDRegistry</td>
+                      <td className="py-3 pr-3 font-mono">0x80c41...F4D48</td>
+                      <td className="py-3 pr-3">Sepolia</td>
+                      <td className="py-3 pr-3">DID Storage & Auth</td>
+                      <td className="py-3 pr-3 text-green-400">✅ Active</td>
+                    </tr>
+                    <tr className="border-b border-white/10 text-slate-100">
+                      <td className="py-3 pr-3">Gas Payer</td>
+                      <td className="py-3 pr-3 font-mono">0xBd43A...75B9</td>
+                      <td className="py-3 pr-3">Sepolia</td>
+                      <td className="py-3 pr-3">Transaction Fees</td>
+                      <td className="py-3 pr-3 text-green-400">✅ Funded</td>
+                    </tr>
+                    <tr className="border-b border-white/10 text-slate-100">
+                      <td className="py-3 pr-3">Employee Count</td>
+                      <td className="py-3 pr-3 font-mono">~50 Registered</td>
+                      <td className="py-3 pr-3">-</td>
+                      <td className="py-3 pr-3">Active Users</td>
+                      <td className="py-3 pr-3 text-blue-400">ℹ️ Growing</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                <h3 className="text-white font-semibold mb-4">Quick Actions</h3>
+                <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <a 
+                    href={`${etherscanBase}/address/0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors text-center"
+                  >
+                    <div className="text-2xl mb-2">🏢</div>
+                    <div className="text-sm text-white font-medium">View Contract</div>
+                    <div className="text-xs text-gray-400">SimpleDIDRegistry</div>
+                  </a>
+                  
+                  <a 
+                    href={`${etherscanBase}/address/0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48#internaltx`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors text-center"
+                  >
+                    <div className="text-2xl mb-2">📊</div>
+                    <div className="text-sm text-white font-medium">Live Activity</div>
+                    <div className="text-xs text-gray-400">Recent Transactions</div>
+                  </a>
+                  
+                  <a 
+                    href={`${etherscanBase}/address/0xBdA3AC10e1403cFC54Ab2195Aad7Da8a39B775B9`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors text-center"
+                  >
+                    <div className="text-2xl mb-2">⛽</div>
+                    <div className="text-sm text-white font-medium">Gas Wallet</div>
+                    <div className="text-xs text-gray-400">Backend Wallet</div>
+                  </a>
+
+                  {walletAddress && (
+                    <a 
+                      href={`${etherscanBase}/address/${walletAddress}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors text-center"
+                    >
+                      <div className="text-2xl mb-2">👤</div>
+                      <div className="text-sm text-white font-medium">My Wallet</div>
+                      <div className="text-xs text-gray-400">{currentEmployee?.name}</div>
+                    </a>
                   )}
                 </div>
-              )}
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                  <h3 className="text-white font-semibold mb-3">Block Depth Distribution</h3>
+                  <div className="flex items-end gap-1 h-32">
+                    {blockDepthDistribution.map((v, idx) => (
+                      <div key={idx} className="flex-1 bg-cyan-500/70 rounded-t" style={{ height: `${v * 1.8}px` }} />
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                  <h3 className="text-white font-semibold mb-3">Route Throughput (Conceptual)</h3>
+                  <svg viewBox="0 0 360 140" className="w-full h-32">
+                    <polyline fill="none" stroke="#60a5fa" strokeWidth="3" points="0,108 40,100 80,88 120,95 160,82 200,70 240,64 280,58 320,51 360,45" />
+                    <polyline fill="none" stroke="#f472b6" strokeWidth="3" points="0,124 40,118 80,113 120,109 160,103 200,96 240,91 280,86 320,80 360,74" />
+                  </svg>
+                </div>
+              </div>
             </div>
+          );
+        }
+
+        if (portalSection === 'analytics' && canSeeAnalytics) {
+          return (
+            <div className="space-y-5">
+              <div className="grid md:grid-cols-4 gap-4">
+                <div className="rounded-xl bg-indigo-500/10 border border-indigo-300/25 p-4">
+                  <p className="text-indigo-100 text-sm">Authentication Throughput</p>
+                  <p className="text-indigo-50 text-2xl font-semibold">1,482/day</p>
+                </div>
+                <div className="rounded-xl bg-indigo-500/10 border border-indigo-300/25 p-4">
+                  <p className="text-indigo-100 text-sm">Challenge Completion</p>
+                  <p className="text-indigo-50 text-2xl font-semibold">94.6%</p>
+                </div>
+                <div className="rounded-xl bg-indigo-500/10 border border-indigo-300/25 p-4">
+                  <p className="text-indigo-100 text-sm">Avg Verification Time</p>
+                  <p className="text-indigo-50 text-2xl font-semibold">2.3s</p>
+                </div>
+                <div className="rounded-xl bg-indigo-500/10 border border-indigo-300/25 p-4">
+                  <p className="text-indigo-100 text-sm">Failure Hotspots</p>
+                  <p className="text-indigo-50 text-2xl font-semibold">3</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                <h3 className="text-white font-semibold mb-4">Cross-domain Analysis</h3>
+                <div className="grid md:grid-cols-2 gap-4 text-sm text-slate-200">
+                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-3">
+                    <p className="font-medium mb-1">Identity Risk Correlation</p>
+                    <p>High risk events are 2.7x more frequent when credentials exceed 45 days without rotation.</p>
+                  </div>
+                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-3">
+                    <p className="font-medium mb-1">Department-wise Completion</p>
+                    <p>Engineering: 96%, Product: 92%, Design: 90%, Compliance: 98%.</p>
+                  </div>
+                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-3">
+                    <p className="font-medium mb-1">Chain Cost Projection</p>
+                    <p>Projected Sepolia gas budget for next sprint: 0.198 ETH with 12% confidence variance.</p>
+                  </div>
+                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-3">
+                    <p className="font-medium mb-1">Policy Effectiveness</p>
+                    <p>New badge guardrails reduced unauthorized scope requests by 43% week-over-week.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                <h3 className="text-white font-semibold mb-4">Visual Trends (Conceptual)</h3>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-4">
+                    <p className="text-slate-200 text-sm mb-2">Weekly Verification Trend</p>
+                    <svg viewBox="0 0 320 120" className="w-full h-28">
+                      <polyline
+                        fill="none"
+                        stroke="#22d3ee"
+                        strokeWidth="3"
+                        points="0,95 40,82 80,76 120,61 160,55 200,48 240,44 280,37 320,30"
+                      />
+                    </svg>
+                  </div>
+                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-4">
+                    <p className="text-slate-200 text-sm mb-3">Department Completion Bars</p>
+                    <div className="space-y-3 text-xs text-slate-300">
+                      {['Engineering 96%', 'Product 92%', 'Design 90%', 'Compliance 98%'].map((item, idx) => (
+                        <div key={item}>
+                          <p className="mb-1">{item}</p>
+                          <div className="h-2 rounded bg-slate-700">
+                            <div className="h-2 rounded bg-indigo-400" style={{ width: `${90 + idx * 2}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                  <h3 className="text-white font-semibold mb-3">Verification Cohort Heatmap</h3>
+                  <div className="grid grid-cols-7 gap-1">
+                    {[28, 32, 41, 46, 53, 60, 67, 22, 31, 36, 47, 52, 58, 65, 19, 25, 30, 39, 45, 50, 57].map((v, i) => (
+                      <div key={i} className="h-6 rounded" style={{ backgroundColor: `rgba(56, 189, 248, ${0.15 + v / 100})` }} />
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                  <h3 className="text-white font-semibold mb-3">Cost vs Throughput Scatter (Conceptual)</h3>
+                  <svg viewBox="0 0 320 160" className="w-full h-36">
+                    {[{ x: 30, y: 130 }, { x: 70, y: 112 }, { x: 110, y: 104 }, { x: 150, y: 89 }, { x: 190, y: 78 }, { x: 230, y: 70 }, { x: 270, y: 55 }].map((p, i) => (
+                      <circle key={i} cx={p.x} cy={p.y} r={6} fill="#34d399" />
+                    ))}
+                  </svg>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        if (portalSection === 'audit' && canSeeAuditSections) {
+          return (
+            <div className="space-y-5">
+              <div className="grid md:grid-cols-3 gap-4">
+                <div className="rounded-xl bg-amber-500/10 border border-amber-300/25 p-4">
+                  <p className="text-amber-100 text-sm">Open Findings</p>
+                  <p className="text-amber-50 text-2xl font-semibold">9</p>
+                </div>
+                <div className="rounded-xl bg-amber-500/10 border border-amber-300/25 p-4">
+                  <p className="text-amber-100 text-sm">Evidence Packages</p>
+                  <p className="text-amber-50 text-2xl font-semibold">34</p>
+                </div>
+                <div className="rounded-xl bg-amber-500/10 border border-amber-300/25 p-4">
+                  <p className="text-amber-100 text-sm">Control Coverage</p>
+                  <p className="text-amber-50 text-2xl font-semibold">92%</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-white/10 border border-white/15 p-5">
+                <h3 className="text-white font-semibold mb-4">Essential Auditor Sections</h3>
+                <div className="grid md:grid-cols-2 gap-4 text-sm text-slate-200">
+                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-3">
+                    <p className="font-medium mb-1">Evidence Vault</p>
+                    <p>Immutable snapshots for authentication flow, role updates, and credential signatures.</p>
+                  </div>
+                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-3">
+                    <p className="font-medium mb-1">Policy Drift Monitor</p>
+                    <p>Alerts when active permissions diverge from approved role matrix baselines.</p>
+                  </div>
+                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-3">
+                    <p className="font-medium mb-1">Exception Tracker</p>
+                    <p>All temporary overrides with owner, justification, and expiration timeline.</p>
+                  </div>
+                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-3">
+                    <p className="font-medium mb-1">Attestation Reports</p>
+                    <p>Download-ready reports for quarterly access reviews and external assessments.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        return null;
+      };
+
+      return (
+        <div className="max-w-6xl mx-auto p-6 space-y-6">
+          <div className="rounded-2xl bg-gradient-to-r from-emerald-600/15 via-teal-500/10 to-cyan-500/15 border border-emerald-400/30 p-6 shadow-[0_0_40px_rgba(16,185,129,0.15)]">
+            <h2 className="text-3xl font-bold text-emerald-200">Authenticated</h2>
+            <p className="text-emerald-100 mt-1">{currentEmployee?.name} ({currentEmployee?.id})</p>
+            <p className="text-emerald-100">Badge: <span className="font-semibold uppercase">{badge}</span></p>
+            <p className="text-emerald-100">Hash ID: <span className="font-mono text-sm">{authStatus?.hashId || currentEmployee?.hashId}</span></p>
           </div>
-        )}
-      </main>
+
+          <div className="rounded-2xl bg-white/5 border border-white/20 p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h3 className="text-white font-semibold text-lg">Portal Workspace</h3>
+              <button
+                onClick={exportWholeReport}
+                className="px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm"
+              >
+                Export Whole Report
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {roleTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setPortalSection(tab.key)}
+                  className={`px-4 py-2 rounded-lg border text-sm ${
+                    portalSection === tab.key
+                      ? 'bg-cyan-500/20 border-cyan-300 text-cyan-100'
+                      : 'bg-white/5 border-white/20 text-slate-300'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-slate-400 mt-3">Available permissions: {permissions.length > 0 ? permissions.join(', ') : 'none'}</p>
+          </div>
+
+          {renderSection()}
+
+          {isEmployee && (
+            <div className="rounded-2xl bg-cyan-500/10 border border-cyan-400/30 p-4">
+              <p className="text-cyan-100 text-sm">Employee scope active. You have operational visibility across Dashboard, Projects, Security, and Blockchain sections.</p>
+            </div>
+          )}
+
+          {isManagerOrHigher && (
+            <div className="rounded-2xl bg-indigo-500/10 border border-indigo-400/30 p-4">
+              <p className="text-indigo-100 text-sm">Manager/admin scope active. Analytics is enabled with throughput, policy, and network cost analysis.</p>
+            </div>
+          )}
+
+          {isAuditor && (
+            <div className="rounded-2xl bg-amber-500/10 border border-amber-400/30 p-4">
+              <p className="text-amber-100 text-sm">Auditor scope active. Audit and compliance evidence workflows are enabled in read-oriented mode.</p>
+            </div>
+          )}
+
+          {isAdmin && (
+            <div className="rounded-2xl bg-rose-500/10 border border-rose-400/30 p-4">
+              <p className="text-rose-100 text-sm">Admin scope active. Full visibility and enterprise control-plane authority are available.</p>
+            </div>
+          )}
+
+          <button onClick={logout} className="px-5 py-3 rounded-xl bg-red-600 text-white hover:bg-red-700">Logout</button>
+        </div>
+      );
+    }
+
+    if (authStep === 'qr') {
+      return (
+        <div className="max-w-4xl mx-auto p-6">
+          <div className="rounded-2xl bg-white/10 border border-white/20 p-8 text-center">
+            <h2 className="text-2xl font-bold text-white mb-2">Scan With Wallet</h2>
+            <p className="text-slate-300 mb-5">Employee: {challengeData?.employee?.name} ({challengeData?.employee?.id})</p>
+            {qrCodeUrl && <img src={qrCodeUrl} alt="Authentication QR" className="mx-auto rounded-xl bg-white p-3" />}
+            <div className="mt-5 text-sm text-slate-300 space-y-1">
+              <p>Badge-bound challenge generated for this employee.</p>
+              <p>Hash ID: <span className="font-mono">{challengeData?.employee?.hashId}</span></p>
+              <p>Wallet will auto-fetch this employee context on scan.</p>
+            </div>
+            <button onClick={logout} className="mt-6 px-4 py-2 rounded-lg bg-slate-700 text-white hover:bg-slate-600">Cancel</button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="max-w-3xl mx-auto p-6">
+        <div className="rounded-2xl bg-white/10 border border-white/20 p-8">
+          <h2 className="text-3xl font-bold text-white mb-2">Employee Login Portal</h2>
+          <p className="text-slate-300 mb-6">Enter Employee ID to generate your badge-aware challenge QR.</p>
+
+          <label className="block text-sm text-slate-200 mb-2">Employee ID</label>
+          <input
+            value={employeeId}
+            onChange={(event) => setEmployeeId(event.target.value.toUpperCase())}
+            className="w-full px-4 py-3 rounded-xl bg-slate-900/80 border border-slate-600 text-white"
+            placeholder="EMP001 / EMP002 / EMP003 / EMP004"
+          />
+
+          <button
+            onClick={startLogin}
+            disabled={!isConnected}
+            className="mt-5 w-full px-4 py-3 rounded-xl bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-slate-700"
+          >
+            {!isConnected ? 'Backend Offline' : 'Generate Challenge QR'}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAdminPortal = () => (
+    <div className="max-w-7xl mx-auto p-6 space-y-6">
+      <div className="rounded-2xl bg-white/10 border border-white/20 p-5">
+        <h2 className="text-3xl font-bold text-white mb-2">Admin Portal</h2>
+        <p className="text-slate-300 mb-4">View all employees, inspect hash IDs, and assign digital badges (roles).</p>
+
+        <div className="flex flex-col md:flex-row gap-3">
+          <input
+            value={adminToken}
+            onChange={(event) => setAdminToken(event.target.value)}
+            className="flex-1 px-4 py-3 rounded-xl bg-slate-900/80 border border-slate-600 text-white"
+            placeholder="Admin bearer token"
+          />
+          <button onClick={saveAdminToken} className="px-4 py-3 rounded-xl bg-fuchsia-600 text-white hover:bg-fuchsia-700">Load Employees</button>
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-white/10 border border-white/20 p-5">
+        <h3 className="text-white font-semibold text-xl mb-4">Assign Digital Badge</h3>
+        <div className="grid md:grid-cols-3 gap-3">
+          <select
+            value={selectedEmployeeId}
+            onChange={(event) => setSelectedEmployeeId(event.target.value)}
+            className="px-4 py-3 rounded-xl bg-slate-900/80 border border-slate-600 text-white"
+          >
+            {employees.map((employee) => (
+              <option key={employee.id} value={employee.id}>{employee.id} - {employee.name}</option>
+            ))}
+          </select>
+
+          <select
+            value={selectedBadge}
+            onChange={(event) => setSelectedBadge(event.target.value as BadgeType)}
+            className="px-4 py-3 rounded-xl bg-slate-900/80 border border-slate-600 text-white"
+          >
+            {BADGE_OPTIONS.map((badge) => (
+              <option key={badge.value} value={badge.value}>{badge.label}</option>
+            ))}
+          </select>
+
+          <button
+            onClick={applyBadge}
+            disabled={adminLoading || employees.length === 0}
+            className="px-4 py-3 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-700"
+          >
+            Assign Badge
+          </button>
+        </div>
+        {adminMessage && <p className="text-emerald-300 text-sm mt-3">{adminMessage}</p>}
+      </div>
+
+      <div className="rounded-2xl bg-white/10 border border-white/20 p-5 overflow-x-auto">
+        <h3 className="text-white font-semibold text-xl mb-4">Employees ({employees.length})</h3>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-white/20 text-left text-slate-300">
+              <th className="py-2 pr-3">Employee</th>
+              <th className="py-2 pr-3">Department</th>
+              <th className="py-2 pr-3">Badge</th>
+              <th className="py-2 pr-3">Hash ID</th>
+              <th className="py-2 pr-3">Challenge Fingerprint</th>
+            </tr>
+          </thead>
+          <tbody>
+            {employees.map((employee) => (
+              <tr key={employee.id} className="border-b border-white/10 text-slate-100 align-top">
+                <td className="py-2 pr-3">
+                  <p className="font-semibold">{employee.name}</p>
+                  <p className="text-xs text-slate-400">{employee.id}</p>
+                </td>
+                <td className="py-2 pr-3">{employee.department}</td>
+                <td className="py-2 pr-3 uppercase">{employee.badge}</td>
+                <td className="py-2 pr-3 font-mono text-xs break-all">{employee.hashId}</td>
+                <td className="py-2 pr-3 font-mono text-xs">{employee.challengeFingerprint || '-'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 
-  if (authStep === 'authenticated') {
-    return renderDashboard();
-  } else if (authStep === 'qr') {
-    return renderQRScreen();
-  } else {
-    return renderLoginScreen();
-  }
+  return (
+    <div className="min-h-screen bg-black relative overflow-hidden">
+      <div className="absolute inset-0 opacity-60">
+        <Orb hue={215} hoverIntensity={1.8} rotateOnHover={true} />
+      </div>
+
+      {renderTopNav()}
+
+      {!isConnected && (
+        <div className="relative z-20 max-w-7xl mx-auto px-6 pt-4">
+          <div className="rounded-xl border border-red-400/40 bg-red-500/10 p-3 text-red-200 text-sm">Backend is offline. Start backend before login/admin operations.</div>
+        </div>
+      )}
+
+      {error && (
+        <div className="relative z-20 max-w-7xl mx-auto px-6 pt-4">
+          <div className="rounded-xl border border-rose-400/40 bg-rose-500/10 p-3 text-rose-200 text-sm">{error}</div>
+        </div>
+      )}
+
+      <main className="relative z-10">
+        {mode === 'admin' ? renderAdminPortal() : renderLoginPortal()}
+      </main>
+    </div>
+  );
 };
 
 export default EnterprisePortalProfessional;

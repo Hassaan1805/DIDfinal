@@ -7,7 +7,16 @@ import { EthrDID } from 'ethr-did';
 import { BlockchainService } from '../services/blockchainService';
 import { sepoliaService } from '../services/SepoliaService';
 import { verifyAuthToken, AuthenticatedRequest } from '../middleware/auth.middleware';
-import { EMPLOYEE_WALLETS } from '../services/employeeWallets';
+import {
+  BadgeType,
+  getBadgeDefinition,
+  getEmployeeById,
+} from '../services/employeeDirectory';
+import {
+  ensureEmployeeRegisteredOnChain,
+  enrichEmployeeWithOnChainProfile,
+  recordEmployeeAuthenticationOnChain,
+} from '../services/employeeOnChainRegistry';
 
 const router = Router();
 
@@ -27,6 +36,15 @@ interface AuthChallenge {
   userAddress?: string; // User address after successful authentication
   did?: string; // User DID after successful authentication
   employeeId?: string; // Employee ID for company portal access
+  employeeName?: string;
+  badge?: BadgeType;
+  permissions?: string[];
+  hashId?: string;
+  didRegistrationTxHash?: string;
+  authRecordTxHash?: string;
+  authVerifyTxHash?: string;
+  adminGasPayerAddress?: string;
+  adminGasPayerEtherscanUrl?: string;
   companyId?: string; // Company identifier
   requestType?: 'portal_access' | 'general_auth'; // Type of authentication request
   blockchainResults?: {
@@ -38,52 +56,6 @@ interface AuthChallenge {
   }; // Blockchain operation results (populated after async operations complete)
   blockchainError?: string; // Error message if blockchain operations failed
 }
-
-// Employee database simulation (in production, integrate with HR system)
-interface Employee {
-  id: string;
-  name: string;
-  department: string;
-  role: string;
-  email: string;
-  active: boolean;
-  did?: string; // Employee's DID (once they have one)
-}
-
-const employeeDatabase = new Map<string, Employee>([
-  ['EMP001', {
-    id: 'EMP001',
-    name: 'Zaid',
-    department: 'Engineering',
-    role: 'CEO',
-    email: 'zaid@company.com',
-    active: true
-  }],
-  ['EMP002', {
-    id: 'EMP002',
-    name: 'Hassaan',
-    department: 'Engineering',
-    role: 'CTO',
-    email: 'hassaan@company.com',
-    active: true
-  }],
-  ['EMP003', {
-    id: 'EMP003',
-    name: 'Atharva',
-    department: 'Product',
-    role: 'Product Manager',
-    email: 'atharva@company.com',
-    active: true
-  }],
-  ['EMP004', {
-    id: 'EMP004',
-    name: 'Gracian',
-    department: 'Design',
-    role: 'Senior Designer',
-    email: 'gracian@company.com',
-    active: true
-  }]
-]);
 
 const challenges = new Map<string, AuthChallenge>();
 
@@ -125,7 +97,7 @@ router.post('/challenge', async (req: Request, res: Response): Promise<void> => 
     
     // Validate employee if provided
     if (employeeId) {
-      const employee = employeeDatabase.get(employeeId.toUpperCase());
+      const employee = getEmployeeById(employeeId.toUpperCase());
       if (!employee) {
         res.status(404).json({
           success: false,
@@ -175,16 +147,43 @@ async function generateChallenge(context?: {
   companyId?: string;
   requestType?: string;
 }) {
+  const selectedEmployee = context?.employeeId ? getEmployeeById(context.employeeId) : undefined;
+  const employee = selectedEmployee
+    ? await enrichEmployeeWithOnChainProfile(selectedEmployee)
+    : undefined;
+
+  if (employee) {
+    await ensureEmployeeRegisteredOnChain(employee);
+  }
+
+  const badge = (employee?.badge || 'employee') as BadgeType;
+  const badgeDefinition = getBadgeDefinition(badge);
+  const timestamp = Date.now();
+
   // Generate a cryptographically secure random challenge
-  const challenge = crypto.randomBytes(32).toString('hex');
+  const randomPart = crypto.randomBytes(32).toString('hex');
   const challengeId = crypto.randomUUID();
+  const challenge = [
+    `challenge:${randomPart}`,
+    `scope:${badgeDefinition.challengeScope}`,
+    `badge:${badge}`,
+    `employee:${employee?.id || 'unknown'}`,
+    `issued:${new Date(timestamp).toISOString()}`,
+  ].join('|');
   
   // Store the challenge with expiry and context
   challenges.set(challengeId, {
     challenge,
-    timestamp: Date.now(),
+    timestamp,
     used: false,
     employeeId: context?.employeeId,
+    employeeName: employee?.name,
+    badge,
+    permissions: employee?.permissions || [...badgeDefinition.permissions],
+    hashId: employee?.hashId,
+    didRegistrationTxHash: employee?.didRegistrationTxHash,
+    adminGasPayerAddress: sepoliaService.getGasPayerAddress(),
+    adminGasPayerEtherscanUrl: sepoliaService.getGasPayerEtherscanUrl(),
     companyId: context?.companyId,
     requestType: context?.requestType as any
   });
@@ -200,13 +199,22 @@ async function generateChallenge(context?: {
     challenge,
     domain: 'decentralized-trust.platform',
     companyId: context?.companyId || 'dtp_enterprise_001',
-    timestamp: Date.now(),
-    expiresAt: Date.now() + CHALLENGE_EXPIRY_TIME,
-    apiEndpoint: 'http://192.168.1.100:3001/api/auth/sepolia-verify',
+    timestamp,
+    expiresAt: timestamp + CHALLENGE_EXPIRY_TIME,
+    apiEndpoint: 'http://192.168.1.33:3001/api/auth/verify',
     instruction: 'Authenticate with your DID wallet to access Enterprise Portal',
+    badge: {
+      type: badge,
+      label: badgeDefinition.label,
+      permissions: employee?.permissions || badgeDefinition.permissions,
+    },
     ...(context?.employeeId && { 
-      employee: employeeDatabase.get(context.employeeId),
-      expectedDID: context?.employeeId ? `did:ethr:${EMPLOYEE_WALLETS.get(context.employeeId)?.address}` : undefined
+      employee,
+      expectedDID: employee?.did,
+      employeeHashId: employee?.hashId,
+      didRegistrationTxHash: employee?.didRegistrationTxHash,
+      adminGasPayerAddress: sepoliaService.getGasPayerAddress(),
+      adminGasPayerEtherscanUrl: sepoliaService.getGasPayerEtherscanUrl(),
     }),
     ...(context?.requestType && { requestType: context.requestType })
   });
@@ -217,7 +225,7 @@ async function generateChallenge(context?: {
     expiresIn: Math.floor(CHALLENGE_EXPIRY_TIME / 1000), // seconds
     qrCodeData,
     ...(context?.employeeId && { 
-      employee: employeeDatabase.get(context.employeeId)
+      employee,
     })
   };
 }
@@ -261,7 +269,17 @@ router.get('/status/:challengeId', async (req: Request, res: Response): Promise<
         ...(challengeData.used && challengeData.token && {
           token: challengeData.token,
           did: challengeData.did,
-          userAddress: challengeData.userAddress
+          userAddress: challengeData.userAddress,
+          employeeId: challengeData.employeeId,
+          employeeName: challengeData.employeeName,
+          badge: challengeData.badge,
+          permissions: challengeData.permissions,
+          hashId: challengeData.hashId,
+          didRegistrationTxHash: challengeData.didRegistrationTxHash,
+          authRecordTxHash: challengeData.authRecordTxHash,
+          authVerifyTxHash: challengeData.authVerifyTxHash,
+          adminGasPayerAddress: challengeData.adminGasPayerAddress,
+          adminGasPayerEtherscanUrl: challengeData.adminGasPayerEtherscanUrl,
         })
       },
       timestamp: new Date().toISOString()
@@ -337,7 +355,15 @@ router.get('/status/session/:sessionId', async (req: Request, res: Response): Pr
             did: matchingChallenge.did,
             address: matchingChallenge.userAddress,
             employeeId: matchingChallenge.employeeId,
-            name: employeeDatabase.get(matchingChallenge.employeeId || '')?.name || 'Unknown User'
+            name: matchingChallenge.employeeName || 'Unknown User',
+            badge: matchingChallenge.badge,
+            permissions: matchingChallenge.permissions,
+            hashId: matchingChallenge.hashId,
+            didRegistrationTxHash: matchingChallenge.didRegistrationTxHash,
+            authRecordTxHash: matchingChallenge.authRecordTxHash,
+            authVerifyTxHash: matchingChallenge.authVerifyTxHash,
+            adminGasPayerAddress: matchingChallenge.adminGasPayerAddress,
+            adminGasPayerEtherscanUrl: matchingChallenge.adminGasPayerEtherscanUrl,
           },
           token: matchingChallenge.token,
           authenticatedAt: new Date(matchingChallenge.timestamp).toISOString()
@@ -425,7 +451,7 @@ router.post('/verify-token', async (req: Request, res: Response): Promise<void> 
  */
 router.post('/verify', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { challengeId, signature, address, message } = req.body;
+    const { challengeId, signature, address, message, employeeId } = req.body;
 
     // Validate required fields
     if (!challengeId || !signature || !address || !message) {
@@ -521,13 +547,52 @@ router.post('/verify', async (req: Request, res: Response): Promise<void> => {
 
       console.log('✅ Signature verification successful for address:', address);
 
+      const challengeEmployee = challengeData.employeeId ? getEmployeeById(challengeData.employeeId) : undefined;
+      const resolvedEmployee = employeeId ? getEmployeeById(employeeId) : challengeEmployee;
+      const resolvedAddress = isDevelopmentMode && resolvedEmployee ? resolvedEmployee.address : address;
+      const resolvedDid = resolvedEmployee?.did || `did:ethr:${resolvedAddress}`;
+
+      const resolvedEmployeeWithChain = resolvedEmployee
+        ? await enrichEmployeeWithOnChainProfile(resolvedEmployee)
+        : undefined;
+      const onChainAuth = resolvedEmployeeWithChain
+        ? await recordEmployeeAuthenticationOnChain(
+            resolvedEmployeeWithChain,
+            challengeId,
+            message,
+            signature
+          )
+        : undefined;
+
       // Mark challenge as used
       challengeData.used = true;
-      challengeData.userAddress = address;
+      challengeData.userAddress = resolvedAddress;
+      challengeData.did = resolvedDid;
+      challengeData.employeeId = resolvedEmployeeWithChain?.id || challengeData.employeeId;
+      challengeData.employeeName = resolvedEmployeeWithChain?.name || challengeData.employeeName;
+      challengeData.badge = (resolvedEmployeeWithChain?.badge || challengeData.badge || 'employee') as BadgeType;
+      challengeData.permissions = resolvedEmployeeWithChain?.permissions || challengeData.permissions || [];
+      challengeData.hashId = onChainAuth?.profile.hashId || resolvedEmployeeWithChain?.hashId || challengeData.hashId;
+      challengeData.didRegistrationTxHash = onChainAuth?.profile.didRegistrationTxHash || resolvedEmployeeWithChain?.didRegistrationTxHash || challengeData.didRegistrationTxHash;
+      challengeData.authRecordTxHash = onChainAuth?.authRecordTxHash;
+      challengeData.authVerifyTxHash = onChainAuth?.authVerifyTxHash;
+      challengeData.adminGasPayerAddress = sepoliaService.getGasPayerAddress();
+      challengeData.adminGasPayerEtherscanUrl = sepoliaService.getGasPayerEtherscanUrl();
 
       // Generate JWT token
       const tokenPayload = {
-        address: address,
+        address: resolvedAddress,
+        did: resolvedDid,
+        employeeId: challengeData.employeeId,
+        employeeName: challengeData.employeeName,
+        badge: challengeData.badge,
+        permissions: challengeData.permissions,
+        hashId: challengeData.hashId,
+        didRegistrationTxHash: challengeData.didRegistrationTxHash,
+        authRecordTxHash: challengeData.authRecordTxHash,
+        authVerifyTxHash: challengeData.authVerifyTxHash,
+        adminGasPayerAddress: challengeData.adminGasPayerAddress,
+        adminGasPayerEtherscanUrl: challengeData.adminGasPayerEtherscanUrl,
         challengeId: challengeId,
         authenticated: true,
         timestamp: new Date().toISOString()
@@ -548,7 +613,17 @@ router.post('/verify', async (req: Request, res: Response): Promise<void> => {
         success: true,
         data: {
           token: token,
-          address: address,
+          address: resolvedAddress,
+          did: resolvedDid,
+          employee: resolvedEmployeeWithChain || null,
+          badge: challengeData.badge,
+          permissions: challengeData.permissions,
+          hashId: challengeData.hashId,
+          didRegistrationTxHash: challengeData.didRegistrationTxHash,
+          authRecordTxHash: challengeData.authRecordTxHash,
+          authVerifyTxHash: challengeData.authVerifyTxHash,
+          adminGasPayerAddress: challengeData.adminGasPayerAddress,
+          adminGasPayerEtherscanUrl: challengeData.adminGasPayerEtherscanUrl,
           challengeId: challengeId,
           expiresIn: '24h'
         },

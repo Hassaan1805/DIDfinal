@@ -270,7 +270,7 @@ npm run build:ios
 
 ```env
 # Backend URL (update this for your network)
-EXPO_PUBLIC_API_URL=http://192.168.1.100:3001
+EXPO_PUBLIC_API_URL=http://192.168.1.33:3001
 
 # Fallback URLs
 EXPO_PUBLIC_API_URL_FALLBACK_1=http://localhost:3001

@@ -27,7 +27,8 @@ class SepoliaBlockchainService {
             rpcUrl: process.env.SEPOLIA_RPC_URL || '',
             contractAddress: process.env.SEPOLIA_CONTRACT_ADDRESS || '',
             privateKey: process.env.PLATFORM_PRIVATE_KEY || '',
-            chainId: 11155111
+            chainId: 11155111,
+            adminGasPayerAddress: process.env.ADMIN_GAS_PAYER_ADDRESS || '0xBdA3AC10e1403cFC54Ab2195Aad7Da8a39B775B9',
         };
         if (!this.config.rpcUrl || !this.config.privateKey) {
             console.warn('⚠️ Sepolia service not fully configured - check environment variables');
@@ -45,6 +46,14 @@ class SepoliaBlockchainService {
         this.provider = new ethers_1.ethers.JsonRpcProvider(this.config.rpcUrl);
         this.wallet = new ethers_1.ethers.Wallet(this.config.privateKey, this.provider);
         console.log('👛 Platform wallet:', this.wallet.address);
+        if (this.config.adminGasPayerAddress) {
+            const configured = this.config.adminGasPayerAddress.toLowerCase();
+            const signer = this.wallet.address.toLowerCase();
+            if (configured !== signer) {
+                console.warn(`⚠️ ADMIN_GAS_PAYER_ADDRESS (${this.config.adminGasPayerAddress}) does not match signer wallet (${this.wallet.address}). ` +
+                    'Transactions will be paid by the signer wallet.');
+            }
+        }
         if (this.config.contractAddress) {
             this.contract = new ethers_1.ethers.Contract(this.config.contractAddress, this.CONTRACT_ABI, this.wallet);
             console.log('📄 Contract connected:', this.config.contractAddress);
@@ -239,13 +248,83 @@ class SepoliaBlockchainService {
             };
         }
     }
+    async getLatestDidRegistrationTx(employeeAddress) {
+        try {
+            if (!this.contract || !this.provider) {
+                throw new Error('Smart contract not available');
+            }
+            if (!isValidEthereumAddress(employeeAddress)) {
+                throw new Error('Invalid Ethereum address');
+            }
+            const currentBlock = await this.provider.getBlockNumber();
+            const fromBlock = Math.max(0, currentBlock - 500000);
+            const filter = this.contract.filters.DIDRegistered(employeeAddress);
+            const events = await this.contract.queryFilter(filter, fromBlock, currentBlock);
+            if (events.length === 0) {
+                throw new Error('No DID registration transaction found for this address');
+            }
+            const latest = events[events.length - 1];
+            const block = await this.provider.getBlock(latest.blockNumber);
+            return {
+                success: true,
+                txHash: latest.transactionHash,
+                blockNumber: latest.blockNumber,
+                timestamp: block ? new Date(block.timestamp * 1000).toISOString() : undefined,
+            };
+        }
+        catch (error) {
+            return {
+                success: false,
+                error: error.message || 'Failed to resolve DID registration transaction',
+            };
+        }
+    }
+    async getLatestAuthenticationTx(employeeAddress) {
+        try {
+            if (!this.contract || !this.provider) {
+                throw new Error('Smart contract not available');
+            }
+            if (!isValidEthereumAddress(employeeAddress)) {
+                throw new Error('Invalid Ethereum address');
+            }
+            const currentBlock = await this.provider.getBlockNumber();
+            const fromBlock = Math.max(0, currentBlock - 500000);
+            const filter = this.contract.filters.AuthenticationRecorded(employeeAddress);
+            const events = await this.contract.queryFilter(filter, fromBlock, currentBlock);
+            if (events.length === 0) {
+                throw new Error('No authentication transaction found for this address');
+            }
+            const latest = events[events.length - 1];
+            const block = await this.provider.getBlock(latest.blockNumber);
+            return {
+                success: true,
+                txHash: latest.transactionHash,
+                blockNumber: latest.blockNumber,
+                timestamp: block ? new Date(block.timestamp * 1000).toISOString() : undefined,
+            };
+        }
+        catch (error) {
+            return {
+                success: false,
+                error: error.message || 'Failed to resolve authentication transaction',
+            };
+        }
+    }
     getConfig() {
         return {
             rpcUrl: this.config.rpcUrl,
             contractAddress: this.config.contractAddress,
             chainId: this.config.chainId,
-            walletAddress: this.wallet?.address || 'Not initialized'
+            walletAddress: this.wallet?.address || 'Not initialized',
+            adminGasPayerAddress: this.getGasPayerAddress(),
         };
+    }
+    getGasPayerAddress() {
+        return this.wallet?.address || this.config.adminGasPayerAddress || '';
+    }
+    getGasPayerEtherscanUrl() {
+        const gasPayer = this.getGasPayerAddress();
+        return gasPayer ? `https://sepolia.etherscan.io/address/${gasPayer}` : 'https://sepolia.etherscan.io';
     }
     isConfigured() {
         return !!(this.config.rpcUrl && this.config.privateKey && this.config.contractAddress);

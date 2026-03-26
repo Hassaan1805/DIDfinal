@@ -77,7 +77,7 @@ Update the backend URL in `lib/services/network_service.dart`:
 ```dart
 static const List<String> _backendUrls = [
   'http://localhost:3001',
-  'http://192.168.1.100:3001',  // Your local IP
+  'http://192.168.1.33:3001',  // Your local IP
   'https://your-backend-domain.com',
 ];
 ```

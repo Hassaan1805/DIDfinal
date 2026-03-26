@@ -73,20 +73,52 @@ export class BlockchainService {
         throw new Error('DID already registered for this address');
       }
 
-      // Estimate gas
-      const gasEstimate = await this.didRegistryContract.registerDID.estimateGas(
-        userAddress,
-        publicKey
-      );
+      // Check wallet balance before transaction
+      const balance = await this.provider.getBalance(this.gasStationWallet.address);
+      const feeData = await this.provider.getFeeData();
+      const gasPrice = feeData.gasPrice || 0n;
       
-      console.log(`⛽ Estimated gas: ${gasEstimate.toString()}`);
+      // Estimate required balance (gas * gasPrice with 50% buffer)
+      const estimatedCost = 300000n * gasPrice; // Use max fallback gas
+      const requiredBalance = estimatedCost * 150n / 100n; // Add 50% safety margin
+      
+      console.log(`💰 Wallet balance: ${ethers.formatEther(balance)} ETH`);
+      console.log(`💸 Estimated cost: ${ethers.formatEther(estimatedCost)} ETH`);
+      console.log(`⚠️  Required balance: ${ethers.formatEther(requiredBalance)} ETH`);
+      
+      if (balance < requiredBalance) {
+        const shortfall = requiredBalance - balance;
+        throw new Error(
+          `Insufficient funds in gas station wallet. ` +
+          `Balance: ${ethers.formatEther(balance)} ETH, ` +
+          `Required: ${ethers.formatEther(requiredBalance)} ETH, ` +
+          `Shortfall: ${ethers.formatEther(shortfall)} ETH. ` +
+          `Please fund wallet at ${this.gasStationWallet.address} using https://sepoliafaucet.com/`
+        );
+      }
+
+      // Estimate gas with fallback
+      let gasLimit: bigint;
+      try {
+        const gasEstimate = await this.didRegistryContract.registerDID.estimateGas(
+          userAddress,
+          publicKey
+        );
+        console.log(`⛽ Estimated gas: ${gasEstimate.toString()}`);
+        gasLimit = gasEstimate * 150n / 100n; // 50% buffer for safety
+      } catch (estimateError: any) {
+        console.warn('⚠️  Gas estimation failed, using fallback:', estimateError.message);
+        gasLimit = 300000n; // Fallback gas limit for DID registration
+      }
+
+      console.log(`⛽ Using gas limit: ${gasLimit.toString()}`);
 
       // Execute transaction
       const tx = await this.didRegistryContract.registerDID(
         userAddress,
         publicKey,
         {
-          gasLimit: gasEstimate * 120n / 100n // Add 20% buffer
+          gasLimit: gasLimit
         }
       );
 
@@ -128,16 +160,69 @@ export class BlockchainService {
     } catch (error: any) {
       console.error('❌ Blockchain service error:', error);
       
-      // Handle specific blockchain errors
+      // Parse and categorize blockchain errors with helpful messages
       if (error.code === 'CALL_EXCEPTION') {
-        throw new Error(`Smart contract error: ${error.reason || error.message}`);
-      } else if (error.code === 'INSUFFICIENT_FUNDS') {
-        throw new Error('Insufficient funds in gas station wallet');
-      } else if (error.code === 'NETWORK_ERROR') {
-        throw new Error('Blockchain network connection error');
+        // Contract execution reverted
+        const reason = error.reason || error.message || 'Unknown contract error';
+        throw new Error(
+          `Smart contract rejected transaction: ${reason}\n` +
+          `Possible causes:\n` +
+          `  - DID already registered\n` +
+          `  - Invalid input data\n` +
+          `  - Contract state issue\n` +
+          `  - Insufficient gas limit`
+        );
+      } else if (error.code === 'INSUFFICIENT_FUNDS' || error.message?.includes('insufficient funds')) {
+        // Not enough ETH for gas
+        throw new Error(
+          `Insufficient funds in gas station wallet.\n` +
+          `Wallet address: ${this.gasStationWallet.address}\n` +
+          `Get testnet ETH from: https://sepoliafaucet.com/\n` +
+          `Or: https://sepolia-faucet.pk910.de/\n` +
+          `Need at least 0.01 ETH for operations.`
+        );
+      } else if (error.code === 'NETWORK_ERROR' || error.code === 'SERVER_ERROR') {
+        // RPC connection issues
+        throw new Error(
+          `Blockchain network connection error.\n` +
+          `Current RPC: ${this.provider._getConnection().url}\n` +
+          `Possible solutions:\n` +
+          `  - Check internet connection\n` +
+          `  - Try alternative RPC endpoint\n` +
+          `  - Verify Sepolia network is operational`
+        );
+      } else if (error.code === 'TIMEOUT') {
+        throw new Error(
+          `Transaction timeout - network congestion.\n` +
+          `The transaction may still be pending.\n` +
+          `Check Etherscan: https://sepolia.etherscan.io/`
+        );
+      } else if (error.code === 'NONCE_EXPIRED' || error.code === 'REPLACEMENT_UNDERPRICED') {
+        throw new Error(
+          `Transaction nonce issue.\n` +
+          `This usually resolves automatically.\n` +
+          `Wait a moment and try again.`
+        );
+      } else if (error.message?.includes('gas')) {
+        // Generic gas-related error
+        throw new Error(
+          `Gas estimation or execution failed.\n` +
+          `Error: ${error.message}\n` +
+          `Possible causes:\n` +
+          `  - Insufficient funds for gas\n` +
+          `  - Transaction would fail (contract revert)\n` +
+          `  - Gas price spike\n` +
+          `Check wallet balance and try again.`
+        );
       }
       
-      throw new Error(`Blockchain operation failed: ${error.message}`);
+      // Generic error with full details
+      throw new Error(
+        `Blockchain operation failed.\n` +
+        `Error code: ${error.code || 'UNKNOWN'}\n` +
+        `Message: ${error.message}\n` +
+        `If issue persists, check Sepolia network status.`
+      );
     }
   }
 

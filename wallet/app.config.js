@@ -41,7 +41,7 @@ module.exports = ({ config }) => ({
   ],
   extra: {
     // These are read at Metro start time from wallet/.env
-    apiUrl: process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.100:3001',
+    apiUrl: process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.33:3001',
     apiFallback1:
       process.env.EXPO_PUBLIC_API_URL_FALLBACK_1 || 'http://localhost:3001',
     apiFallback2:

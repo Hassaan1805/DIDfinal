@@ -160,8 +160,8 @@ app.listen(PORT, HOST, () => {
   console.log(`🚀 Decentralized Trust Platform Backend running on ${HOST}:${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 Health check: http://${HOST}:${PORT}/api/health`);
-  console.log(`🌐 Network access: http://192.168.1.100:${PORT}/api/health`);
-  console.log(`📱 Mobile access: Use 192.168.1.100:${PORT} in your mobile app`);
+  console.log(`🌐 Network access: http://192.168.1.33:${PORT}/api/health`);
+  console.log(`📱 Mobile access: Use 192.168.1.33:${PORT} in your mobile app`);
 });
 
 export default app;

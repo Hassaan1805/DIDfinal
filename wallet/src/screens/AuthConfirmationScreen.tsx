@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -18,12 +18,33 @@ type AuthConfirmationRouteProp = RouteProp<RootStackParamList, 'AuthConfirmation
 const AuthConfirmationScreen: React.FC = () => {
   const navigation = useNavigation();
   const route = useRoute<AuthConfirmationRouteProp>();
-  const { challengeId, platform, timestamp, challenge, apiEndpoint, employeeName, employeeId } = route.params;
-  const { employees, submitAuthResponse } = useWallet();
+  const {
+    challengeId,
+    platform,
+    timestamp,
+    challenge,
+    apiEndpoint,
+    employeeName,
+    employeeId,
+    expectedDID,
+    badgeType,
+    badgePermissions,
+    employeeHashId,
+  } = route.params;
+  const { did, employees, submitAuthResponse } = useWallet();
   const { isConnected } = useNetwork();
-  
-  const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  const resolvedEmployeeDID = useMemo(() => {
+    if (expectedDID) return expectedDID;
+    if (employeeId) {
+      const match = employees.find((employee) => employee.id === employeeId);
+      if (match?.did) return match.did;
+    }
+    return did || '';
+  }, [did, employeeId, employees, expectedDID]);
 
   useEffect(() => {
     if (!isConnected) {
@@ -32,168 +53,158 @@ const AuthConfirmationScreen: React.FC = () => {
         'No connection to backend. Please check your network settings.',
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
-    }
-  }, [isConnected]);
-
-  const handleConfirm = async () => {
-    if (!selectedEmployee) {
-      Alert.alert('Error', 'Please select an employee');
       return;
     }
 
+    if (submitted || isSubmitting) return;
+    if (!resolvedEmployeeDID) return;
+
+    void handleAutoConfirm();
+  }, [isConnected, resolvedEmployeeDID]);
+
+  const handleAutoConfirm = async () => {
     setIsSubmitting(true);
-    
+
     try {
-      const result = await submitAuthResponse(challengeId, selectedEmployee, challenge, apiEndpoint);
-      
+      const result = await submitAuthResponse(
+        challengeId,
+        resolvedEmployeeDID,
+        challenge,
+        apiEndpoint,
+        employeeId,
+      );
+
       if (result.success) {
+        setSubmitted(true);
         Alert.alert(
           'Authentication Successful',
-          'You have been authenticated successfully!',
+          `${employeeName || employeeId || 'Employee'} authenticated with ${String(badgeType || 'employee').toUpperCase()} badge.`,
           [
             {
               text: 'OK',
-              onPress: () => navigation.navigate('Home'),
+              onPress: () => undefined,
             },
           ]
         );
       } else {
-        Alert.alert('Authentication Failed', result.error || 'Unknown error occurred');
+        Alert.alert('Authentication Failed', result.error || 'Unknown error occurred', [
+          { text: 'Back', onPress: () => navigation.navigate('Home' as never) },
+        ]);
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to submit authentication');
+      Alert.alert('Error', error.message || 'Failed to submit authentication', [
+        { text: 'Back', onPress: () => navigation.navigate('Home' as never) },
+      ]);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleCancel = () => {
-    Alert.alert(
-      'Cancel Authentication',
-      'Are you sure you want to cancel this authentication request?',
-      [
-        { text: 'No', style: 'cancel' },
-        {
-          text: 'Yes',
-          style: 'destructive',
-          onPress: () => navigation.navigate('Home'),
-        },
-      ]
-    );
+    navigation.navigate('Home' as never);
   };
 
-  const formatTimestamp = (ts: string) => {
-    try {
-      return new Date(ts).toLocaleString();
-    } catch {
-      return ts;
+  const formatTimestamp = (ts: string | number | undefined) => {
+    if (!ts) return 'Not provided';
+    
+    const raw = String(ts).trim();
+    if (!raw) return 'Not provided';
+
+    // Try to parse as number (epoch) or ISO string
+    const numeric = Number(raw);
+    let candidate: Date;
+    
+    if (Number.isFinite(numeric)) {
+      // If number is less than 10 digits, assume seconds; otherwise milliseconds
+      candidate = new Date(raw.length <= 10 ? numeric * 1000 : numeric);
+    } else {
+      // Try parsing as ISO string
+      candidate = new Date(raw);
     }
-  };
 
-  if (employees.length === 0) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>👥</Text>
-          <Text style={styles.emptyTitle}>No Employees</Text>
-          <Text style={styles.emptyText}>
-            You need to add employees before you can authenticate.
-          </Text>
-          <TouchableOpacity
-            style={styles.button}
-            onPress={() => navigation.navigate('Home')}
-          >
-            <Text style={styles.buttonText}>Go to Home</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
+    // Check if date is valid
+    if (Number.isNaN(candidate.getTime())) {
+      console.warn('Invalid timestamp:', raw);
+      return 'Invalid Date';
+    }
+
+    return candidate.toLocaleString();
+  };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Request Info */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Authentication Request</Text>
-        
+        <Text style={styles.cardTitle}>Employee-bound Authentication</Text>
+
         <View style={styles.infoRow}>
           <Text style={styles.label}>Platform:</Text>
           <Text style={styles.value}>{platform}</Text>
         </View>
-        
+
+        <View style={styles.infoRow}>
+          <Text style={styles.label}>Employee:</Text>
+          <Text style={styles.value}>{employeeName || employeeId || 'Unknown'}</Text>
+        </View>
+
+        <View style={styles.infoRow}>
+          <Text style={styles.label}>Badge:</Text>
+          <Text style={styles.value}>{String(badgeType || 'employee').toUpperCase()}</Text>
+        </View>
+
         <View style={styles.infoRow}>
           <Text style={styles.label}>Time:</Text>
-          <Text style={styles.value}>{formatTimestamp(timestamp)}</Text>
+          <Text style={styles.value}>{formatTimestamp(String(timestamp))}</Text>
         </View>
-        
+
         <View style={styles.infoRow}>
-          <Text style={styles.label}>Challenge ID:</Text>
-          <Text style={styles.valueSmall} numberOfLines={1}>{challengeId}</Text>
+          <Text style={styles.label}>Hash ID:</Text>
+          <Text style={styles.valueSmall} numberOfLines={1}>{employeeHashId || '-'}</Text>
+        </View>
+
+        <View style={styles.infoRow}>
+          <Text style={styles.label}>DID used:</Text>
+          <Text style={styles.valueSmall} numberOfLines={1}>{resolvedEmployeeDID || '-'}</Text>
         </View>
       </View>
 
-      {/* Employee Selection */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Select Employee</Text>
-        <Text style={styles.subtitle}>
-          Choose which employee identity to use for this authentication
-        </Text>
-        
-        {employees.map((employee) => (
-          <TouchableOpacity
-            key={employee.id}
-            style={[
-              styles.employeeCard,
-              selectedEmployee === employee.did && styles.employeeCardSelected,
-            ]}
-            onPress={() => setSelectedEmployee(employee.did)}
-          >
-            <View style={styles.employeeHeader}>
-              <View style={styles.radioButton}>
-                {selectedEmployee === employee.did && (
-                  <View style={styles.radioButtonInner} />
-                )}
-              </View>
-              <View style={styles.employeeInfo}>
-                <Text style={styles.employeeName}>{employee.name}</Text>
-                <Text style={styles.employeeRole}>{employee.role}</Text>
-              </View>
+        <Text style={styles.cardTitle}>Digital Badge Permissions</Text>
+        {(badgePermissions || []).length === 0 ? (
+          <Text style={styles.emptyText}>No badge permissions provided in QR payload.</Text>
+        ) : (
+          (badgePermissions || []).map((permission) => (
+            <View key={permission} style={styles.permissionChip}>
+              <Text style={styles.permissionText}>{permission}</Text>
             </View>
-            <Text style={styles.employeeDid} numberOfLines={1}>
-              {employee.did}
-            </Text>
-          </TouchableOpacity>
-        ))}
+          ))
+        )}
       </View>
 
-      {/* Action Buttons */}
       <View style={styles.actions}>
         <TouchableOpacity
-          style={[styles.actionButton, styles.confirmButton, !selectedEmployee && styles.buttonDisabled]}
-          onPress={handleConfirm}
-          disabled={!selectedEmployee || isSubmitting}
+          style={[styles.actionButton, styles.confirmButton, isSubmitting && styles.buttonDisabled]}
+          onPress={handleAutoConfirm}
+          disabled={isSubmitting || submitted}
         >
           {isSubmitting ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.actionButtonText}>✓ Confirm</Text>
+            <Text style={styles.actionButtonText}>{submitted ? 'Completed' : 'Retry Authentication'}</Text>
           )}
         </TouchableOpacity>
-        
+
         <TouchableOpacity
           style={[styles.actionButton, styles.cancelButton]}
           onPress={handleCancel}
           disabled={isSubmitting}
         >
-          <Text style={styles.actionButtonText}>✗ Cancel</Text>
+          <Text style={styles.actionButtonText}>Back</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Security Notice */}
       <View style={styles.noticeCard}>
         <Text style={styles.noticeText}>
-          🔒 Your private key will be used to sign this authentication request. 
-          Never share your private key with anyone.
+          Wallet auto-resolves the employee from QR and authenticates directly. No manual employee selection is required.
         </Text>
       </View>
     </ScrollView>
@@ -208,28 +219,6 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
   },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 40,
-  },
-  emptyIcon: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
-  emptyTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#94a3b8',
-    textAlign: 'center',
-    marginBottom: 24,
-  },
   card: {
     backgroundColor: '#1a1a2e',
     padding: 20,
@@ -242,11 +231,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 16,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#94a3b8',
     marginBottom: 16,
   },
   infoRow: {
@@ -270,103 +254,59 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     maxWidth: '60%',
   },
-  employeeCard: {
-    backgroundColor: '#0f172a',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 12,
-    borderWidth: 2,
-    borderColor: 'transparent',
+  emptyText: {
+    fontSize: 14,
+    color: '#64748b',
+    fontStyle: 'italic',
   },
-  employeeCardSelected: {
+  permissionChip: {
+    backgroundColor: 'rgba(14, 165, 233, 0.15)',
     borderColor: '#0ea5e9',
-    backgroundColor: 'rgba(14, 165, 233, 0.1)',
-  },
-  employeeHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
     marginBottom: 8,
   },
-  radioButton: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#0ea5e9',
-    marginRight: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  radioButtonInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#0ea5e9',
-  },
-  employeeInfo: {
-    flex: 1,
-  },
-  employeeName: {
-    fontSize: 16,
+  permissionText: {
+    color: '#bae6fd',
+    fontSize: 13,
     fontWeight: '600',
-    color: '#fff',
-    marginBottom: 2,
-  },
-  employeeRole: {
-    fontSize: 14,
-    color: '#0ea5e9',
-  },
-  employeeDid: {
-    fontSize: 12,
-    color: '#64748b',
-    marginLeft: 36,
   },
   actions: {
     marginBottom: 20,
   },
   actionButton: {
-    padding: 16,
+    paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',
     marginBottom: 12,
   },
   confirmButton: {
-    backgroundColor: '#22c55e',
+    backgroundColor: '#10b981',
   },
   cancelButton: {
-    backgroundColor: '#ef4444',
-  },
-  buttonDisabled: {
-    backgroundColor: '#334155',
-    opacity: 0.5,
+    backgroundColor: '#475569',
   },
   actionButtonText: {
-    fontSize: 18,
-    fontWeight: 'bold',
     color: '#fff',
-  },
-  button: {
-    backgroundColor: '#0ea5e9',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  buttonText: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
+    fontWeight: '700',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
   noticeCard: {
-    backgroundColor: 'rgba(14, 165, 233, 0.1)',
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    borderColor: '#22c55e',
+    borderWidth: 1,
     padding: 16,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#0ea5e9',
   },
   noticeText: {
+    color: '#86efac',
     fontSize: 13,
-    color: '#94a3b8',
-    lineHeight: 20,
+    lineHeight: 19,
   },
 });
 

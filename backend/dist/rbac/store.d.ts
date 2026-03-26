@@ -1,0 +1,23 @@
+import { ActivityLog, NonceRecord, RoleDefinition, RoleName, StoredCredential, UserRecord } from './types';
+export declare const ROLE_DEFINITIONS: Record<RoleName, RoleDefinition>;
+export declare function normalizeAddress(address: string): string;
+export declare function toDid(address: string): string;
+export declare function validateDid(did: string): void;
+export declare function ensureUser(walletAddress: string): UserRecord;
+export declare function upsertUser(user: UserRecord): void;
+export declare function getUser(walletAddress: string): UserRecord | undefined;
+export declare function listUsers(): UserRecord[];
+export declare function createNonce(walletAddress: string): NonceRecord;
+export declare function getNonce(nonce: string): NonceRecord | undefined;
+export declare function markNonceUsed(nonce: string): void;
+export declare function cleanupNonces(): void;
+export declare function storeCredential(credential: StoredCredential): void;
+export declare function getCredentialById(credentialId: string): StoredCredential | undefined;
+export declare function listCredentials(): StoredCredential[];
+export declare function listCredentialsForWallet(walletAddress: string): StoredCredential[];
+export declare function listActiveCredentialsForWallet(walletAddress: string): StoredCredential[];
+export declare function revokeCredential(credentialId: string, revokedBy: string): StoredCredential;
+export declare function logActivity(log: Omit<ActivityLog, 'id' | 'createdAt'>): ActivityLog;
+export declare function getActivityLogs(limit?: number): ActivityLog[];
+export declare function seedSuperAdminUser(): void;
+//# sourceMappingURL=store.d.ts.map
