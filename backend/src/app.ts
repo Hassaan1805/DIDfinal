@@ -24,6 +24,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import { generalRateLimiter } from './middleware/rateLimiter.middleware';
 import { authRoutes } from './routes/auth';
 import { didRoutes } from './routes/did';
 import { healthRoutes } from './routes/health';
@@ -34,6 +35,10 @@ import premiumRoutes from './routes/premium.routes';
 import monitoringRoutes from './routes/monitoring';
 import simpleTestRoutes from './routes/simple-test';
 import blockchainRoutes from './routes/blockchain';
+import { identityRoutes } from './routes/identity';
+import zkpAccessRoutes from './routes/zkpAccess.routes';
+import { initializeRedis, closeRedis } from './services/redis.service';
+import { initializeChallengeStorage } from './services/challengeStorage.service';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -110,6 +115,9 @@ app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Apply general rate limiting to all routes
+app.use(generalRateLimiter);
+
 // Routes
 app.use('/api/health', healthRoutes);
 app.use('/api/auth', authRoutes);
@@ -121,6 +129,8 @@ app.use('/api/premium', premiumRoutes); // Premium content routes (ZK-proof prot
 app.use('/api/monitor', monitoringRoutes); // Blockchain monitoring routes
 app.use('/api/simple-test', simpleTestRoutes); // Simple blockchain testing
 app.use('/api/blockchain', blockchainRoutes); // Blockchain data viewer routes
+app.use('/api/identity', identityRoutes); // User identity profile and consent enrollment routes
+app.use('/api/zkp', zkpAccessRoutes); // ZK-proof access control routes
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -156,12 +166,45 @@ app.use('*', (req: express.Request, res: express.Response) => {
 });
 
 // Start server
-app.listen(PORT, HOST, () => {
-  console.log(`🚀 Decentralized Trust Platform Backend running on ${HOST}:${PORT}`);
-  console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 Health check: http://${HOST}:${PORT}/api/health`);
-  console.log(`🌐 Network access: http://192.168.1.33:${PORT}/api/health`);
-  console.log(`📱 Mobile access: Use 192.168.1.33:${PORT} in your mobile app`);
+async function startServer() {
+  try {
+    // Initialize Redis connection (optional - falls back to in-memory)
+    await initializeRedis();
+    
+    // Initialize challenge storage (uses Redis if available, otherwise in-memory)
+    initializeChallengeStorage();
+
+    app.listen(PORT, HOST, () => {
+      const configuredHostIp = process.env.PRIMARY_HOST_IP || process.env.LOCAL_IP || '';
+      const preferredHostIp = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)\d{1,3}\.\d{1,3}$/.test(configuredHostIp)
+        ? configuredHostIp
+        : 'localhost';
+      console.log(`🚀 Decentralized Trust Platform Backend running on ${HOST}:${PORT}`);
+      console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🔗 Health check: http://${HOST}:${PORT}/api/health`);
+      console.log(`🌐 Network access: http://${preferredHostIp}:${PORT}/api/health`);
+      console.log(`📱 Mobile access: Use ${preferredHostIp}:${PORT} in your mobile app`);
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('👋 SIGTERM received, shutting down gracefully...');
+  await closeRedis();
+  process.exit(0);
 });
+
+process.on('SIGINT', async () => {
+  console.log('👋 SIGINT received, shutting down gracefully...');
+  await closeRedis();
+  process.exit(0);
+});
+
+// Start the server
+startServer();
 
 export default app;

@@ -9,12 +9,24 @@ import jwt from 'jsonwebtoken';
  * user identity is known and maintained.
  */
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+// SECURITY: JWT_SECRET must be set - no weak fallback allowed
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+  console.error('❌ CRITICAL: JWT_SECRET environment variable must be set with at least 32 characters');
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET environment variable is required in production');
+  }
+}
+const JWT_SECRET = process.env.JWT_SECRET || 'development-only-secret-not-for-production';
 
 // Extended request interface for authenticated requests
 export interface AuthenticatedRequest extends Request {
   user?: {
     address: string;
+    did?: string;
+    employeeId?: string;
+    verifierId?: string;
+    verifierOrganizationId?: string;
+    verifierOrganizationName?: string;
     challengeId: string;
     authenticated: boolean;
     timestamp: string;
@@ -59,6 +71,11 @@ export const verifyAuthToken = (req: AuthenticatedRequest, res: Response, next: 
     // Attach user info to request
     req.user = {
       address: decoded.address,
+      did: decoded.did,
+      employeeId: decoded.employeeId,
+      verifierId: decoded.verifierId,
+      verifierOrganizationId: decoded.verifierOrganizationId,
+      verifierOrganizationName: decoded.verifierOrganizationName,
       challengeId: decoded.challengeId,
       authenticated: decoded.authenticated,
       timestamp: decoded.timestamp,
@@ -162,3 +179,245 @@ export const upgradeSessionToPremium = (userAddress: string, challengeId: string
 
   return enhancedToken;
 };
+
+// ============================================================================
+// Admin Authentication Configuration & Middleware
+// ============================================================================
+
+/**
+ * Admin JWT payload interface
+ */
+export interface AdminJwtPayload extends jwt.JwtPayload {
+  role?: string;
+  badge?: string;
+  permissions?: string[];
+  scope?: string | string[];
+  admin?: boolean;
+  employeeId?: string;
+  address?: string;
+}
+
+/**
+ * Extended request interface for admin-authenticated requests
+ */
+export interface AdminAuthenticatedRequest extends Request {
+  adminUser?: AdminJwtPayload;
+  adminAuthMethod?: 'jwt' | 'static-token';
+}
+
+/**
+ * Admin auth configuration from environment
+ */
+export interface AdminAuthConfig {
+  jwtSecret: string;
+  staticTokens: Set<string>;
+  requireJwtInProduction: boolean;
+  allowStaticTokens: boolean;
+}
+
+/**
+ * Get admin authentication configuration from environment
+ * SECURITY: No fallback tokens - all tokens must be explicitly configured via environment variables
+ */
+export function getAdminAuthConfig(): AdminAuthConfig {
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  // Configured static tokens from environment only
+  const configuredTokens = [
+    process.env.ADMIN_TOKEN,
+    ...(process.env.ADMIN_TOKENS || '').split(','),
+  ]
+    .map((token) => (token ?? '').trim())
+    .filter((token): token is string => token.length >= 32); // Require minimum token length
+
+  // SECURITY: No hardcoded fallback tokens - all must come from environment
+  // Log warning if no tokens configured
+  if (configuredTokens.length === 0 && !isProduction) {
+    console.warn('⚠️  No admin tokens configured. Set ADMIN_TOKEN or ADMIN_TOKENS in environment.');
+  }
+
+  // Whether to allow static tokens (can be disabled for stricter security)
+  const allowStaticTokens = process.env.ADMIN_ALLOW_STATIC_TOKENS !== 'false';
+  
+  // In production, require JWT unless static tokens are explicitly enabled
+  const requireJwtInProduction = isProduction && !allowStaticTokens;
+
+  return {
+    jwtSecret: JWT_SECRET,
+    staticTokens: allowStaticTokens 
+      ? new Set(configuredTokens)
+      : new Set(),
+    requireJwtInProduction,
+    allowStaticTokens,
+  };
+}
+
+/**
+ * Check if a decoded JWT has admin claims
+ */
+export function hasAdminClaims(decoded: AdminJwtPayload): boolean {
+  // Explicit admin flag
+  if (decoded.admin === true) {
+    return true;
+  }
+
+  // Role-based check
+  const role = String(decoded.role || '').toLowerCase();
+  const badge = String(decoded.badge || '').toLowerCase();
+  if (role === 'admin' || badge === 'admin') {
+    return true;
+  }
+
+  // Permission-based check
+  const permissions = Array.isArray(decoded.permissions)
+    ? decoded.permissions.map((permission) => String(permission).toLowerCase())
+    : [];
+
+  if (
+    permissions.includes('users:manage') ||
+    permissions.includes('badges:issue') ||
+    permissions.includes('admin:*') ||
+    permissions.includes('admin:full')
+  ) {
+    return true;
+  }
+
+  // OAuth scope-based check
+  const scopes = Array.isArray(decoded.scope)
+    ? decoded.scope
+    : typeof decoded.scope === 'string'
+      ? decoded.scope.split(' ')
+      : [];
+
+  return scopes.some((scope) => ['admin', 'admin:full'].includes(scope.toLowerCase()));
+}
+
+/**
+ * Admin authentication middleware
+ * 
+ * Verifies admin access through:
+ * 1. JWT token with admin claims (preferred)
+ * 2. Static admin tokens (for backwards compatibility, configurable)
+ * 
+ * Returns 401 for missing/invalid credentials
+ * Returns 403 for valid credentials without admin permissions
+ */
+export const requireAdminAuth = (req: AdminAuthenticatedRequest, res: Response, next: NextFunction): void => {
+  const config = getAdminAuthConfig();
+  const timestamp = new Date().toISOString();
+
+  // Extract token from Authorization header
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.log('❌ Admin auth: Missing or invalid Authorization header');
+    res.status(401).json({
+      success: false,
+      error: 'Unauthorized',
+      code: 'MISSING_AUTH_HEADER',
+      message: 'Authorization header with Bearer token is required',
+      hint: 'Include "Authorization: Bearer <token>" header',
+      timestamp,
+    });
+    return;
+  }
+
+  const token = authHeader.slice(7).trim();
+  if (!token) {
+    res.status(401).json({
+      success: false,
+      error: 'Unauthorized',
+      code: 'EMPTY_TOKEN',
+      message: 'Authorization token is empty',
+      timestamp,
+    });
+    return;
+  }
+
+  // Check static tokens first (if allowed)
+  if (config.allowStaticTokens && config.staticTokens.has(token)) {
+    console.log('✅ Admin auth: Authenticated via static token');
+    req.adminAuthMethod = 'static-token';
+    req.adminUser = { admin: true };
+    next();
+    return;
+  }
+
+  // Verify JWT token
+  try {
+    const decoded = jwt.verify(token, config.jwtSecret) as AdminJwtPayload;
+    
+    // Check for admin claims
+    if (!hasAdminClaims(decoded)) {
+      console.log('❌ Admin auth: Token valid but lacks admin permissions');
+      res.status(403).json({
+        success: false,
+        error: 'Forbidden',
+        code: 'INSUFFICIENT_PERMISSIONS',
+        message: 'Valid authentication but insufficient admin permissions',
+        hint: 'This endpoint requires admin role or admin:* permissions',
+        requiredPermissions: ['admin role', 'badge:admin', 'permissions:users:manage', 'permissions:badges:issue', 'permissions:admin:*'],
+        timestamp,
+      });
+      return;
+    }
+
+    console.log('✅ Admin auth: Authenticated via JWT with admin claims');
+    req.adminAuthMethod = 'jwt';
+    req.adminUser = decoded;
+    next();
+  } catch (error: any) {
+    console.error('❌ Admin auth: Token verification failed:', error.message);
+
+    if (error.name === 'TokenExpiredError') {
+      res.status(401).json({
+        success: false,
+        error: 'Unauthorized',
+        code: 'TOKEN_EXPIRED',
+        message: 'Admin token has expired',
+        hint: 'Please obtain a new admin token',
+        timestamp,
+      });
+      return;
+    }
+
+    if (error.name === 'JsonWebTokenError') {
+      res.status(401).json({
+        success: false,
+        error: 'Unauthorized',
+        code: 'INVALID_TOKEN',
+        message: 'Invalid admin token',
+        hint: 'Ensure the token is a valid JWT or configured static token',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+        timestamp,
+      });
+      return;
+    }
+
+    res.status(401).json({
+      success: false,
+      error: 'Unauthorized',
+      code: 'AUTH_ERROR',
+      message: 'Admin authentication failed',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      timestamp,
+    });
+  }
+};
+
+/**
+ * Generate an admin JWT token (utility for testing/setup)
+ */
+export function generateAdminToken(payload: Partial<AdminJwtPayload> = {}): string {
+  const adminPayload: AdminJwtPayload = {
+    admin: true,
+    role: 'admin',
+    permissions: ['admin:*', 'users:manage', 'badges:issue'],
+    ...payload,
+  };
+
+  return jwt.sign(adminPayload, JWT_SECRET, {
+    expiresIn: '24h',
+    issuer: 'decentralized-trust-platform',
+    subject: 'admin-session',
+  });
+}
