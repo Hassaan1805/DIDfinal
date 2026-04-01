@@ -9,11 +9,11 @@
       },
       "variables": {
         "NODE_ENV": "production",
-        "DEMO_MODE": "true",
-        "ETHEREUM_RPC_URL": "https://sepolia.infura.io/v3/8442a43de5054ce0a632622b78fab286",
+        "DEMO_MODE": "false",
+        "ETHEREUM_RPC_URL": "${{ETHEREUM_RPC_URL}}",
         "CONTRACT_ADDRESS": "0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48",
-        "JWT_SECRET": "71a4602d351070b66439bf41cf7fc34b55a58a128ac85978b77cf26e9e9edf58e407cb30351e55af9317c8110128c6a3984e0f6759b576923d85dc58eea9c37b",
-        "GAS_STATION_PRIVATE_KEY": "0x4c72f5e50ef5c4a2a3d7e3b5a1f8e9d6c3b0a7e4d1c8b5a2f9e6d3c0b7a4e1f8"
+        "JWT_SECRET": "${{JWT_SECRET}}",
+        "GAS_STATION_PRIVATE_KEY": "${{GAS_STATION_PRIVATE_KEY}}"
       },
       "build": {
         "command": "npm run build"
