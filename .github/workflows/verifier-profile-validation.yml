@@ -1,0 +1,94 @@
+name: Verifier Profile Validation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verifier-profile-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install backend dependencies
+        run: npm --prefix backend install --no-audit --no-fund
+
+      - name: Install portal dependencies
+        run: npm --prefix portal install --no-audit --no-fund
+
+      - name: Install circuits dependencies
+        run: npm --prefix circuits install --no-audit --no-fund
+
+      - name: Build backend
+        run: npm --prefix backend run build
+
+      - name: Build portal
+        run: npm --prefix portal run build
+
+      - name: Compile circuits
+        run: npm --prefix circuits run compile
+
+      - name: Run circuits tests
+        run: npm --prefix circuits run test
+
+      - name: Run verifier profile validation suite
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          NODE_ENV=development DEMO_MODE=true PORT=3101 npm --prefix backend run start > backend-ci.log 2>&1 &
+          BACKEND_PID=$!
+
+          cleanup() {
+            kill "$BACKEND_PID" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          for i in {1..40}; do
+            if curl -sSf http://127.0.0.1:3101/api/health >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+
+          curl -sSf http://127.0.0.1:3101/api/health >/dev/null
+
+          failures=()
+
+          run_suite() {
+            local label="$1"
+            local command="$2"
+            echo "\n▶ Running ${label}"
+            if eval "${command}"; then
+              echo "✅ ${label} passed"
+            else
+              echo "❌ ${label} failed"
+              failures+=("${label}")
+            fi
+          }
+
+          run_suite "verifier-profiles" "BACKEND_BASE_URL=http://127.0.0.1:3101 npm --prefix backend run test:verifier-profiles"
+          run_suite "verifier-profiles-negative" "BACKEND_BASE_URL=http://127.0.0.1:3101 npm --prefix backend run test:verifier-profiles-negative"
+          run_suite "selective-disclosure" "BACKEND_BASE_URL=http://127.0.0.1:3101 npm --prefix backend run test:selective-disclosure"
+          run_suite "selective-disclosure-negative" "BACKEND_BASE_URL=http://127.0.0.1:3101 npm --prefix backend run test:selective-disclosure-negative"
+
+          if [ ${#failures[@]} -gt 0 ]; then
+            echo "\nValidation suite failures: ${failures[*]}"
+            exit 1
+          fi
+
+      - name: Upload backend logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-ci-log
+          path: backend-ci.log
