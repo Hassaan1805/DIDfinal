@@ -42,6 +42,9 @@ This will:
 
 This runs comprehensive tests to ensure everything works.
 
+By default the test script uses `ADMIN_TOKEN=integration-test-token` for admin APIs.
+If your environment uses a custom admin token, export `ADMIN_TOKEN` before running tests.
+
 ## 📱 How to Use
 
 ### Step 1: Open Portal
@@ -261,6 +264,8 @@ NODE_ENV=development
 HOST=0.0.0.0
 DEMO_MODE=true
 JWT_SECRET=dev_jwt_secret_2024
+ADMIN_TOKEN=admin-dev-token
+ADMIN_TOKENS=admin-dev-token,integration-test-token
 SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/...
 SEPOLIA_CONTRACT_ADDRESS=0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48
 ```
