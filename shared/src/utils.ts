@@ -193,27 +193,47 @@ export class FormatUtils {
 // Utility functions for security
 export class SecurityUtils {
   /**
-   * Generate a random string
+   * Generate a cryptographically secure random string
+   * Uses crypto.getRandomValues() in browser or crypto.randomBytes() in Node.js
    */
   static generateRandomString(length: number): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const randomValues = new Uint32Array(length);
+    
+    // Use crypto API (works in both Node.js and browser)
+    if (typeof globalThis.crypto !== 'undefined' && globalThis.crypto.getRandomValues) {
+      globalThis.crypto.getRandomValues(randomValues);
+    } else {
+      // Node.js fallback using crypto module
+      const crypto = require('crypto');
+      const bytes = crypto.randomBytes(length * 4);
+      for (let i = 0; i < length; i++) {
+        randomValues[i] = bytes.readUInt32BE(i * 4);
+      }
+    }
+    
     let result = '';
     for (let i = 0; i < length; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
+      result += chars.charAt(randomValues[i] % chars.length);
     }
     return result;
   }
 
   /**
-   * Generate a secure random hex string
+   * Generate a cryptographically secure random hex string
    */
   static generateSecureHex(length: number): string {
-    const chars = '0123456789abcdef';
-    let result = '';
-    for (let i = 0; i < length; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    // Use crypto API for secure random bytes
+    if (typeof globalThis.crypto !== 'undefined' && globalThis.crypto.getRandomValues) {
+      const bytes = new Uint8Array(Math.ceil(length / 2));
+      globalThis.crypto.getRandomValues(bytes);
+      const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+      return hex.slice(0, length);
+    } else {
+      // Node.js fallback
+      const crypto = require('crypto');
+      return crypto.randomBytes(Math.ceil(length / 2)).toString('hex').slice(0, length);
     }
-    return result;
   }
 
   /**
