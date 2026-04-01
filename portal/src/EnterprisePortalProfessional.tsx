@@ -1,14 +1,52 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 import { useLocation, useNavigate } from 'react-router-dom';
-import Orb from './components/Orb';
+import { AuditAPI } from './utils/api';
+import { saveTokens, clearAuth as clearPortalAuth, getCurrentUser } from './utils/auth';
+import type { BadgeType } from './utils/auth';
+import { RoleGate } from './components/RoleGate';
+import { ZKRoleGate } from './components/ZKRoleGate';
+import { PROJECT_DATASET } from './constants/projectDataset';
+import {
+  ShieldCheckIcon,
+  LockClosedIcon,
+  QrCodeIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  InformationCircleIcon,
+  ArrowRightOnRectangleIcon,
+  DocumentArrowDownIcon,
+  ChartBarIcon,
+  ClipboardDocumentListIcon,
+  Cog6ToothIcon,
+  FolderOpenIcon,
+  HomeIcon,
+  ExclamationTriangleIcon,
+  FingerPrintIcon,
+  CubeTransparentIcon,
+  UserPlusIcon,
+  UsersIcon,
+  ArrowPathIcon,
+  LinkIcon,
+  BuildingOfficeIcon,
+  WifiIcon,
+} from '@heroicons/react/24/outline';
+import { CheckBadgeIcon } from '@heroicons/react/24/solid';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 type PortalMode = 'login' | 'admin';
-type BadgeType = 'employee' | 'manager' | 'admin' | 'auditor';
+type VerifierRequestType = 'portal_access' | 'general_auth';
+type VerifierClaimKey = 'subjectDid' | 'employeeId' | 'name' | 'role' | 'department' | 'email';
+type EnrollmentRequestStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 type AuthStep = 'login' | 'qr' | 'authenticated';
 type PortalSection = 'dashboard' | 'projects' | 'security' | 'blockchain' | 'analytics' | 'audit';
+
+interface RequestedClaimsData {
+  requestType: VerifierRequestType;
+  requiredClaims: VerifierClaimKey[];
+  policyVersion: number;
+}
 
 interface EmployeeRecord {
   id: string;
@@ -29,11 +67,14 @@ interface ChallengeData {
   challenge: string;
   qrCodeData: string;
   employee?: EmployeeRecord;
+  verifier?: VerifierProfile;
+  requestedClaims?: RequestedClaimsData;
 }
 
 interface StatusData {
   status: 'pending' | 'completed';
   token?: string;
+  refreshToken?: string;
   did?: string;
   userAddress?: string;
   employeeId?: string;
@@ -41,6 +82,43 @@ interface StatusData {
   badge?: BadgeType;
   permissions?: string[];
   hashId?: string;
+  verifierId?: string;
+  verifierOrganizationId?: string;
+  verifierOrganizationName?: string;
+  verifierPolicyVersion?: number;
+  verifierCredentialRequired?: boolean;
+  requestedClaims?: RequestedClaimsData;
+}
+
+interface VerifierProfile {
+  verifierId: string;
+  organizationId: string;
+  organizationName: string;
+  active: boolean;
+  policyVersion: number;
+  requireCredential: boolean;
+  allowedBadges: BadgeType[];
+  allowedRequestTypes: VerifierRequestType[];
+  requiredClaimsByRequestType: Record<VerifierRequestType, VerifierClaimKey[]>;
+}
+
+interface EnrollmentRequestRecord {
+  requestId: string;
+  did: string;
+  requesterOrganizationId: string;
+  requesterOrganizationName: string;
+  verifierId?: string;
+  purpose: string;
+  requestedClaims: string[];
+  requestedProfileFields: string[];
+  status: EnrollmentRequestStatus;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  decidedAt?: string;
+  approvedClaims?: string[];
+  approvedProfileFields?: string[];
+  decisionReason?: string;
 }
 
 interface AdminBadgeData {
@@ -53,19 +131,6 @@ interface AdminBadgeData {
   };
 }
 
-interface ProjectRecord {
-  code: string;
-  name: string;
-  ownerId: string;
-  owner: string;
-  progress: number;
-  risk: 'Low' | 'Medium' | 'High';
-  networkTx: number;
-  budget: string;
-  eta: string;
-  teamMembers: string[];
-}
-
 const BADGE_OPTIONS: Array<{ value: BadgeType; label: string }> = [
   { value: 'employee', label: 'Employee' },
   { value: 'manager', label: 'Manager' },
@@ -73,77 +138,244 @@ const BADGE_OPTIONS: Array<{ value: BadgeType; label: string }> = [
   { value: 'auditor', label: 'Auditor' },
 ];
 
-const PROJECT_DATASET: {
-  managerTeamMap: Record<string, string[]>;
-  catalog: ProjectRecord[];
-} = {
-  managerTeamMap: {
-    EMP001: ['EMP001', 'EMP002', 'EMP003', 'EMP004'],
-    EMP002: ['EMP002', 'EMP003', 'EMP004'],
-  },
-  catalog: [
-  {
-    code: 'PRJ-001',
-    name: 'DID Wallet Authentication Revamp',
-    ownerId: 'EMP001',
-    owner: 'Zaid',
-    progress: 84,
-    risk: 'Medium',
-    networkTx: 128,
-    budget: '$46,000',
-    eta: '6 days',
-    teamMembers: ['EMP001', 'EMP002', 'EMP003'],
-  },
-  {
-    code: 'PRJ-002',
-    name: 'Role Credential Issuance Automation',
-    ownerId: 'EMP002',
-    owner: 'Hassaan',
-    progress: 71,
-    risk: 'Low',
-    networkTx: 93,
-    budget: '$32,500',
-    eta: '11 days',
-    teamMembers: ['EMP002', 'EMP003', 'EMP004'],
-  },
-  {
-    code: 'PRJ-003',
-    name: 'Enterprise Access Insights Dashboard',
-    ownerId: 'EMP003',
-    owner: 'Atharva',
-    progress: 63,
-    risk: 'Medium',
-    networkTx: 77,
-    budget: '$27,300',
-    eta: '15 days',
-    teamMembers: ['EMP003', 'EMP004'],
-  },
-  {
-    code: 'PRJ-004',
-    name: 'Auditor Evidence Vault Integration',
-    ownerId: 'EMP004',
-    owner: 'Gracian',
-    progress: 58,
-    risk: 'Medium',
-    networkTx: 42,
-    budget: '$19,800',
-    eta: '19 days',
-    teamMembers: ['EMP004', 'EMP001'],
-  },
-  {
-    code: 'PRJ-005',
-    name: 'Sepolia Traceability Control Plane',
-    ownerId: 'EMP002',
-    owner: 'Hassaan',
-    progress: 52,
-    risk: 'High',
-    networkTx: 156,
-    budget: '$54,900',
-    eta: '24 days',
-    teamMembers: ['EMP001', 'EMP002', 'EMP003', 'EMP004'],
-  },
-  ],
+const CLAIM_LABELS: Record<VerifierClaimKey, string> = {
+  subjectDid: 'Subject DID',
+  employeeId: 'Employee ID',
+  name: 'Name',
+  role: 'Role',
+  department: 'Department',
+  email: 'Email',
 };
+
+function parseCsvList(value: string): string[] {
+  return Array.from(
+    new Set(
+      value.split(',').map((item) => item.trim()).filter((item) => item.length > 0)
+    )
+  );
+}
+
+const BADGE_STYLES: Record<string, { bg: string; border: string; text: string }> = {
+  admin:    { bg: 'rgba(37,99,235,0.15)',   border: 'rgba(37,99,235,0.35)',   text: '#60a5fa' },
+  auditor:  { bg: 'rgba(217,119,6,0.15)',   border: 'rgba(217,119,6,0.35)',   text: '#fbbf24' },
+  manager:  { bg: 'rgba(124,58,237,0.15)',  border: 'rgba(124,58,237,0.35)',  text: '#a78bfa' },
+  employee: { bg: 'rgba(100,116,139,0.12)', border: 'rgba(100,116,139,0.3)',  text: '#94a3b8' },
+};
+
+// ── Audit Timeline ────────────────────────────────────────────────────────────
+
+interface AuditTimelineEvent {
+  eventId: string;
+  createdAt: string;
+  eventType: string;
+  status: 'success' | 'failure' | 'info';
+  reason?: string;
+  challengeId?: string;
+  did?: string;
+  userAddress?: string;
+  employeeId?: string;
+  companyId?: string;
+  verifierId?: string;
+  verifierOrganizationId?: string;
+  verifierOrganizationName?: string;
+  requestType?: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface AuditTimelineSectionProps {
+  companyId: string;
+  currentEmployee: EmployeeRecord | null;
+}
+
+const AuditTimelineSection: React.FC<AuditTimelineSectionProps> = ({ companyId, currentEmployee }) => {
+  const [events, setEvents] = useState<AuditTimelineEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [summary, setSummary] = useState({ total: 0, success: 0, failure: 0, info: 0 });
+  const [filterEventType, setFilterEventType] = useState<string>('');
+  const [filterStatus, setFilterStatus] = useState<string>('');
+  const [filterScope, setFilterScope] = useState<'company' | 'employee'>('company');
+
+  useEffect(() => { loadTimeline(); }, [companyId, currentEmployee, filterEventType, filterStatus, filterScope]);
+
+  const loadTimeline = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const filters: any = { limit: 100 };
+      if (filterScope === 'company') { filters.companyId = companyId; }
+      else if (currentEmployee?.id) { filters.employeeId = currentEmployee.id; }
+      if (filterEventType) filters.eventType = filterEventType;
+      if (filterStatus) filters.status = filterStatus;
+      const response = await AuditAPI.getTimeline(filters);
+      if (response.success && response.data) {
+        const d = response.data as { events?: AuditTimelineEvent[]; summary?: typeof summary };
+        setEvents(d.events || []);
+        setSummary(d.summary || { total: 0, success: 0, failure: 0, info: 0 });
+      } else { setError('Failed to load timeline'); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load timeline');
+    } finally { setLoading(false); }
+  };
+
+  const getEventTypeLabel = (eventType: string) => {
+    const labels: Record<string, string> = {
+      challenge_created: 'Challenge Created',
+      challenge_expired: 'Challenge Expired',
+      verification_attempted: 'Verification Attempted',
+      verification_succeeded: 'Verification Success',
+      verification_failed: 'Verification Failed',
+      token_verified: 'Token Verified',
+      token_verification_failed: 'Token Failed',
+      session_status_checked: 'Status Check',
+    };
+    return labels[eventType] || eventType;
+  };
+
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp);
+    const diffMs = Date.now() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleString();
+  };
+
+  const isSuspicious = (event: AuditTimelineEvent, index: number) => {
+    if (event.status === 'failure') {
+      const recentFailures = events.slice(Math.max(0, index - 5), index + 1)
+        .filter(e => e.status === 'failure' && e.eventType.includes('verification'));
+      if (recentFailures.length >= 3) return true;
+    }
+    if (event.eventType === 'challenge_expired' && event.metadata?.expiredReason === 'replay') return true;
+    if (event.eventType === 'verification_failed' && event.reason?.includes('verifier mismatch')) return true;
+    return false;
+  };
+
+  const StatusIcon = ({ status }: { status: string }) => {
+    if (status === 'success') return <CheckCircleIcon style={{ width: 16, height: 16, color: '#34d399' }} />;
+    if (status === 'failure') return <XCircleIcon style={{ width: 16, height: 16, color: '#f87171' }} />;
+    return <InformationCircleIcon style={{ width: 16, height: 16, color: '#60a5fa' }} />;
+  };
+
+  const statusStyle = (s: string) => {
+    if (s === 'success') return { bg: 'rgba(5,150,105,0.12)', border: 'rgba(5,150,105,0.3)', text: '#34d399' };
+    if (s === 'failure') return { bg: 'rgba(220,38,38,0.12)', border: 'rgba(220,38,38,0.3)', text: '#f87171' };
+    return { bg: 'rgba(37,99,235,0.12)', border: 'rgba(37,99,235,0.3)', text: '#60a5fa' };
+  };
+
+  if (loading) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '64px 0', gap: 12 }}>
+      <ArrowPathIcon style={{ width: 20, height: 20, color: '#60a5fa', animation: 'spin 0.8s linear infinite' }} />
+      <span style={{ color: '#94a3b8', fontSize: 14 }}>Loading timeline...</span>
+    </div>
+  );
+
+  if (error) return (
+    <div style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.25)', borderRadius: 12, padding: 24, textAlign: 'center' }}>
+      <XCircleIcon style={{ width: 24, height: 24, color: '#f87171', margin: '0 auto 12px' }} />
+      <p style={{ color: '#f87171', margin: '0 0 16px', fontSize: 14 }}>{error}</p>
+      <button onClick={loadTimeline} className="btn-secondary" style={{ fontSize: 13 }}>Retry</button>
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        {[
+          { label: 'Total Events', value: summary.total, color: '#60a5fa', bg: 'rgba(37,99,235,0.08)' },
+          { label: 'Successful', value: summary.success, color: '#34d399', bg: 'rgba(5,150,105,0.08)' },
+          { label: 'Failures', value: summary.failure, color: '#f87171', bg: 'rgba(220,38,38,0.08)' },
+          { label: 'Info', value: summary.info, color: '#94a3b8', bg: 'rgba(100,116,139,0.08)' },
+        ].map(item => (
+          <div key={item.label} className="stat-card" style={{ background: item.bg }}>
+            <p style={{ color: item.color, fontSize: 11, fontWeight: 500, margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{item.label}</p>
+            <p style={{ color: '#fff', fontSize: 26, fontWeight: 700, margin: 0, letterSpacing: '-0.03em' }}>{item.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="glass-card" style={{ padding: '20px 24px' }}>
+        <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 14px' }}>Filters</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+          {[
+            { label: 'Scope', value: filterScope, onChange: (v: string) => setFilterScope(v as 'company' | 'employee'), opts: [['company', 'Organization-wide'], ['employee', 'My Activity']] },
+            { label: 'Event Type', value: filterEventType, onChange: setFilterEventType, opts: [['', 'All Types'], ['challenge_created', 'Challenge Created'], ['verification_succeeded', 'Verification Success'], ['verification_failed', 'Verification Failed'], ['token_verified', 'Token Verified']] },
+            { label: 'Status', value: filterStatus, onChange: setFilterStatus, opts: [['', 'All Statuses'], ['success', 'Success'], ['failure', 'Failure'], ['info', 'Info']] },
+          ].map(f => (
+            <div key={f.label}>
+              <label style={{ display: 'block', color: '#94a3b8', fontSize: 11, fontWeight: 500, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{f.label}</label>
+              <select value={f.value} onChange={e => f.onChange(e.target.value)} className="input-field" style={{ padding: '10px 14px' }}>
+                {f.opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Events */}
+      <div className="glass-card" style={{ padding: '20px 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <p style={{ color: '#fff', fontWeight: 600, fontSize: 14, margin: 0 }}>Authentication Timeline</p>
+          <span style={{ color: '#475569', fontSize: 12 }}>{events.length} events</span>
+        </div>
+
+        {events.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '48px 0' }}>
+            <ClipboardDocumentListIcon style={{ width: 40, height: 40, color: '#334155', margin: '0 auto 12px' }} />
+            <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>No events found</p>
+            <p style={{ color: '#334155', fontSize: 12, marginTop: 6 }}>Adjust your filters to see results</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 560, overflowY: 'auto' }}>
+            {events.map((event, index) => {
+              const suspicious = isSuspicious(event, index);
+              const ss = statusStyle(event.status);
+              return (
+                <div key={event.eventId} style={{
+                  background: suspicious ? 'rgba(217,119,6,0.08)' : 'rgba(255,255,255,0.02)',
+                  border: `1px solid ${suspicious ? 'rgba(217,119,6,0.3)' : 'rgba(255,255,255,0.06)'}`,
+                  borderRadius: 10,
+                  padding: '12px 16px',
+                }}>
+                  {suspicious && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                      <ExclamationTriangleIcon style={{ width: 14, height: 14, color: '#fbbf24' }} />
+                      <span style={{ color: '#fbbf24', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Suspicious Pattern</span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <StatusIcon status={event.status} />
+                      <span style={{ color: '#f1f5f9', fontSize: 13, fontWeight: 600 }}>{getEventTypeLabel(event.eventType)}</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 8px', borderRadius: 99, background: ss.bg, border: `1px solid ${ss.border}`, color: ss.text, fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{event.status}</span>
+                    </div>
+                    <span style={{ color: '#475569', fontSize: 11 }}>{formatTimestamp(event.createdAt)}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 20px' }}>
+                    {event.employeeId && <span style={{ color: '#64748b', fontSize: 12 }}>Employee: <span style={{ color: '#94a3b8' }}>{event.employeeId}</span></span>}
+                    {event.verifierOrganizationName && <span style={{ color: '#64748b', fontSize: 12 }}>Org: <span style={{ color: '#94a3b8' }}>{event.verifierOrganizationName}</span></span>}
+                    {event.reason && <span style={{ color: '#64748b', fontSize: 12, width: '100%' }}>Reason: <span style={{ color: '#94a3b8' }}>{event.reason}</span></span>}
+                    {event.challengeId && <span style={{ color: '#64748b', fontSize: 11, fontFamily: 'var(--font-mono)' }}>Challenge: {event.challengeId.substring(0, 20)}…</span>}
+                    {event.did && <span style={{ color: '#64748b', fontSize: 11, fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>DID: {event.did}</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ── Main Component ────────────────────────────────────────────────────────────
 
 const EnterprisePortalProfessional: React.FC = () => {
   const location = useLocation();
@@ -158,44 +390,114 @@ const EnterprisePortalProfessional: React.FC = () => {
   const [authStatus, setAuthStatus] = useState<StatusData | null>(null);
   const [portalSection, setPortalSection] = useState<PortalSection>('dashboard');
 
-  const [adminToken, setAdminToken] = useState(localStorage.getItem('admin_token') || 'admin-dev-token');
+  const [adminToken, setAdminToken] = useState(localStorage.getItem('admin_token') || '');
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('EMP001');
   const [selectedBadge, setSelectedBadge] = useState<BadgeType>('employee');
+  const [newEmployeeId, setNewEmployeeId] = useState('');
+  const [newEmployeeName, setNewEmployeeName] = useState('');
+  const [newEmployeeDepartment, setNewEmployeeDepartment] = useState('');
+  const [newEmployeeEmail, setNewEmployeeEmail] = useState('');
+  const [newEmployeeAddress, setNewEmployeeAddress] = useState('');
+  const [newEmployeeBadge, setNewEmployeeBadge] = useState<BadgeType>('employee');
+  const [registerEmployeeOnChain, setRegisterEmployeeOnChain] = useState(true);
+  const [verifierProfiles, setVerifierProfiles] = useState<VerifierProfile[]>([]);
+  const [selectedVerifierId, setSelectedVerifierId] = useState('dtp_portal_primary');
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminMessage, setAdminMessage] = useState('');
-
+  const [enrollmentDid, setEnrollmentDid] = useState('');
+  const [enrollmentRequesterOrganizationId, setEnrollmentRequesterOrganizationId] = useState('dtp_enterprise_001');
+  const [enrollmentRequesterOrganizationName, setEnrollmentRequesterOrganizationName] = useState('DTP Enterprise');
+  const [enrollmentVerifierId, setEnrollmentVerifierId] = useState('dtp_portal_primary');
+  const [enrollmentPurpose, setEnrollmentPurpose] = useState('Verify role-based access eligibility');
+  const [enrollmentRequestedClaims, setEnrollmentRequestedClaims] = useState('employeeId, name, role');
+  const [enrollmentRequestedProfileFields, setEnrollmentRequestedProfileFields] = useState('headline, location');
+  const [enrollmentStatusFilter, setEnrollmentStatusFilter] = useState<'all' | EnrollmentRequestStatus>('all');
+  const [enrollmentRequests, setEnrollmentRequests] = useState<EnrollmentRequestRecord[]>([]);
+  const [enrollmentLoading, setEnrollmentLoading] = useState(false);
+  const [enrollmentMessage, setEnrollmentMessage] = useState('');
   const [error, setError] = useState('');
 
   const currentEmployee = useMemo(() => {
     const sourceEmployeeId = authStatus?.employeeId || challengeData?.employee?.id;
-    return employees.find((employee) => employee.id === sourceEmployeeId) || challengeData?.employee || null;
+    return employees.find((e) => e.id === sourceEmployeeId) || challengeData?.employee || null;
   }, [authStatus?.employeeId, challengeData?.employee, employees]);
+
+  const selectedVerifier = useMemo(
+    () => verifierProfiles.find((p) => p.verifierId === selectedVerifierId),
+    [selectedVerifierId, verifierProfiles]
+  );
+
+  const requestedPortalClaimsPreview = useMemo<VerifierClaimKey[]>(() => {
+    const keys = selectedVerifier?.requiredClaimsByRequestType?.portal_access;
+    return keys && keys.length > 0 ? keys : ['employeeId'];
+  }, [selectedVerifier]);
+
+  const loadEnrollmentRequests = async () => {
+    setEnrollmentLoading(true);
+    setError('');
+    try {
+      const params = new URLSearchParams();
+      if (enrollmentDid.trim()) params.set('did', enrollmentDid.trim());
+      if (enrollmentRequesterOrganizationId.trim()) params.set('requesterOrganizationId', enrollmentRequesterOrganizationId.trim());
+      if (enrollmentStatusFilter !== 'all') params.set('status', enrollmentStatusFilter);
+      const query = params.toString();
+      const response = await fetch(`${API_BASE_URL}/identity/enrollment-requests${query ? `?${query}` : ''}`, { headers: getAuthHeaders() });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to load enrollment requests');
+      setEnrollmentRequests((payload.data || []) as EnrollmentRequestRecord[]);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load enrollment requests');
+      setEnrollmentRequests([]);
+    } finally { setEnrollmentLoading(false); }
+  };
+
+  const createEnrollmentRequestFromAdmin = async () => {
+    setEnrollmentLoading(true);
+    setEnrollmentMessage('');
+    setError('');
+    try {
+      const did = enrollmentDid.trim();
+      if (!did) throw new Error('Target DID is required');
+      if (!enrollmentRequesterOrganizationId.trim() || !enrollmentRequesterOrganizationName.trim()) throw new Error('Organization ID and name are required');
+      if (!enrollmentPurpose.trim()) throw new Error('Enrollment purpose is required');
+      const response = await fetch(`${API_BASE_URL}/identity/enrollment-requests`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          did,
+          requesterOrganizationId: enrollmentRequesterOrganizationId.trim(),
+          requesterOrganizationName: enrollmentRequesterOrganizationName.trim(),
+          verifierId: enrollmentVerifierId.trim() || undefined,
+          purpose: enrollmentPurpose.trim(),
+          requestedClaims: parseCsvList(enrollmentRequestedClaims),
+          requestedProfileFields: parseCsvList(enrollmentRequestedProfileFields),
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to create enrollment request');
+      const created = payload.data as EnrollmentRequestRecord;
+      setEnrollmentMessage(`Enrollment request ${created.requestId} created for ${created.did}.`);
+      await loadEnrollmentRequests();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to create enrollment request');
+    } finally { setEnrollmentLoading(false); }
+  };
 
   useEffect(() => {
     const checkConnection = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/health`);
-        setIsConnected(response.ok);
-      } catch {
-        setIsConnected(false);
-      }
+      try { const r = await fetch(`${API_BASE_URL}/health`); setIsConnected(r.ok); }
+      catch { setIsConnected(false); }
     };
-
     checkConnection();
-    const intervalId = setInterval(checkConnection, 10000);
-    return () => clearInterval(intervalId);
+    const id = setInterval(checkConnection, 10000);
+    return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    setMode(location.pathname.startsWith('/admin') ? 'admin' : 'login');
-  }, [location.pathname]);
-
-  useEffect(() => {
-    if (mode === 'admin') {
-      void loadEmployees();
-    }
-  }, [mode]);
+  useEffect(() => { setMode(location.pathname.startsWith('/admin') ? 'admin' : 'login'); }, [location.pathname]);
+  useEffect(() => { if (mode === 'admin') void loadEmployees(); }, [mode]);
+  useEffect(() => { if (mode !== 'login' || !isConnected) return; void loadVerifierProfiles(); }, [mode, isConnected]);
+  useEffect(() => { if (mode !== 'admin') return; void loadEnrollmentRequests(); }, [mode, enrollmentStatusFilter]);
 
   const getAuthHeaders = (tokenOverride?: string) => ({
     'Content-Type': 'application/json',
@@ -206,19 +508,25 @@ const EnterprisePortalProfessional: React.FC = () => {
     setAdminLoading(true);
     setError('');
     try {
-      const response = await fetch(`${API_BASE_URL}/admin/employees`, {
-        headers: getAuthHeaders(),
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Failed to load employees');
+      const r = await fetch(`${API_BASE_URL}/admin/employees`, { headers: getAuthHeaders() });
+      const p = await r.json();
+      if (!r.ok || !p.success) throw new Error(p.error || 'Failed to load employees');
+      setEmployees(p.data || []);
+    } catch (err: any) { setError(err?.message || 'Failed to load employees'); }
+    finally { setAdminLoading(false); }
+  };
+
+  const loadVerifierProfiles = async () => {
+    try {
+      const r = await fetch(`${API_BASE_URL}/auth/verifier-profiles`);
+      const p = await r.json();
+      if (!r.ok || !p.success) throw new Error(p.error || 'Failed to load verifier profiles');
+      const profiles = (p.data || []) as VerifierProfile[];
+      setVerifierProfiles(profiles);
+      if (profiles.length > 0) {
+        setSelectedVerifierId(cur => profiles.some(pr => pr.verifierId === cur) ? cur : profiles[0].verifierId);
       }
-      setEmployees(payload.data || []);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load employees');
-    } finally {
-      setAdminLoading(false);
-    }
+    } catch (err: any) { console.warn('Failed to load verifier profiles:', err?.message); setVerifierProfiles([]); }
   };
 
   const applyBadge = async () => {
@@ -226,122 +534,131 @@ const EnterprisePortalProfessional: React.FC = () => {
     setAdminLoading(true);
     setAdminMessage('');
     setError('');
-
     try {
-      const response = await fetch(`${API_BASE_URL}/admin/employees/${selectedEmployeeId}/badge`, {
-        method: 'PATCH',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ badge: selectedBadge }),
+      const r = await fetch(`${API_BASE_URL}/admin/employees/${selectedEmployeeId}/badge`, {
+        method: 'PATCH', headers: getAuthHeaders(), body: JSON.stringify({ badge: selectedBadge }),
       });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Failed to assign badge');
-      }
-
-      const data = payload.data as AdminBadgeData;
-      setAdminMessage(`Badge updated: ${data.employee.name} -> ${data.badge.label}. New challenge scope: ${data.badge.challengeScope}`);
+      const p = await r.json();
+      if (!r.ok || !p.success) throw new Error(p.error || 'Failed to assign badge');
+      const data = p.data as AdminBadgeData;
+      setAdminMessage(`Badge updated: ${data.employee.name} — ${data.badge.label}`);
       await loadEmployees();
-    } catch (err: any) {
-      setError(err?.message || 'Failed to assign badge');
-    } finally {
-      setAdminLoading(false);
-    }
+    } catch (err: any) { setError(err?.message || 'Failed to assign badge'); }
+    finally { setAdminLoading(false); }
+  };
+
+  const createEmployeeFromAdmin = async () => {
+    setAdminLoading(true);
+    setAdminMessage('');
+    setError('');
+    try {
+      if (!newEmployeeId.trim() || !newEmployeeName.trim() || !newEmployeeDepartment.trim() || !newEmployeeEmail.trim() || !newEmployeeAddress.trim())
+        throw new Error('All employee fields are required');
+      const r = await fetch(`${API_BASE_URL}/admin/employees`, {
+        method: 'POST', headers: getAuthHeaders(),
+        body: JSON.stringify({
+          id: newEmployeeId.trim().toUpperCase(), name: newEmployeeName.trim(),
+          department: newEmployeeDepartment.trim(), email: newEmployeeEmail.trim().toLowerCase(),
+          address: newEmployeeAddress.trim(), badge: newEmployeeBadge, registerOnChain: registerEmployeeOnChain,
+        }),
+      });
+      const p = await r.json();
+      if (!r.ok || !p.success) throw new Error(p.error || 'Failed to create employee');
+      const created = p?.data?.employee as EmployeeRecord | undefined;
+      const onChain = p?.data?.onChainRegistration;
+      const chainMsg = onChain?.attempted ? (onChain?.success ? ` On-chain tx: ${onChain.txHash || 'completed'}.` : ` On-chain failed: ${onChain.reason || 'unknown'}.`) : '';
+      setAdminMessage(`Employee ${created?.id || newEmployeeId.toUpperCase()} created.${chainMsg}`);
+      setSelectedEmployeeId(created?.id || newEmployeeId.trim().toUpperCase());
+      setNewEmployeeId(''); setNewEmployeeName(''); setNewEmployeeDepartment(''); setNewEmployeeEmail(''); setNewEmployeeAddress(''); setNewEmployeeBadge('employee');
+      await loadEmployees();
+    } catch (err: any) { setError(err?.message || 'Failed to create employee'); }
+    finally { setAdminLoading(false); }
   };
 
   const startLogin = async () => {
     setError('');
     setAuthStatus(null);
-
-    if (!employeeId.trim()) {
-      setError('Please enter employee ID');
-      return;
-    }
-
+    if (!employeeId.trim()) { setError('Please enter your employee ID'); return; }
+    const verifierId = selectedVerifier?.verifierId || selectedVerifierId || 'dtp_portal_primary';
+    const organizationId = selectedVerifier?.organizationId || 'dtp_enterprise_001';
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/challenge`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          employeeId: employeeId.trim().toUpperCase(),
-          requestType: 'portal_access',
-          companyId: 'dtp_enterprise_001',
-        }),
+      const r = await fetch(`${API_BASE_URL}/auth/challenge`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employeeId: employeeId.trim().toUpperCase(), requestType: 'portal_access', companyId: organizationId, verifierId }),
       });
-
-      const payload = await response.json();
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Failed to generate challenge');
-      }
-
-      const data = payload.data as ChallengeData;
+      const p = await r.json();
+      if (!r.ok || !p.success) throw new Error(p.error || 'Failed to generate challenge');
+      const data = p.data as ChallengeData;
       setChallengeData(data);
-      const qr = await QRCode.toDataURL(data.qrCodeData, {
-        width: 360,
-        margin: 2,
-        color: { dark: '#000000', light: '#ffffff' },
-      });
+      const qr = await QRCode.toDataURL(data.qrCodeData, { width: 320, margin: 2, color: { dark: '#000000', light: '#ffffff' } });
       setQrCodeUrl(qr);
       setAuthStep('qr');
-
       startPolling(data.challengeId);
-    } catch (err: any) {
-      setError(err?.message || 'Authentication request failed');
-    }
+    } catch (err: any) { setError(err?.message || 'Authentication request failed'); }
   };
 
   const startPolling = (challengeId: string) => {
     const intervalId = setInterval(async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/auth/status/${challengeId}`);
-        const payload = await response.json();
-
-        if (!response.ok || !payload.success) {
-          clearInterval(intervalId);
-          return;
-        }
-
-        const data = payload.data as StatusData;
+        const r = await fetch(`${API_BASE_URL}/auth/status/${challengeId}`);
+        const p = await r.json();
+        if (!r.ok || !p.success) { clearInterval(intervalId); return; }
+        const data = p.data as StatusData;
         if (data.status === 'completed' && data.token) {
           clearInterval(intervalId);
           setAuthStatus(data);
-          localStorage.setItem('authToken', data.token);
-          localStorage.setItem('rbac_badge', data.badge || 'employee');
-          localStorage.setItem('rbac_permissions', JSON.stringify(data.permissions || []));
+          if (data.refreshToken) { saveTokens(data.token, data.refreshToken); }
+          else { localStorage.setItem('auth_token', data.token); localStorage.setItem('authToken', data.token); }
           setAuthStep('authenticated');
         }
-      } catch {
-        clearInterval(intervalId);
-      }
+      } catch { clearInterval(intervalId); }
     }, 2000);
-
     setTimeout(() => clearInterval(intervalId), 5 * 60 * 1000);
   };
 
   const logout = () => {
-    setAuthStep('login');
-    setChallengeData(null);
-    setQrCodeUrl('');
-    setAuthStatus(null);
-    setEmployeeId('');
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('rbac_badge');
-    localStorage.removeItem('rbac_permissions');
-    setPortalSection('dashboard');
-    navigate('/login');
+    setAuthStep('login'); setChallengeData(null); setQrCodeUrl(''); setAuthStatus(null);
+    setEmployeeId(''); clearPortalAuth(); localStorage.removeItem('authToken');
+    setPortalSection('dashboard'); navigate('/login');
   };
 
   const saveAdminToken = () => {
     localStorage.setItem('admin_token', adminToken);
     void loadEmployees();
+    void loadEnrollmentRequests();
   };
 
+  // ── Nav ───────────────────────────────────────────────────────────────────
+
   const renderTopNav = () => (
-    <div className="relative z-20 border-b border-white/10 bg-black/30 backdrop-blur-xl">
-      <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-center">
-        <h1 className="text-white text-xl font-bold">Decentralized Authentication Platform</h1>
+    <nav style={{
+      position: 'relative', zIndex: 20,
+      borderBottom: '1px solid rgba(255,255,255,0.06)',
+      background: 'rgba(5,5,5,0.85)',
+      backdropFilter: 'blur(24px)',
+    }}>
+      <div style={{ maxWidth: 1280, margin: '0 auto', padding: '0 24px', height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <FingerPrintIcon style={{ width: 18, height: 18, color: '#2563eb' }} />
+          <span style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 13, letterSpacing: '-0.02em' }}>DID Auth Platform</span>
+          <span style={{ marginLeft: 8, color: '#334155', fontSize: 12 }}>Enterprise</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{
+            width: 6, height: 6, borderRadius: '50%',
+            background: isConnected ? '#10b981' : '#ef4444',
+            display: 'inline-block',
+            boxShadow: isConnected ? '0 0 6px rgba(16,185,129,0.6)' : '0 0 6px rgba(239,68,68,0.6)',
+          }} />
+          <span style={{ color: isConnected ? '#6ee7b7' : '#fca5a5', fontSize: 11, fontWeight: 500 }}>
+            {isConnected ? 'Connected' : 'Offline'}
+          </span>
+        </div>
       </div>
-    </div>
+    </nav>
   );
+
+  // ── Login Portal ──────────────────────────────────────────────────────────
 
   const renderLoginPortal = () => {
     if (authStep === 'authenticated') {
@@ -355,29 +672,23 @@ const EnterprisePortalProfessional: React.FC = () => {
       const canSeeAnalytics = isManager || isAdmin;
       const canSeeAuditSections = isAuditor || isAdmin;
       const etherscanBase = 'https://sepolia.etherscan.io';
+      const badgeStyle = BADGE_STYLES[badge] || BADGE_STYLES.employee;
 
-      const roleTabs: Array<{ key: PortalSection; label: string }> = [
-        { key: 'dashboard', label: 'Dashboard' },
-        { key: 'projects', label: 'Projects' },
-        { key: 'security', label: 'Security' },
-        { key: 'blockchain', label: 'Blockchain' },
+      const roleTabs: Array<{ key: PortalSection; label: string; locked?: boolean; Icon: any }> = [
+        { key: 'dashboard', label: 'Dashboard', Icon: HomeIcon },
+        { key: 'projects', label: 'Projects', Icon: FolderOpenIcon },
+        { key: 'security', label: 'Security', Icon: isAdmin ? ShieldCheckIcon : LockClosedIcon, locked: !isAdmin },
+        { key: 'blockchain', label: 'Blockchain', Icon: CubeTransparentIcon },
+        { key: 'analytics', label: 'Analytics', Icon: canSeeAnalytics ? ChartBarIcon : LockClosedIcon, locked: !canSeeAnalytics },
+        { key: 'audit', label: 'Audit', Icon: canSeeAuditSections ? ClipboardDocumentListIcon : LockClosedIcon, locked: !canSeeAuditSections },
       ];
-
-      if (canSeeAnalytics) {
-        roleTabs.push({ key: 'analytics', label: 'Analytics' });
-      }
-
-      if (canSeeAuditSections) {
-        roleTabs.push({ key: 'audit', label: 'Audit & Compliance' });
-      }
 
       const currentEmployeeId = authStatus?.employeeId || currentEmployee?.id || '';
       const managerTeam = PROJECT_DATASET.managerTeamMap[currentEmployeeId] || [currentEmployeeId];
-
-      const projectPortfolio = PROJECT_DATASET.catalog.filter((project) => {
+      const projectPortfolio = PROJECT_DATASET.catalog.filter((p) => {
         if (isAdmin || isAuditor) return true;
-        if (isManager) return managerTeam.includes(project.ownerId) || project.teamMembers.some((member) => managerTeam.includes(member));
-        return project.ownerId === currentEmployeeId || project.teamMembers.includes(currentEmployeeId);
+        if (isManager) return managerTeam.includes(p.ownerId) || p.teamMembers.some(m => managerTeam.includes(m));
+        return p.ownerId === currentEmployeeId || p.teamMembers.includes(currentEmployeeId);
       });
 
       const securityEvents = [
@@ -385,13 +696,11 @@ const EnterprisePortalProfessional: React.FC = () => {
         { id: 'SEC-2482', severity: 'medium', title: 'Suspicious role escalation request blocked', status: 'Mitigated', owner: 'IAM Team', eta: 'Closed' },
         { id: 'SEC-2483', severity: 'low', title: 'Outdated employee session token expired', status: 'Closed', owner: 'Platform Ops', eta: 'Closed' },
       ];
-
       const threatLandscape = [
         { vector: 'Credential Replay', probability: 'Medium', impact: 'High', control: 'Nonce binding + short TTL' },
         { vector: 'Phishing-driven signing', probability: 'Medium', impact: 'High', control: 'Domain-bound challenge + wallet warnings' },
         { vector: 'Insider role abuse', probability: 'Low', impact: 'High', control: 'Dual approval + audit trail' },
       ];
-
       const incidentPlaybook = [
         { phase: 'Detect', action: 'SIEM alerting on anomalous signature and role mutation patterns' },
         { phase: 'Contain', action: 'Auto-suspend suspicious sessions and freeze badge changes' },
@@ -399,875 +708,781 @@ const EnterprisePortalProfessional: React.FC = () => {
         { phase: 'Recover', action: 'Reissue credentials and verify policy baselines' },
         { phase: 'Review', action: 'Post-incident RCA with control backlog updates' },
       ];
-
       const blockchainRoutes = [
         { route: 'Auth Gateway -> Credential Router', fromBlock: 5567131, toBlock: 5567159, level: 'L1', confidence: 'Finalized' },
         { route: 'Credential Router -> Policy Engine', fromBlock: 5567160, toBlock: 5567204, level: 'L2', confidence: 'Confirmed' },
         { route: 'Policy Engine -> Audit Anchor', fromBlock: 5567205, toBlock: 5567240, level: 'L3', confidence: 'Conceptual' },
       ];
-
       const weeklyVerificationSeries = [1220, 1290, 1335, 1410, 1482, 1540, 1610];
       const blockDepthDistribution = [12, 24, 38, 52, 67, 58, 44, 31, 19, 10];
       const incidentLoadSeries = [11, 9, 13, 7, 5, 6, 4];
       const projectBurnupSeries = [42, 48, 56, 61, 68, 74, 81, 88];
-
       const walletAddress = authStatus?.userAddress || currentEmployee?.address || '';
-      const didAddress = currentEmployee?.did?.replace('did:ethr:', '') || '';
-      const txHref = walletAddress ? `${etherscanBase}/address/${walletAddress}` : etherscanBase;
-      const didHref = didAddress ? `${etherscanBase}/address/${didAddress}` : etherscanBase;
-      const contractHref = `${etherscanBase}/address/0x7f9A20f9B2AB78f98A4f0E4e1FdEaA67543D1bA2`;
+      const activeOrganizationId = authStatus?.verifierOrganizationId || challengeData?.verifier?.organizationId || selectedVerifier?.organizationId || 'dtp_enterprise_001';
 
       const exportWholeReport = () => {
-        const report = {
-          generatedAt: new Date().toISOString(),
-          employee: {
-            id: currentEmployee?.id,
-            name: currentEmployee?.name,
-            badge,
-            permissions,
-          },
-          projects: projectPortfolio,
-          securityEvents,
-          threatLandscape,
-          incidentPlaybook,
-          blockchainRoutes,
-        };
-
+        const report = { generatedAt: new Date().toISOString(), employee: { id: currentEmployee?.id, name: currentEmployee?.name, badge, permissions }, projects: projectPortfolio, securityEvents, threatLandscape, incidentPlaybook, blockchainRoutes };
         const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url;
-        a.download = `enterprise-report-${currentEmployee?.id || 'user'}-${Date.now()}.json`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
+        a.href = url; a.download = `enterprise-report-${currentEmployee?.id || 'user'}-${Date.now()}.json`;
+        document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
       };
 
+      const sevStyle = (s: string) => s === 'high' ? { color: '#fca5a5', dot: '#ef4444' } : s === 'medium' ? { color: '#fde68a', dot: '#f59e0b' } : { color: '#86efac', dot: '#22c55e' };
+
       const renderSection = () => {
-        if (portalSection === 'dashboard') {
-          return (
-            <div className="space-y-5">
-              <div className="grid md:grid-cols-4 gap-4">
-                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
-                  <p className="text-slate-300 text-sm">Identity Health</p>
-                  <p className="text-white text-2xl font-semibold">97.2%</p>
+        if (portalSection === 'dashboard') return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, animation: 'fadeUp 0.35s ease' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+              {[
+                { label: 'Identity Health', value: '97.2%', accent: '#34d399' },
+                { label: 'Active Sessions', value: '412', accent: '#60a5fa' },
+                { label: 'Credential Validity', value: '99.1%', accent: '#a78bfa' },
+                { label: 'Open Risks', value: '6', accent: '#fbbf24' },
+              ].map(s => (
+                <div key={s.label} className="stat-card">
+                  <p style={{ color: '#64748b', fontSize: 11, fontWeight: 500, margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</p>
+                  <p style={{ color: s.accent, fontSize: 28, fontWeight: 700, margin: 0, letterSpacing: '-0.03em' }}>{s.value}</p>
                 </div>
-                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
-                  <p className="text-slate-300 text-sm">Active Sessions</p>
-                  <p className="text-white text-2xl font-semibold">412</p>
-                </div>
-                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
-                  <p className="text-slate-300 text-sm">Credential Validity</p>
-                  <p className="text-white text-2xl font-semibold">99.1%</p>
-                </div>
-                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
-                  <p className="text-slate-300 text-sm">Open Risks</p>
-                  <p className="text-white text-2xl font-semibold">6</p>
-                </div>
+              ))}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="glass-card" style={{ padding: '20px 24px' }}>
+                <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 14px' }}>Operational Highlights</p>
+                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {['Challenge success rate improved by 18.4% after badge-aware flow rollout.', 'Median login round trip: 2.3s across the last 500 verifications.', 'No unauthorized privilege grants in the last 14 days.'].map(t => (
+                    <li key={t} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                      <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#2563eb', marginTop: 6, flexShrink: 0 }} />
+                      <span style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.5 }}>{t}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
-
-              <div className="grid md:grid-cols-2 gap-5">
-                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                  <h3 className="text-white font-semibold mb-3">Operational Highlights</h3>
-                  <ul className="text-slate-200 text-sm space-y-2">
-                    <li>Challenge success rate improved by 18.4% after badge-aware flow rollout.</li>
-                    <li>Median login round trip: 2.3s across the last 500 verifications.</li>
-                    <li>No unauthorized privilege grants in the last 14 days.</li>
-                  </ul>
-                </div>
-                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                  <h3 className="text-white font-semibold mb-3">Current Employee Context</h3>
-                  <p className="text-slate-200 text-sm">Name: {currentEmployee?.name || '-'}</p>
-                  <p className="text-slate-200 text-sm">Employee ID: {currentEmployee?.id || '-'}</p>
-                  <p className="text-slate-200 text-sm">Badge: <span className="uppercase">{badge}</span></p>
-                  <p className="text-slate-200 text-sm">Department: {currentEmployee?.department || '-'}</p>
-                  <p className="text-slate-200 text-sm break-all">Hash: {authStatus?.hashId || currentEmployee?.hashId || '-'}</p>
-                </div>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-5">
-                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                  <h3 className="text-white font-semibold mb-3">Weekly Verification Volume</h3>
-                  <svg viewBox="0 0 420 160" className="w-full h-36">
-                    <polyline
-                      fill="none"
-                      stroke="#34d399"
-                      strokeWidth="3"
-                      points={weeklyVerificationSeries.map((v, i) => `${i * 70},${150 - (v - 1100) / 5}`).join(' ')}
-                    />
-                    <polyline
-                      fill="rgba(52, 211, 153, 0.15)"
-                      stroke="none"
-                      points={`0,150 ${weeklyVerificationSeries.map((v, i) => `${i * 70},${150 - (v - 1100) / 5}`).join(' ')} 420,150`}
-                    />
-                  </svg>
-                </div>
-                <div className="rounded-xl bg-white/10 border border-white/15 p-5 overflow-x-auto">
-                  <h3 className="text-white font-semibold mb-3">Executive Snapshot</h3>
-                  <table className="w-full text-sm min-w-[420px]">
-                    <tbody>
-                      <tr className="border-b border-white/10">
-                        <td className="py-2 text-slate-300">Access SLA Compliance</td>
-                        <td className="py-2 text-slate-100 text-right">99.4%</td>
-                      </tr>
-                      <tr className="border-b border-white/10">
-                        <td className="py-2 text-slate-300">Privileged Role Drift</td>
-                        <td className="py-2 text-slate-100 text-right">0.7%</td>
-                      </tr>
-                      <tr className="border-b border-white/10">
-                        <td className="py-2 text-slate-300">On-chain Anchor Latency</td>
-                        <td className="py-2 text-slate-100 text-right">1.9s</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 text-slate-300">Audit Readiness</td>
-                        <td className="py-2 text-slate-100 text-right">High</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+              <div className="glass-card" style={{ padding: '20px 24px' }}>
+                <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 14px' }}>Identity Context</p>
+                {[
+                  ['Name', currentEmployee?.name || '—'],
+                  ['Employee ID', currentEmployee?.id || '—'],
+                  ['Badge', badge.toUpperCase()],
+                  ['Department', currentEmployee?.department || '—'],
+                  ['Hash', authStatus?.hashId || currentEmployee?.hashId || '—'],
+                ].map(([k, v]) => (
+                  <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <span style={{ color: '#475569', fontSize: 12 }}>{k}</span>
+                    <span style={{ color: '#94a3b8', fontSize: 12, fontFamily: k === 'Hash' ? 'var(--font-mono)' : undefined, wordBreak: 'break-all', textAlign: 'right', maxWidth: '60%' }}>{v}</span>
+                  </div>
+                ))}
               </div>
             </div>
-          );
-        }
-
-        if (portalSection === 'projects') {
-          return (
-            <div className="space-y-5">
-              <div className="rounded-xl bg-white/10 border border-white/15 p-5 overflow-x-auto">
-                <h3 className="text-white font-semibold mb-4">Team Project Portfolio</h3>
-                <p className="text-xs text-slate-400 mb-4">
-                  Showing projects scoped to {isManager ? 'manager and team' : isEmployee ? 'current employee' : 'authorized role visibility'}.
-                </p>
-                <table className="w-full text-sm min-w-[860px]">
-                  <thead>
-                    <tr className="text-slate-300 border-b border-white/15">
-                      <th className="text-left py-2 pr-3">Code</th>
-                      <th className="text-left py-2 pr-3">Project</th>
-                      <th className="text-left py-2 pr-3">Owner</th>
-                      <th className="text-left py-2 pr-3">Progress</th>
-                      <th className="text-left py-2 pr-3">Risk</th>
-                      <th className="text-left py-2 pr-3">Sepolia Tx</th>
-                      <th className="text-left py-2 pr-3">Budget</th>
-                      <th className="text-left py-2 pr-3">ETA</th>
-                    </tr>
-                  </thead>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="glass-card" style={{ padding: '20px 24px' }}>
+                <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 14px' }}>Weekly Verification Volume</p>
+                <svg viewBox="0 0 420 160" style={{ width: '100%', height: 120 }}>
+                  <defs>
+                    <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#34d399" stopOpacity="0.2" />
+                      <stop offset="100%" stopColor="#34d399" stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+                  <polyline fill="none" stroke="#34d399" strokeWidth="2.5" points={weeklyVerificationSeries.map((v, i) => `${i * 70},${150 - (v - 1100) / 5}`).join(' ')} />
+                  <polyline fill="url(#lineGrad)" stroke="none" points={`0,150 ${weeklyVerificationSeries.map((v, i) => `${i * 70},${150 - (v - 1100) / 5}`).join(' ')} 420,150`} />
+                </svg>
+              </div>
+              <div className="glass-card" style={{ padding: '20px 24px', overflowX: 'auto' }}>
+                <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 14px' }}>Executive Snapshot</p>
+                <table className="data-table">
                   <tbody>
-                    {projectPortfolio.map((project) => (
-                      <tr key={project.code} className="border-b border-white/10 text-slate-100">
-                        <td className="py-3 pr-3 font-mono">{project.code}</td>
-                        <td className="py-3 pr-3">{project.name}</td>
-                        <td className="py-3 pr-3">{project.owner}</td>
-                        <td className="py-3 pr-3">
-                          <div className="w-36 bg-slate-800 rounded-full h-2 mb-1">
-                            <div className="bg-cyan-400 h-2 rounded-full" style={{ width: `${project.progress}%` }} />
-                          </div>
-                          <span className="text-xs text-slate-300">{project.progress}%</span>
-                        </td>
-                        <td className="py-3 pr-3">{project.risk}</td>
-                        <td className="py-3 pr-3">{project.networkTx}</td>
-                        <td className="py-3 pr-3">{project.budget}</td>
-                        <td className="py-3 pr-3">{project.eta}</td>
-                      </tr>
+                    {[['Access SLA Compliance', '99.4%'], ['Privileged Role Drift', '0.7%'], ['On-chain Anchor Latency', '1.9s'], ['Audit Readiness', 'High']].map(([k, v]) => (
+                      <tr key={k}><td style={{ color: '#475569' }}>{k}</td><td style={{ textAlign: 'right', color: '#f1f5f9', fontWeight: 500 }}>{v}</td></tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-
-              <div className="grid md:grid-cols-3 gap-4">
-                <div className="rounded-xl bg-cyan-500/10 border border-cyan-300/30 p-4">
-                  <p className="text-cyan-100 text-sm">Delivery Confidence</p>
-                  <p className="text-cyan-50 text-2xl font-semibold">{Math.max(72, 96 - projectPortfolio.length)}%</p>
-                </div>
-                <div className="rounded-xl bg-fuchsia-500/10 border border-fuchsia-300/30 p-4">
-                  <p className="text-fuchsia-100 text-sm">Cross-team Dependencies</p>
-                  <p className="text-fuchsia-50 text-2xl font-semibold">23</p>
-                </div>
-                <div className="rounded-xl bg-amber-500/10 border border-amber-300/30 p-4">
-                  <p className="text-amber-100 text-sm">Critical Blockers</p>
-                  <p className="text-amber-50 text-2xl font-semibold">{projectPortfolio.filter((p) => p.risk === 'High').length}</p>
-                </div>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                  <h3 className="text-white font-semibold mb-3">Project Burn-up Trend</h3>
-                  <svg viewBox="0 0 420 150" className="w-full h-36">
-                    <polyline
-                      fill="none"
-                      stroke="#22d3ee"
-                      strokeWidth="3"
-                      points={projectBurnupSeries.map((v, i) => `${i * 60},${140 - v}`).join(' ')}
-                    />
-                  </svg>
-                </div>
-                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                  <h3 className="text-white font-semibold mb-3">Risk Distribution</h3>
-                  <div className="flex items-center gap-6">
-                    <div
-                      className="w-28 h-28 rounded-full"
-                      style={{
-                        background: 'conic-gradient(#22d3ee 0% 42%, #f59e0b 42% 78%, #ef4444 78% 100%)',
-                      }}
-                    />
-                    <div className="text-sm text-slate-200 space-y-1">
-                      <p><span className="text-cyan-300">Low:</span> 42%</p>
-                      <p><span className="text-amber-300">Medium:</span> 36%</p>
-                      <p><span className="text-red-300">High:</span> 22%</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
-          );
-        }
+          </div>
+        );
 
-        if (portalSection === 'security') {
-          return (
-            <div className="space-y-5">
-              <div className="grid md:grid-cols-3 gap-4">
-                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
-                  <p className="text-slate-300 text-sm">MFA Enforcement</p>
-                  <p className="text-white text-2xl font-semibold">100%</p>
-                </div>
-                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
-                  <p className="text-slate-300 text-sm">Policy Drift</p>
-                  <p className="text-white text-2xl font-semibold">1.8%</p>
-                </div>
-                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
-                  <p className="text-slate-300 text-sm">Threat Index</p>
-                  <p className="text-white text-2xl font-semibold">Low</p>
-                </div>
-              </div>
+        if (portalSection === 'projects') return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, animation: 'fadeUp 0.35s ease' }}>
+            <div className="glass-card" style={{ padding: '20px 24px', overflowX: 'auto' }}>
+              <p style={{ color: '#fff', fontWeight: 600, fontSize: 14, margin: '0 0 4px' }}>Team Project Portfolio</p>
+              <p style={{ color: '#475569', fontSize: 12, margin: '0 0 16px' }}>Scoped to {isManager ? 'manager and team' : isEmployee ? 'current employee' : 'authorized role visibility'}.</p>
+              <table className="data-table" style={{ minWidth: 860 }}>
+                <thead><tr>
+                  {['Code', 'Project', 'Owner', 'Progress', 'Risk', 'Sepolia Tx', 'Budget', 'ETA'].map(h => <th key={h}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {projectPortfolio.map(p => (
+                    <tr key={p.code}>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{p.code}</td>
+                      <td>{p.name}</td>
+                      <td>{p.owner}</td>
+                      <td>
+                        <div style={{ width: 120, height: 4, background: 'rgba(255,255,255,0.08)', borderRadius: 99, marginBottom: 4 }}>
+                          <div style={{ width: `${p.progress}%`, height: 4, background: '#2563eb', borderRadius: 99, transition: 'width 0.3s ease' }} />
+                        </div>
+                        <span style={{ color: '#475569', fontSize: 11 }}>{p.progress}%</span>
+                      </td>
+                      <td><span style={{ padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 600, background: p.risk === 'High' ? 'rgba(220,38,38,0.12)' : p.risk === 'Medium' ? 'rgba(217,119,6,0.12)' : 'rgba(5,150,105,0.12)', color: p.risk === 'High' ? '#fca5a5' : p.risk === 'Medium' ? '#fbbf24' : '#34d399' }}>{p.risk}</span></td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{p.networkTx}</td>
+                      <td>{p.budget}</td>
+                      <td>{p.eta}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+              {[{ label: 'Delivery Confidence', value: `${Math.max(72, 96 - projectPortfolio.length)}%`, color: '#34d399' }, { label: 'Cross-team Dependencies', value: '23', color: '#a78bfa' }, { label: 'Critical Blockers', value: `${projectPortfolio.filter(p => p.risk === 'High').length}`, color: '#fbbf24' }].map(s => (
+                <div key={s.label} className="stat-card"><p style={{ color: '#64748b', fontSize: 11, fontWeight: 500, margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</p><p style={{ color: s.color, fontSize: 26, fontWeight: 700, margin: 0, letterSpacing: '-0.03em' }}>{s.value}</p></div>
+              ))}
+            </div>
+          </div>
+        );
 
-              <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                <h3 className="text-white font-semibold mb-4">Recent Security Events</h3>
-                <div className="space-y-3">
-                  {securityEvents.map((event) => (
-                    <div key={event.id} className="rounded-lg border border-white/10 p-3 bg-slate-900/40">
-                      <div className="flex items-center justify-between">
-                        <p className="text-slate-100 font-medium">{event.title}</p>
-                        <span className="text-xs uppercase text-slate-300">{event.severity}</span>
-                      </div>
-                      <p className="text-xs text-slate-400 mt-1">{event.id} • {event.status} • Owner: {event.owner} • ETA: {event.eta}</p>
-                    </div>
+        if (portalSection === 'security') return (
+          <RoleGate require="admin">
+            <ZKRoleGate require="admin" scope="security:view" label="Security Settings — ZK Proof Required">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, animation: 'fadeUp 0.35s ease' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                  {[{ label: 'MFA Enforcement', value: '100%', color: '#34d399' }, { label: 'Policy Drift', value: '1.8%', color: '#fbbf24' }, { label: 'Threat Index', value: 'Low', color: '#60a5fa' }].map(s => (
+                    <div key={s.label} className="stat-card"><p style={{ color: '#64748b', fontSize: 11, fontWeight: 500, margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</p><p style={{ color: s.color, fontSize: 26, fontWeight: 700, margin: 0, letterSpacing: '-0.03em' }}>{s.value}</p></div>
                   ))}
                 </div>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                  <h3 className="text-white font-semibold mb-3">Threat Landscape</h3>
-                  <div className="space-y-3 text-sm">
-                    {threatLandscape.map((threat) => (
-                      <div key={threat.vector} className="rounded-lg bg-slate-900/50 border border-white/10 p-3">
-                        <p className="text-slate-100 font-medium">{threat.vector}</p>
-                        <p className="text-slate-400">Probability: {threat.probability} • Impact: {threat.impact}</p>
-                        <p className="text-slate-300">Control: {threat.control}</p>
-                      </div>
-                    ))}
+                <div className="glass-card" style={{ padding: '20px 24px' }}>
+                  <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 14px' }}>Recent Security Events</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {securityEvents.map(evt => {
+                      const ss = sevStyle(evt.severity);
+                      return (
+                        <div key={evt.id} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '12px 16px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <span style={{ color: '#f1f5f9', fontSize: 13, fontWeight: 500 }}>{evt.title}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: ss.dot, display: 'inline-block' }} />
+                              <span style={{ color: ss.color, fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>{evt.severity}</span>
+                            </div>
+                          </div>
+                          <p style={{ color: '#475569', fontSize: 12, margin: 0 }}>{evt.id} · {evt.status} · {evt.owner} · ETA: {evt.eta}</p>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                  <h3 className="text-white font-semibold mb-3">Incident Response Playbook</h3>
-                  <div className="space-y-3 text-sm">
-                    {incidentPlaybook.map((item) => (
-                      <div key={item.phase} className="rounded-lg bg-slate-900/50 border border-white/10 p-3">
-                        <p className="text-slate-100 font-medium">{item.phase}</p>
-                        <p className="text-slate-300">{item.action}</p>
-                      </div>
-                    ))}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div className="glass-card" style={{ padding: '20px 24px' }}>
+                    <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 14px' }}>Threat Landscape</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {threatLandscape.map(t => (
+                        <div key={t.vector} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, padding: '10px 14px' }}>
+                          <p style={{ color: '#f1f5f9', fontSize: 13, fontWeight: 500, margin: '0 0 4px' }}>{t.vector}</p>
+                          <p style={{ color: '#475569', fontSize: 12, margin: '0 0 2px' }}>Probability: {t.probability} · Impact: {t.impact}</p>
+                          <p style={{ color: '#64748b', fontSize: 12, margin: 0 }}>Control: {t.control}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                  <h3 className="text-white font-semibold mb-3">Incident Load (7-day)</h3>
-                  <div className="flex items-end gap-2 h-32">
-                    {incidentLoadSeries.map((v, idx) => (
-                      <div key={idx} className="flex-1 bg-slate-800 rounded-t" style={{ height: `${v * 8}px` }} />
-                    ))}
-                  </div>
-                </div>
-                <div className="rounded-xl bg-white/10 border border-white/15 p-5 overflow-x-auto">
-                  <h3 className="text-white font-semibold mb-3">Incident Response SLA</h3>
-                  <table className="w-full text-sm min-w-[420px]">
-                    <tbody>
-                      <tr className="border-b border-white/10">
-                        <td className="py-2 text-slate-300">MTTD</td>
-                        <td className="py-2 text-slate-100 text-right">11m</td>
-                      </tr>
-                      <tr className="border-b border-white/10">
-                        <td className="py-2 text-slate-300">MTTR</td>
-                        <td className="py-2 text-slate-100 text-right">38m</td>
-                      </tr>
-                      <tr className="border-b border-white/10">
-                        <td className="py-2 text-slate-300">Containment SLA</td>
-                        <td className="py-2 text-slate-100 text-right">97%</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 text-slate-300">Postmortem Completion</td>
-                        <td className="py-2 text-slate-100 text-right">92%</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          );
-        }
-
-        if (portalSection === 'blockchain') {
-          return (
-            <div className="space-y-5">
-              <div className="grid md:grid-cols-3 gap-4">
-                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
-                  <p className="text-slate-300 text-sm">Network</p>
-                  <p className="text-white text-2xl font-semibold">Sepolia</p>
-                </div>
-                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
-                  <p className="text-slate-300 text-sm">24h On-chain Auth Tx</p>
-                  <p className="text-white text-2xl font-semibold">319</p>
-                </div>
-                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
-                  <p className="text-slate-300 text-sm">Median Gas Cost</p>
-                  <p className="text-white text-2xl font-semibold">0.00042 ETH</p>
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-white/10 border border-white/15 p-5 space-y-3">
-                <h3 className="text-white font-semibold">Sepolia Blockchain Explorer</h3>
-                
-                {/* Show the actual contract that manages all DIDs */}
-                <a 
-                  href={`${etherscanBase}/address/0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48`} 
-                  target="_blank" 
-                  rel="noreferrer" 
-                  className="block text-cyan-300 hover:text-cyan-200 break-all p-2 bg-white/5 rounded border border-white/10"
-                >
-                  <div className="text-xs text-gray-300 mb-1">📋 SimpleDIDRegistry Contract</div>
-                  <div className="font-mono text-sm">0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48</div>
-                  <div className="text-xs text-gray-400 mt-1">All employee DIDs and authentications are stored here</div>
-                </a>
-
-                {/* Employee's personal wallet (if available) */}
-                {walletAddress && (
-                  <a 
-                    href={`${etherscanBase}/address/${walletAddress}`} 
-                    target="_blank" 
-                    rel="noreferrer" 
-                    className="block text-cyan-300 hover:text-cyan-200 break-all p-2 bg-white/5 rounded border border-white/10"
-                  >
-                    <div className="text-xs text-gray-300 mb-1">👤 {currentEmployee?.name || 'Employee'}'s Wallet</div>
-                    <div className="font-mono text-sm">{walletAddress}</div>
-                    <div className="text-xs text-gray-400 mt-1">Personal blockchain wallet address</div>
-                  </a>
-                )}
-
-                {/* Link to see all recent contract transactions */}
-                <a 
-                  href={`${etherscanBase}/address/0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48#internaltx`} 
-                  target="_blank" 
-                  rel="noreferrer" 
-                  className="block text-green-300 hover:text-green-200 break-all p-2 bg-white/5 rounded border border-white/10"
-                >
-                  <div className="text-xs text-gray-300 mb-1">📊 View All Authentication Transactions</div>
-                  <div className="text-sm">Recent DID registrations and authentications</div>
-                  <div className="text-xs text-gray-400 mt-1">Click to see live blockchain activity</div>
-                </a>
-
-                {/* Gas payer wallet (the one that actually sends transactions) */}
-                <a 
-                  href={`${etherscanBase}/address/0xBdA3AC10e1403cFC54Ab2195Aad7Da8a39B775B9`} 
-                  target="_blank" 
-                  rel="noreferrer" 
-                  className="block text-orange-300 hover:text-orange-200 break-all p-2 bg-white/5 rounded border border-white/10"
-                >
-                  <div className="text-xs text-gray-300 mb-1">⛽ Gas Payer Wallet (Backend)</div>
-                  <div className="font-mono text-sm">0xBdA3AC10e1403cFC54Ab2195Aad7Da8a39B775B9</div>
-                  <div className="text-xs text-gray-400 mt-1">This wallet pays transaction fees for all employees</div>
-                </a>
-              </div>
-
-              {/* Add helpful explanation */}
-              <div className="rounded-xl bg-blue-900/20 border border-blue-500/30 p-5">
-                <h3 className="text-blue-300 font-semibold mb-3">🔍 How to Use These Links</h3>
-                <div className="space-y-2 text-sm text-gray-300">
-                  <p><strong>SimpleDIDRegistry Contract:</strong> This is where ALL employee data is stored. You'll see hundreds of transactions from different employees.</p>
-                  <p><strong>Employee Wallet:</strong> {currentEmployee?.name || 'This employee'}'s personal blockchain address. May show their transaction history.</p>
-                  <p><strong>Authentication Transactions:</strong> Live feed of all recent logins and DID registrations across your organization.</p>
-                  <p><strong>Gas Payer Wallet:</strong> The backend wallet that pays blockchain fees. You'll see it sending transactions to the contract.</p>
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-white/10 border border-white/15 p-5 overflow-x-auto">
-                <h3 className="text-white font-semibold mb-4">Contract Information</h3>
-                <table className="w-full text-sm min-w-[760px]">
-                  <thead>
-                    <tr className="text-slate-300 border-b border-white/15">
-                      <th className="text-left py-2 pr-3">Contract</th>
-                      <th className="text-left py-2 pr-3">Address</th>
-                      <th className="text-left py-2 pr-3">Network</th>
-                      <th className="text-left py-2 pr-3">Purpose</th>
-                      <th className="text-left py-2 pr-3">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="border-b border-white/10 text-slate-100">
-                      <td className="py-3 pr-3">SimpleDIDRegistry</td>
-                      <td className="py-3 pr-3 font-mono">0x80c41...F4D48</td>
-                      <td className="py-3 pr-3">Sepolia</td>
-                      <td className="py-3 pr-3">DID Storage & Auth</td>
-                      <td className="py-3 pr-3 text-green-400">✅ Active</td>
-                    </tr>
-                    <tr className="border-b border-white/10 text-slate-100">
-                      <td className="py-3 pr-3">Gas Payer</td>
-                      <td className="py-3 pr-3 font-mono">0xBd43A...75B9</td>
-                      <td className="py-3 pr-3">Sepolia</td>
-                      <td className="py-3 pr-3">Transaction Fees</td>
-                      <td className="py-3 pr-3 text-green-400">✅ Funded</td>
-                    </tr>
-                    <tr className="border-b border-white/10 text-slate-100">
-                      <td className="py-3 pr-3">Employee Count</td>
-                      <td className="py-3 pr-3 font-mono">~50 Registered</td>
-                      <td className="py-3 pr-3">-</td>
-                      <td className="py-3 pr-3">Active Users</td>
-                      <td className="py-3 pr-3 text-blue-400">ℹ️ Growing</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                <h3 className="text-white font-semibold mb-4">Quick Actions</h3>
-                <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
-                  <a 
-                    href={`${etherscanBase}/address/0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors text-center"
-                  >
-                    <div className="text-2xl mb-2">🏢</div>
-                    <div className="text-sm text-white font-medium">View Contract</div>
-                    <div className="text-xs text-gray-400">SimpleDIDRegistry</div>
-                  </a>
-                  
-                  <a 
-                    href={`${etherscanBase}/address/0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48#internaltx`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors text-center"
-                  >
-                    <div className="text-2xl mb-2">📊</div>
-                    <div className="text-sm text-white font-medium">Live Activity</div>
-                    <div className="text-xs text-gray-400">Recent Transactions</div>
-                  </a>
-                  
-                  <a 
-                    href={`${etherscanBase}/address/0xBdA3AC10e1403cFC54Ab2195Aad7Da8a39B775B9`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors text-center"
-                  >
-                    <div className="text-2xl mb-2">⛽</div>
-                    <div className="text-sm text-white font-medium">Gas Wallet</div>
-                    <div className="text-xs text-gray-400">Backend Wallet</div>
-                  </a>
-
-                  {walletAddress && (
-                    <a 
-                      href={`${etherscanBase}/address/${walletAddress}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors text-center"
-                    >
-                      <div className="text-2xl mb-2">👤</div>
-                      <div className="text-sm text-white font-medium">My Wallet</div>
-                      <div className="text-xs text-gray-400">{currentEmployee?.name}</div>
-                    </a>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                  <h3 className="text-white font-semibold mb-3">Block Depth Distribution</h3>
-                  <div className="flex items-end gap-1 h-32">
-                    {blockDepthDistribution.map((v, idx) => (
-                      <div key={idx} className="flex-1 bg-cyan-500/70 rounded-t" style={{ height: `${v * 1.8}px` }} />
-                    ))}
-                  </div>
-                </div>
-                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                  <h3 className="text-white font-semibold mb-3">Route Throughput (Conceptual)</h3>
-                  <svg viewBox="0 0 360 140" className="w-full h-32">
-                    <polyline fill="none" stroke="#60a5fa" strokeWidth="3" points="0,108 40,100 80,88 120,95 160,82 200,70 240,64 280,58 320,51 360,45" />
-                    <polyline fill="none" stroke="#f472b6" strokeWidth="3" points="0,124 40,118 80,113 120,109 160,103 200,96 240,91 280,86 320,80 360,74" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-          );
-        }
-
-        if (portalSection === 'analytics' && canSeeAnalytics) {
-          return (
-            <div className="space-y-5">
-              <div className="grid md:grid-cols-4 gap-4">
-                <div className="rounded-xl bg-indigo-500/10 border border-indigo-300/25 p-4">
-                  <p className="text-indigo-100 text-sm">Authentication Throughput</p>
-                  <p className="text-indigo-50 text-2xl font-semibold">1,482/day</p>
-                </div>
-                <div className="rounded-xl bg-indigo-500/10 border border-indigo-300/25 p-4">
-                  <p className="text-indigo-100 text-sm">Challenge Completion</p>
-                  <p className="text-indigo-50 text-2xl font-semibold">94.6%</p>
-                </div>
-                <div className="rounded-xl bg-indigo-500/10 border border-indigo-300/25 p-4">
-                  <p className="text-indigo-100 text-sm">Avg Verification Time</p>
-                  <p className="text-indigo-50 text-2xl font-semibold">2.3s</p>
-                </div>
-                <div className="rounded-xl bg-indigo-500/10 border border-indigo-300/25 p-4">
-                  <p className="text-indigo-100 text-sm">Failure Hotspots</p>
-                  <p className="text-indigo-50 text-2xl font-semibold">3</p>
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                <h3 className="text-white font-semibold mb-4">Cross-domain Analysis</h3>
-                <div className="grid md:grid-cols-2 gap-4 text-sm text-slate-200">
-                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-3">
-                    <p className="font-medium mb-1">Identity Risk Correlation</p>
-                    <p>High risk events are 2.7x more frequent when credentials exceed 45 days without rotation.</p>
-                  </div>
-                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-3">
-                    <p className="font-medium mb-1">Department-wise Completion</p>
-                    <p>Engineering: 96%, Product: 92%, Design: 90%, Compliance: 98%.</p>
-                  </div>
-                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-3">
-                    <p className="font-medium mb-1">Chain Cost Projection</p>
-                    <p>Projected Sepolia gas budget for next sprint: 0.198 ETH with 12% confidence variance.</p>
-                  </div>
-                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-3">
-                    <p className="font-medium mb-1">Policy Effectiveness</p>
-                    <p>New badge guardrails reduced unauthorized scope requests by 43% week-over-week.</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                <h3 className="text-white font-semibold mb-4">Visual Trends (Conceptual)</h3>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-4">
-                    <p className="text-slate-200 text-sm mb-2">Weekly Verification Trend</p>
-                    <svg viewBox="0 0 320 120" className="w-full h-28">
-                      <polyline
-                        fill="none"
-                        stroke="#22d3ee"
-                        strokeWidth="3"
-                        points="0,95 40,82 80,76 120,61 160,55 200,48 240,44 280,37 320,30"
-                      />
-                    </svg>
-                  </div>
-                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-4">
-                    <p className="text-slate-200 text-sm mb-3">Department Completion Bars</p>
-                    <div className="space-y-3 text-xs text-slate-300">
-                      {['Engineering 96%', 'Product 92%', 'Design 90%', 'Compliance 98%'].map((item, idx) => (
-                        <div key={item}>
-                          <p className="mb-1">{item}</p>
-                          <div className="h-2 rounded bg-slate-700">
-                            <div className="h-2 rounded bg-indigo-400" style={{ width: `${90 + idx * 2}%` }} />
+                  <div className="glass-card" style={{ padding: '20px 24px' }}>
+                    <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 14px' }}>Incident Response Playbook</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {incidentPlaybook.map((item, idx) => (
+                        <div key={item.phase} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                          <span style={{ width: 24, height: 24, borderRadius: '50%', background: 'rgba(37,99,235,0.15)', border: '1px solid rgba(37,99,235,0.3)', color: '#60a5fa', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</span>
+                          <div>
+                            <p style={{ color: '#f1f5f9', fontSize: 12, fontWeight: 600, margin: '0 0 2px' }}>{item.phase}</p>
+                            <p style={{ color: '#64748b', fontSize: 12, margin: 0, lineHeight: 1.4 }}>{item.action}</p>
                           </div>
                         </div>
                       ))}
                     </div>
                   </div>
                 </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div className="glass-card" style={{ padding: '20px 24px' }}>
+                    <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 14px' }}>Incident Load (7-day)</p>
+                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 96 }}>
+                      {incidentLoadSeries.map((v, i) => (
+                        <div key={i} style={{ flex: 1, background: 'rgba(37,99,235,0.4)', borderRadius: '4px 4px 0 0', height: `${v * 7}px`, transition: 'height 0.3s ease' }} />
+                      ))}
+                    </div>
+                  </div>
+                  <div className="glass-card" style={{ padding: '20px 24px', overflowX: 'auto' }}>
+                    <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 14px' }}>Incident Response SLA</p>
+                    <table className="data-table" style={{ minWidth: 320 }}>
+                      <tbody>
+                        {[['MTTD', '11m'], ['MTTR', '38m'], ['Containment SLA', '97%'], ['Postmortem Completion', '92%']].map(([k, v]) => (
+                          <tr key={k}><td style={{ color: '#475569' }}>{k}</td><td style={{ textAlign: 'right', color: '#f1f5f9', fontWeight: 500 }}>{v}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
+            </ZKRoleGate>
+          </RoleGate>
+        );
 
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                  <h3 className="text-white font-semibold mb-3">Verification Cohort Heatmap</h3>
-                  <div className="grid grid-cols-7 gap-1">
-                    {[28, 32, 41, 46, 53, 60, 67, 22, 31, 36, 47, 52, 58, 65, 19, 25, 30, 39, 45, 50, 57].map((v, i) => (
-                      <div key={i} className="h-6 rounded" style={{ backgroundColor: `rgba(56, 189, 248, ${0.15 + v / 100})` }} />
+        if (portalSection === 'blockchain') return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, animation: 'fadeUp 0.35s ease' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+              {[{ label: 'Network', value: 'Sepolia', color: '#a78bfa' }, { label: '24h On-chain Auth Tx', value: '319', color: '#60a5fa' }, { label: 'Median Gas Cost', value: '0.00042 ETH', color: '#34d399' }].map(s => (
+                <div key={s.label} className="stat-card"><p style={{ color: '#64748b', fontSize: 11, fontWeight: 500, margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</p><p style={{ color: s.color, fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: '-0.02em' }}>{s.value}</p></div>
+              ))}
+            </div>
+            <div className="glass-card" style={{ padding: '20px 24px' }}>
+              <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 16px' }}>Sepolia Blockchain Explorer</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[
+                  { href: `${etherscanBase}/address/0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48`, label: 'SimpleDIDRegistry Contract', addr: '0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48', desc: 'All employee DIDs and authentications stored here', color: '#60a5fa' },
+                  ...(walletAddress ? [{ href: `${etherscanBase}/address/${walletAddress}`, label: `${currentEmployee?.name || 'Employee'}'s Wallet`, addr: walletAddress, desc: 'Personal blockchain wallet address', color: '#a78bfa' }] : []),
+                  { href: `${etherscanBase}/address/0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48#internaltx`, label: 'Authentication Transactions', addr: 'Recent DID registrations and logins', desc: 'Live feed of all recent blockchain activity', color: '#34d399' },
+                  { href: `${etherscanBase}/address/0xBdA3AC10e1403cFC54Ab2195Aad7Da8a39B775B9`, label: 'Gas Payer Wallet', addr: '0xBdA3AC10e1403cFC54Ab2195Aad7Da8a39B775B9', desc: 'Backend wallet paying transaction fees', color: '#fbbf24' },
+                ].map(item => (
+                  <a key={item.label} href={item.href} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, textDecoration: 'none', transition: 'all 0.15s ease' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.12)'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.07)'; }}>
+                    <LinkIcon style={{ width: 16, height: 16, color: item.color, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ color: item.color, fontSize: 12, fontWeight: 600, margin: '0 0 2px' }}>{item.label}</p>
+                      <p style={{ color: '#94a3b8', fontSize: 11, fontFamily: 'var(--font-mono)', margin: '0 0 2px', wordBreak: 'break-all' }}>{item.addr}</p>
+                      <p style={{ color: '#475569', fontSize: 11, margin: 0 }}>{item.desc}</p>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </div>
+            <div className="glass-card" style={{ padding: '20px 24px', overflowX: 'auto' }}>
+              <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 16px' }}>Contract Information</p>
+              <table className="data-table" style={{ minWidth: 720 }}>
+                <thead><tr>{['Contract', 'Address', 'Network', 'Purpose', 'Status'].map(h => <th key={h}>{h}</th>)}</tr></thead>
+                <tbody>
+                  <tr><td>SimpleDIDRegistry</td><td style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>0x80c41...F4D48</td><td>Sepolia</td><td>DID Storage & Auth</td><td><span style={{ color: '#34d399', fontSize: 12 }}>Active</span></td></tr>
+                  <tr><td>Gas Payer</td><td style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>0xBd43A...75B9</td><td>Sepolia</td><td>Transaction Fees</td><td><span style={{ color: '#34d399', fontSize: 12 }}>Funded</span></td></tr>
+                  <tr><td>Employee Count</td><td style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>~50 Registered</td><td>—</td><td>Active Users</td><td><span style={{ color: '#60a5fa', fontSize: 12 }}>Growing</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="glass-card" style={{ padding: '20px 24px' }}>
+                <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 14px' }}>Block Depth Distribution</p>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 96 }}>
+                  {blockDepthDistribution.map((v, i) => (
+                    <div key={i} style={{ flex: 1, background: 'rgba(6,182,212,0.5)', borderRadius: '4px 4px 0 0', height: `${v * 1.8}px` }} />
+                  ))}
+                </div>
+              </div>
+              <div className="glass-card" style={{ padding: '20px 24px' }}>
+                <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 14px' }}>Route Throughput</p>
+                <svg viewBox="0 0 360 140" style={{ width: '100%', height: 96 }}>
+                  <polyline fill="none" stroke="#60a5fa" strokeWidth="2" points="0,108 40,100 80,88 120,95 160,82 200,70 240,64 280,58 320,51 360,45" />
+                  <polyline fill="none" stroke="#f472b6" strokeWidth="2" points="0,124 40,118 80,113 120,109 160,103 200,96 240,91 280,86 320,80 360,74" />
+                </svg>
+              </div>
+            </div>
+          </div>
+        );
+
+        if (portalSection === 'analytics') return (
+          <RoleGate require="manager">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, animation: 'fadeUp 0.35s ease' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                {[{ label: 'Auth Throughput', value: '1,482/day', color: '#a78bfa' }, { label: 'Challenge Completion', value: '94.6%', color: '#60a5fa' }, { label: 'Avg Verification', value: '2.3s', color: '#34d399' }, { label: 'Failure Hotspots', value: '3', color: '#fbbf24' }].map(s => (
+                  <div key={s.label} className="stat-card"><p style={{ color: '#64748b', fontSize: 11, fontWeight: 500, margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</p><p style={{ color: s.color, fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: '-0.02em' }}>{s.value}</p></div>
+                ))}
+              </div>
+              <div className="glass-card" style={{ padding: '20px 24px' }}>
+                <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 14px' }}>Cross-domain Analysis</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  {[['Identity Risk Correlation', 'High risk events are 2.7x more frequent when credentials exceed 45 days without rotation.'], ['Department-wise Completion', 'Engineering: 96%, Product: 92%, Design: 90%, Compliance: 98%.'], ['Chain Cost Projection', 'Projected Sepolia gas budget for next sprint: 0.198 ETH with 12% confidence variance.'], ['Policy Effectiveness', 'New badge guardrails reduced unauthorized scope requests by 43% week-over-week.']].map(([t, d]) => (
+                    <div key={t} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, padding: '12px 14px' }}>
+                      <p style={{ color: '#f1f5f9', fontSize: 12, fontWeight: 600, margin: '0 0 6px' }}>{t}</p>
+                      <p style={{ color: '#64748b', fontSize: 12, margin: 0, lineHeight: 1.5 }}>{d}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="glass-card" style={{ padding: '20px 24px' }}>
+                  <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 14px' }}>Department Completion</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {[['Engineering', 96], ['Compliance', 98], ['Product', 92], ['Design', 90]].map(([dept, pct]) => (
+                      <div key={dept}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span style={{ color: '#94a3b8', fontSize: 12 }}>{dept}</span>
+                          <span style={{ color: '#f1f5f9', fontSize: 12, fontWeight: 600 }}>{pct}%</span>
+                        </div>
+                        <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 99 }}>
+                          <div style={{ width: `${pct}%`, height: 4, background: '#a78bfa', borderRadius: 99 }} />
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>
-                <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                  <h3 className="text-white font-semibold mb-3">Cost vs Throughput Scatter (Conceptual)</h3>
-                  <svg viewBox="0 0 320 160" className="w-full h-36">
-                    {[{ x: 30, y: 130 }, { x: 70, y: 112 }, { x: 110, y: 104 }, { x: 150, y: 89 }, { x: 190, y: 78 }, { x: 230, y: 70 }, { x: 270, y: 55 }].map((p, i) => (
-                      <circle key={i} cx={p.x} cy={p.y} r={6} fill="#34d399" />
+                <div className="glass-card" style={{ padding: '20px 24px' }}>
+                  <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 14px' }}>Verification Cohort</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
+                    {[28,32,41,46,53,60,67,22,31,36,47,52,58,65,19,25,30,39,45,50,57].map((v, i) => (
+                      <div key={i} style={{ height: 20, borderRadius: 3, background: `rgba(56,189,248,${0.12 + v / 100})` }} />
                     ))}
-                  </svg>
-                </div>
-              </div>
-            </div>
-          );
-        }
-
-        if (portalSection === 'audit' && canSeeAuditSections) {
-          return (
-            <div className="space-y-5">
-              <div className="grid md:grid-cols-3 gap-4">
-                <div className="rounded-xl bg-amber-500/10 border border-amber-300/25 p-4">
-                  <p className="text-amber-100 text-sm">Open Findings</p>
-                  <p className="text-amber-50 text-2xl font-semibold">9</p>
-                </div>
-                <div className="rounded-xl bg-amber-500/10 border border-amber-300/25 p-4">
-                  <p className="text-amber-100 text-sm">Evidence Packages</p>
-                  <p className="text-amber-50 text-2xl font-semibold">34</p>
-                </div>
-                <div className="rounded-xl bg-amber-500/10 border border-amber-300/25 p-4">
-                  <p className="text-amber-100 text-sm">Control Coverage</p>
-                  <p className="text-amber-50 text-2xl font-semibold">92%</p>
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-white/10 border border-white/15 p-5">
-                <h3 className="text-white font-semibold mb-4">Essential Auditor Sections</h3>
-                <div className="grid md:grid-cols-2 gap-4 text-sm text-slate-200">
-                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-3">
-                    <p className="font-medium mb-1">Evidence Vault</p>
-                    <p>Immutable snapshots for authentication flow, role updates, and credential signatures.</p>
-                  </div>
-                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-3">
-                    <p className="font-medium mb-1">Policy Drift Monitor</p>
-                    <p>Alerts when active permissions diverge from approved role matrix baselines.</p>
-                  </div>
-                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-3">
-                    <p className="font-medium mb-1">Exception Tracker</p>
-                    <p>All temporary overrides with owner, justification, and expiration timeline.</p>
-                  </div>
-                  <div className="rounded-lg bg-slate-900/40 border border-white/10 p-3">
-                    <p className="font-medium mb-1">Attestation Reports</p>
-                    <p>Download-ready reports for quarterly access reviews and external assessments.</p>
                   </div>
                 </div>
               </div>
             </div>
-          );
-        }
+          </RoleGate>
+        );
+
+        if (portalSection === 'audit') return (
+          <RoleGate require="auditor">
+            <ZKRoleGate require="auditor" scope="audit:view" label="Audit & Compliance — ZK Proof Required">
+              <AuditTimelineSection companyId={activeOrganizationId} currentEmployee={currentEmployee} />
+            </ZKRoleGate>
+          </RoleGate>
+        );
 
         return null;
       };
 
-      return (
-        <div className="max-w-6xl mx-auto p-6 space-y-6">
-          <div className="rounded-2xl bg-gradient-to-r from-emerald-600/15 via-teal-500/10 to-cyan-500/15 border border-emerald-400/30 p-6 shadow-[0_0_40px_rgba(16,185,129,0.15)]">
-            <h2 className="text-3xl font-bold text-emerald-200">Authenticated</h2>
-            <p className="text-emerald-100 mt-1">{currentEmployee?.name} ({currentEmployee?.id})</p>
-            <p className="text-emerald-100">Badge: <span className="font-semibold uppercase">{badge}</span></p>
-            <p className="text-emerald-100">Hash ID: <span className="font-mono text-sm">{authStatus?.hashId || currentEmployee?.hashId}</span></p>
-          </div>
+      const credentialVerified = getCurrentUser()?.credentialVerified;
 
-          <div className="rounded-2xl bg-white/5 border border-white/20 p-4">
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <h3 className="text-white font-semibold text-lg">Portal Workspace</h3>
-              <button
-                onClick={exportWholeReport}
-                className="px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm"
-              >
-                Export Whole Report
+      return (
+        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px 24px 48px', display: 'flex', flexDirection: 'column', gap: 20, animation: 'fadeUp 0.4s ease' }}>
+          {/* User identity banner */}
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{ width: 44, height: 44, borderRadius: '50%', background: badgeStyle.bg, border: `1px solid ${badgeStyle.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <CheckBadgeIcon style={{ width: 22, height: 22, color: badgeStyle.text }} />
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
+                  <span style={{ color: '#f8fafc', fontWeight: 700, fontSize: 15 }}>{currentEmployee?.name || 'Authenticated'}</span>
+                  <span style={{ padding: '2px 10px', borderRadius: 99, background: badgeStyle.bg, border: `1px solid ${badgeStyle.border}`, color: badgeStyle.text, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{badge}</span>
+                  {credentialVerified ? (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 99, background: 'rgba(5,150,105,0.12)', border: '1px solid rgba(5,150,105,0.3)', color: '#34d399', fontSize: 10, fontWeight: 600 }}>
+                      <ShieldCheckIcon style={{ width: 10, height: 10 }} />Verified
+                    </span>
+                  ) : (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 99, background: 'rgba(100,116,139,0.1)', border: '1px solid rgba(100,116,139,0.2)', color: '#64748b', fontSize: 10, fontWeight: 600 }}>
+                      <LockClosedIcon style={{ width: 10, height: 10 }} />Unverified
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <span style={{ color: '#475569', fontSize: 12 }}>{currentEmployee?.id}</span>
+                  {currentEmployee?.department && <span style={{ color: '#475569', fontSize: 12 }}>{currentEmployee.department}</span>}
+                  {(authStatus?.hashId || currentEmployee?.hashId) && <span style={{ color: '#334155', fontSize: 11, fontFamily: 'var(--font-mono)' }}>Hash: {(authStatus?.hashId || currentEmployee?.hashId || '').substring(0, 16)}…</span>}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={exportWholeReport} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#94a3b8', fontSize: 12, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s ease' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.08)'; (e.currentTarget as HTMLElement).style.color = '#f1f5f9'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'; (e.currentTarget as HTMLElement).style.color = '#94a3b8'; }}>
+                <DocumentArrowDownIcon style={{ width: 14, height: 14 }} />Export
+              </button>
+              <button onClick={logout} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 10, color: '#fca5a5', fontSize: 12, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s ease' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(220,38,38,0.18)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(220,38,38,0.1)'; }}>
+                <ArrowRightOnRectangleIcon style={{ width: 14, height: 14 }} />Sign out
               </button>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {roleTabs.map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setPortalSection(tab.key)}
-                  className={`px-4 py-2 rounded-lg border text-sm ${
-                    portalSection === tab.key
-                      ? 'bg-cyan-500/20 border-cyan-300 text-cyan-100'
-                      : 'bg-white/5 border-white/20 text-slate-300'
-                  }`}
-                >
+          </div>
+
+          {/* Tab navigation */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+            <div className="tab-nav" style={{ flexWrap: 'wrap' }}>
+              {roleTabs.map(tab => (
+                <button key={tab.key} onClick={() => !tab.locked && setPortalSection(tab.key)} className={`tab-btn ${portalSection === tab.key ? 'active' : ''} ${tab.locked ? 'locked' : ''}`}>
+                  <tab.Icon style={{ width: 14, height: 14 }} />
                   {tab.label}
+                  {tab.locked && <LockClosedIcon style={{ width: 11, height: 11, opacity: 0.5 }} />}
                 </button>
               ))}
             </div>
-            <p className="text-xs text-slate-400 mt-3">Available permissions: {permissions.length > 0 ? permissions.join(', ') : 'none'}</p>
+            {permissions.length > 0 && (
+              <span style={{ color: '#334155', fontSize: 11 }}>Permissions: {permissions.join(', ')}</span>
+            )}
           </div>
 
+          {/* Section content */}
           {renderSection()}
 
-          {isEmployee && (
-            <div className="rounded-2xl bg-cyan-500/10 border border-cyan-400/30 p-4">
-              <p className="text-cyan-100 text-sm">Employee scope active. You have operational visibility across Dashboard, Projects, Security, and Blockchain sections.</p>
+          {/* Role context bar */}
+          {(isEmployee || isManagerOrHigher || isAuditor || isAdmin) && (
+            <div style={{
+              padding: '12px 20px', borderRadius: 10,
+              background: isAdmin ? 'rgba(37,99,235,0.06)' : isAuditor ? 'rgba(217,119,6,0.06)' : isManagerOrHigher ? 'rgba(124,58,237,0.06)' : 'rgba(100,116,139,0.06)',
+              border: `1px solid ${isAdmin ? 'rgba(37,99,235,0.15)' : isAuditor ? 'rgba(217,119,6,0.15)' : isManagerOrHigher ? 'rgba(124,58,237,0.15)' : 'rgba(100,116,139,0.12)'}`,
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <ShieldCheckIcon style={{ width: 14, height: 14, color: isAdmin ? '#60a5fa' : isAuditor ? '#fbbf24' : isManagerOrHigher ? '#a78bfa' : '#94a3b8', flexShrink: 0 }} />
+              <span style={{ color: isAdmin ? '#93c5fd' : isAuditor ? '#fde68a' : isManagerOrHigher ? '#c4b5fd' : '#94a3b8', fontSize: 12 }}>
+                {isAdmin && 'Admin scope active. Full enterprise control-plane authority available.'}
+                {isAuditor && !isAdmin && 'Auditor scope active. Compliance and evidence workflows available in read mode.'}
+                {isManagerOrHigher && !isAuditor && !isAdmin && 'Manager scope active. Analytics and team visibility enabled.'}
+                {isEmployee && !isManagerOrHigher && !isAuditor && 'Employee scope active. Operational visibility across Dashboard, Projects, and Blockchain.'}
+              </span>
             </div>
           )}
-
-          {isManagerOrHigher && (
-            <div className="rounded-2xl bg-indigo-500/10 border border-indigo-400/30 p-4">
-              <p className="text-indigo-100 text-sm">Manager/admin scope active. Analytics is enabled with throughput, policy, and network cost analysis.</p>
-            </div>
-          )}
-
-          {isAuditor && (
-            <div className="rounded-2xl bg-amber-500/10 border border-amber-400/30 p-4">
-              <p className="text-amber-100 text-sm">Auditor scope active. Audit and compliance evidence workflows are enabled in read-oriented mode.</p>
-            </div>
-          )}
-
-          {isAdmin && (
-            <div className="rounded-2xl bg-rose-500/10 border border-rose-400/30 p-4">
-              <p className="text-rose-100 text-sm">Admin scope active. Full visibility and enterprise control-plane authority are available.</p>
-            </div>
-          )}
-
-          <button onClick={logout} className="px-5 py-3 rounded-xl bg-red-600 text-white hover:bg-red-700">Logout</button>
         </div>
       );
     }
 
-    if (authStep === 'qr') {
-      return (
-        <div className="max-w-4xl mx-auto p-6">
-          <div className="rounded-2xl bg-white/10 border border-white/20 p-8 text-center">
-            <h2 className="text-2xl font-bold text-white mb-2">Scan With Wallet</h2>
-            <p className="text-slate-300 mb-5">Employee: {challengeData?.employee?.name} ({challengeData?.employee?.id})</p>
-            {qrCodeUrl && <img src={qrCodeUrl} alt="Authentication QR" className="mx-auto rounded-xl bg-white p-3" />}
-            <div className="mt-5 text-sm text-slate-300 space-y-1">
-              <p>Badge-bound challenge generated for this employee.</p>
-              <p>Hash ID: <span className="font-mono">{challengeData?.employee?.hashId}</span></p>
-              <p>Wallet will auto-fetch this employee context on scan.</p>
-            </div>
-            <button onClick={logout} className="mt-6 px-4 py-2 rounded-lg bg-slate-700 text-white hover:bg-slate-600">Cancel</button>
+    // ── QR Step ─────────────────────────────────────────────────────────────
+
+    if (authStep === 'qr') return (
+      <div style={{ maxWidth: 520, margin: '0 auto', padding: '40px 24px', animation: 'fadeUp 0.4s ease' }}>
+        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: '36px 32px', textAlign: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 6 }}>
+            <QrCodeIcon style={{ width: 18, height: 18, color: '#60a5fa' }} />
+            <span style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 18, letterSpacing: '-0.02em' }}>Challenge Ready</span>
           </div>
+          <p style={{ color: '#64748b', fontSize: 13, marginBottom: 28 }}>
+            {challengeData?.employee?.name} · {challengeData?.employee?.id}
+          </p>
+
+          {qrCodeUrl && (
+            <div style={{ display: 'inline-block', position: 'relative', marginBottom: 20 }}>
+              <div className="qr-wrapper" style={{ padding: 16, background: '#ffffff', display: 'inline-block' }}>
+                <img src={qrCodeUrl} alt="Authentication QR" style={{ width: 240, height: 240, display: 'block' }} />
+                <div className="qr-scan-line" />
+              </div>
+              <style>{`@keyframes scanLine { 0% { top: 2%; opacity: 0; } 5% { opacity: 1; } 95% { opacity: 1; } 100% { top: 94%; opacity: 0; } }`}</style>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#2563eb', animation: 'pulseDot 1.8s ease-in-out infinite', display: 'inline-block' }} />
+            <span style={{ color: '#94a3b8', fontSize: 13 }}>Waiting for wallet scan</span>
+            <style>{`@keyframes pulseDot { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.5; } }`}</style>
+          </div>
+
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '12px 16px', marginBottom: 20, textAlign: 'left' }}>
+            {[
+              ['Verifier', challengeData?.verifier?.organizationName || authStatus?.verifierOrganizationName || 'Default'],
+              ['Claims', (challengeData?.requestedClaims?.requiredClaims || ['employeeId']).map(c => CLAIM_LABELS[c] || c).join(', ')],
+              ['Hash ID', challengeData?.employee?.hashId || '—'],
+            ].map(([k, v]) => (
+              <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                <span style={{ color: '#475569', fontSize: 12 }}>{k}</span>
+                <span style={{ color: '#94a3b8', fontSize: 12, fontFamily: k === 'Hash ID' ? 'var(--font-mono)' : undefined, wordBreak: 'break-all', textAlign: 'right' }}>{v}</span>
+              </div>
+            ))}
+          </div>
+
+          <button onClick={logout} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 18px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#64748b', fontSize: 13, cursor: 'pointer' }}>
+            <XCircleIcon style={{ width: 14, height: 14 }} />Cancel
+          </button>
         </div>
-      );
-    }
+      </div>
+    );
+
+    // ── Login Step ───────────────────────────────────────────────────────────
 
     return (
-      <div className="max-w-3xl mx-auto p-6">
-        <div className="rounded-2xl bg-white/10 border border-white/20 p-8">
-          <h2 className="text-3xl font-bold text-white mb-2">Employee Login Portal</h2>
-          <p className="text-slate-300 mb-6">Enter Employee ID to generate your badge-aware challenge QR.</p>
+      <div style={{ minHeight: 'calc(100vh - 52px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px' }}>
+        <div style={{ width: '100%', maxWidth: 420, animation: 'fadeUp 0.5s ease' }}>
+          {/* Brand mark */}
+          <div style={{ textAlign: 'center', marginBottom: 32 }}>
+            <div style={{ width: 56, height: 56, borderRadius: 16, background: 'rgba(37,99,235,0.15)', border: '1px solid rgba(37,99,235,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+              <FingerPrintIcon style={{ width: 28, height: 28, color: '#60a5fa' }} />
+            </div>
+            <h1 style={{ color: '#f8fafc', fontWeight: 800, fontSize: 22, letterSpacing: '-0.03em', margin: '0 0 6px' }}>Enterprise Portal</h1>
+            <p style={{ color: '#475569', fontSize: 13, margin: 0 }}>Decentralized identity authentication</p>
+          </div>
 
-          <label className="block text-sm text-slate-200 mb-2">Employee ID</label>
-          <input
-            value={employeeId}
-            onChange={(event) => setEmployeeId(event.target.value.toUpperCase())}
-            className="w-full px-4 py-3 rounded-xl bg-slate-900/80 border border-slate-600 text-white"
-            placeholder="EMP001 / EMP002 / EMP003 / EMP004"
-          />
+          {/* Login card */}
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: '28px 28px 24px', backdropFilter: 'blur(20px)' }}>
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: 'block', color: '#64748b', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Employee ID</label>
+              <input
+                value={employeeId}
+                onChange={e => setEmployeeId(e.target.value.toUpperCase())}
+                className="input-field"
+                placeholder="EMP001"
+                onKeyDown={e => e.key === 'Enter' && startLogin()}
+                style={{ fontSize: 15, letterSpacing: '0.04em' }}
+              />
+            </div>
 
-          <button
-            onClick={startLogin}
-            disabled={!isConnected}
-            className="mt-5 w-full px-4 py-3 rounded-xl bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-slate-700"
-          >
-            {!isConnected ? 'Backend Offline' : 'Generate Challenge QR'}
-          </button>
+            <div style={{ marginBottom: 22 }}>
+              <label style={{ display: 'block', color: '#64748b', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Verification Profile</label>
+              <select value={selectedVerifierId} onChange={e => setSelectedVerifierId(e.target.value)} className="input-field">
+                {verifierProfiles.length === 0 ? (
+                  <option value="dtp_portal_primary">dtp_portal_primary (default)</option>
+                ) : (
+                  verifierProfiles.map(p => <option key={p.verifierId} value={p.verifierId}>{p.organizationName} ({p.verifierId})</option>)
+                )}
+              </select>
+              {verifierProfiles.length > 0 && (
+                <div style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(37,99,235,0.08)', border: '1px solid rgba(37,99,235,0.2)', borderRadius: 8 }}>
+                  <p style={{ color: '#60a5fa', fontSize: 11, margin: 0 }}>Claims: {requestedPortalClaimsPreview.map(c => CLAIM_LABELS[c] || c).join(', ')}</p>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={startLogin}
+              disabled={!isConnected}
+              className="btn-primary"
+              style={{ width: '100%', padding: '13px 20px', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+            >
+              <QrCodeIcon style={{ width: 16, height: 16 }} />
+              {!isConnected ? 'Backend Offline' : 'Generate Challenge'}
+            </button>
+          </div>
+
+          {/* Security footer */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 20 }}>
+            <ShieldCheckIcon style={{ width: 13, height: 13, color: '#334155' }} />
+            <span style={{ color: '#334155', fontSize: 11 }}>Secured by zero-knowledge cryptographic proofs</span>
+          </div>
         </div>
       </div>
     );
   };
 
-  const renderAdminPortal = () => (
-    <div className="max-w-7xl mx-auto p-6 space-y-6">
-      <div className="rounded-2xl bg-white/10 border border-white/20 p-5">
-        <h2 className="text-3xl font-bold text-white mb-2">Admin Portal</h2>
-        <p className="text-slate-300 mb-4">View all employees, inspect hash IDs, and assign digital badges (roles).</p>
+  // ── Admin Portal ──────────────────────────────────────────────────────────
 
-        <div className="flex flex-col md:flex-row gap-3">
+  const renderAdminPortal = () => (
+    <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px 24px 48px', display: 'flex', flexDirection: 'column', gap: 20, animation: 'fadeUp 0.4s ease' }}>
+      {/* Header */}
+      <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '20px 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <UsersIcon style={{ width: 20, height: 20, color: '#60a5fa' }} />
+          <h2 style={{ color: '#f8fafc', fontWeight: 700, fontSize: 18, letterSpacing: '-0.02em', margin: 0 }}>Admin Portal</h2>
+        </div>
+        <p style={{ color: '#475569', fontSize: 13, margin: '0 0 16px' }}>Manage employees, assign badges, and inspect identity enrollment requests.</p>
+        <div style={{ display: 'flex', gap: 10 }}>
           <input
             value={adminToken}
-            onChange={(event) => setAdminToken(event.target.value)}
-            className="flex-1 px-4 py-3 rounded-xl bg-slate-900/80 border border-slate-600 text-white"
+            onChange={e => setAdminToken(e.target.value)}
+            className="input-field"
             placeholder="Admin bearer token"
+            type="password"
+            style={{ flex: 1 }}
           />
-          <button onClick={saveAdminToken} className="px-4 py-3 rounded-xl bg-fuchsia-600 text-white hover:bg-fuchsia-700">Load Employees</button>
-        </div>
-      </div>
-
-      <div className="rounded-2xl bg-white/10 border border-white/20 p-5">
-        <h3 className="text-white font-semibold text-xl mb-4">Assign Digital Badge</h3>
-        <div className="grid md:grid-cols-3 gap-3">
-          <select
-            value={selectedEmployeeId}
-            onChange={(event) => setSelectedEmployeeId(event.target.value)}
-            className="px-4 py-3 rounded-xl bg-slate-900/80 border border-slate-600 text-white"
-          >
-            {employees.map((employee) => (
-              <option key={employee.id} value={employee.id}>{employee.id} - {employee.name}</option>
-            ))}
-          </select>
-
-          <select
-            value={selectedBadge}
-            onChange={(event) => setSelectedBadge(event.target.value as BadgeType)}
-            className="px-4 py-3 rounded-xl bg-slate-900/80 border border-slate-600 text-white"
-          >
-            {BADGE_OPTIONS.map((badge) => (
-              <option key={badge.value} value={badge.value}>{badge.label}</option>
-            ))}
-          </select>
-
-          <button
-            onClick={applyBadge}
-            disabled={adminLoading || employees.length === 0}
-            className="px-4 py-3 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-700"
-          >
-            Assign Badge
+          <button onClick={saveAdminToken} className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+            <ArrowPathIcon style={{ width: 14, height: 14 }} />Load Data
           </button>
         </div>
-        {adminMessage && <p className="text-emerald-300 text-sm mt-3">{adminMessage}</p>}
       </div>
 
-      <div className="rounded-2xl bg-white/10 border border-white/20 p-5 overflow-x-auto">
-        <h3 className="text-white font-semibold text-xl mb-4">Employees ({employees.length})</h3>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-white/20 text-left text-slate-300">
-              <th className="py-2 pr-3">Employee</th>
-              <th className="py-2 pr-3">Department</th>
-              <th className="py-2 pr-3">Badge</th>
-              <th className="py-2 pr-3">Hash ID</th>
-              <th className="py-2 pr-3">Challenge Fingerprint</th>
-            </tr>
-          </thead>
+      {/* Create Employee */}
+      <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '20px 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          <UserPlusIcon style={{ width: 16, height: 16, color: '#a78bfa' }} />
+          <h3 style={{ color: '#f1f5f9', fontWeight: 600, fontSize: 14, margin: 0 }}>Create Employee</h3>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 14 }}>
+          {[
+            { label: 'Employee ID', value: newEmployeeId, onChange: (v: string) => setNewEmployeeId(v.toUpperCase()), placeholder: 'EMP005' },
+            { label: 'Full Name', value: newEmployeeName, onChange: setNewEmployeeName, placeholder: 'Jane Smith' },
+            { label: 'Department', value: newEmployeeDepartment, onChange: setNewEmployeeDepartment, placeholder: 'Engineering' },
+            { label: 'Email', value: newEmployeeEmail, onChange: setNewEmployeeEmail, placeholder: 'jane@company.com' },
+            { label: 'Wallet Address', value: newEmployeeAddress, onChange: setNewEmployeeAddress, placeholder: '0x...' },
+          ].map(f => (
+            <div key={f.label}>
+              <label style={{ display: 'block', color: '#475569', fontSize: 11, fontWeight: 500, marginBottom: 6 }}>{f.label}</label>
+              <input value={f.value} onChange={e => f.onChange(e.target.value)} className="input-field" placeholder={f.placeholder} />
+            </div>
+          ))}
+          <div>
+            <label style={{ display: 'block', color: '#475569', fontSize: 11, fontWeight: 500, marginBottom: 6 }}>Badge</label>
+            <select value={newEmployeeBadge} onChange={e => setNewEmployeeBadge(e.target.value as BadgeType)} className="input-field">
+              {BADGE_OPTIONS.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input type="checkbox" checked={registerEmployeeOnChain} onChange={e => setRegisterEmployeeOnChain(e.target.checked)} style={{ accentColor: '#2563eb' }} />
+            <span style={{ color: '#94a3b8', fontSize: 13 }}>Register DID on-chain immediately</span>
+          </label>
+          <button onClick={createEmployeeFromAdmin} disabled={adminLoading} className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <UserPlusIcon style={{ width: 14, height: 14 }} />{adminLoading ? 'Creating...' : 'Create Employee'}
+          </button>
+        </div>
+        <p style={{ color: '#334155', fontSize: 11, marginTop: 10, marginBottom: 0 }}>Dynamic onboarding creates a new employee profile instantly. On-chain registration attempts DID registration during creation.</p>
+      </div>
+
+      {/* Assign Badge */}
+      <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '20px 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          <ShieldCheckIcon style={{ width: 16, height: 16, color: '#fbbf24' }} />
+          <h3 style={{ color: '#f1f5f9', fontWeight: 600, fontSize: 14, margin: 0 }}>Assign Digital Badge</h3>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, alignItems: 'end' }}>
+          <div>
+            <label style={{ display: 'block', color: '#475569', fontSize: 11, fontWeight: 500, marginBottom: 6 }}>Employee</label>
+            <select value={selectedEmployeeId} onChange={e => setSelectedEmployeeId(e.target.value)} className="input-field">
+              {employees.map(e => <option key={e.id} value={e.id}>{e.id} — {e.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', color: '#475569', fontSize: 11, fontWeight: 500, marginBottom: 6 }}>Badge Level</label>
+            <select value={selectedBadge} onChange={e => setSelectedBadge(e.target.value as BadgeType)} className="input-field">
+              {BADGE_OPTIONS.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
+            </select>
+          </div>
+          <button onClick={applyBadge} disabled={adminLoading || employees.length === 0} className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <CheckCircleIcon style={{ width: 14, height: 14 }} />Apply
+          </button>
+        </div>
+        {adminMessage && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12, padding: '8px 12px', background: 'rgba(5,150,105,0.1)', border: '1px solid rgba(5,150,105,0.25)', borderRadius: 8 }}>
+            <CheckCircleIcon style={{ width: 14, height: 14, color: '#34d399' }} />
+            <span style={{ color: '#34d399', fontSize: 12 }}>{adminMessage}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Enrollment Requests */}
+      <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '20px 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <BuildingOfficeIcon style={{ width: 16, height: 16, color: '#60a5fa' }} />
+            <div>
+              <h3 style={{ color: '#f1f5f9', fontWeight: 600, fontSize: 14, margin: 0 }}>Identity Enrollment Requests</h3>
+              <p style={{ color: '#475569', fontSize: 12, margin: '2px 0 0' }}>Initiate consent requests by DID and track status.</p>
+            </div>
+          </div>
+          <button onClick={loadEnrollmentRequests} disabled={enrollmentLoading} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+            <ArrowPathIcon style={{ width: 13, height: 13 }} />Refresh
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 14 }}>
+          {[
+            { label: 'Target DID', value: enrollmentDid, onChange: setEnrollmentDid, placeholder: 'did:ethr:0x...' },
+            { label: 'Organization ID', value: enrollmentRequesterOrganizationId, onChange: setEnrollmentRequesterOrganizationId, placeholder: 'dtp_enterprise_001' },
+            { label: 'Organization Name', value: enrollmentRequesterOrganizationName, onChange: setEnrollmentRequesterOrganizationName, placeholder: 'DTP Enterprise' },
+            { label: 'Verifier ID', value: enrollmentVerifierId, onChange: setEnrollmentVerifierId, placeholder: 'Optional' },
+            { label: 'Purpose', value: enrollmentPurpose, onChange: setEnrollmentPurpose, placeholder: 'Verify role-based access' },
+            { label: 'Requested Claims', value: enrollmentRequestedClaims, onChange: setEnrollmentRequestedClaims, placeholder: 'employeeId, name, role' },
+          ].map(f => (
+            <div key={f.label}>
+              <label style={{ display: 'block', color: '#475569', fontSize: 11, fontWeight: 500, marginBottom: 6 }}>{f.label}</label>
+              <input value={f.value} onChange={e => f.onChange(e.target.value)} className="input-field" placeholder={f.placeholder} />
+            </div>
+          ))}
+          <div>
+            <label style={{ display: 'block', color: '#475569', fontSize: 11, fontWeight: 500, marginBottom: 6 }}>Profile Fields</label>
+            <input value={enrollmentRequestedProfileFields} onChange={e => setEnrollmentRequestedProfileFields(e.target.value)} className="input-field" placeholder="headline, location" />
+          </div>
+          <div>
+            <label style={{ display: 'block', color: '#475569', fontSize: 11, fontWeight: 500, marginBottom: 6 }}>Status Filter</label>
+            <select value={enrollmentStatusFilter} onChange={e => setEnrollmentStatusFilter(e.target.value as 'all' | EnrollmentRequestStatus)} className="input-field">
+              {[['all', 'All'], ['pending', 'Pending'], ['approved', 'Approved'], ['rejected', 'Rejected'], ['expired', 'Expired']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <button onClick={createEnrollmentRequestFromAdmin} disabled={enrollmentLoading} className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <UserPlusIcon style={{ width: 14, height: 14 }} />{enrollmentLoading ? 'Creating...' : 'Create Request'}
+          </button>
+          <span style={{ color: '#334155', fontSize: 11 }}>{enrollmentRequests.length} requests loaded</span>
+        </div>
+
+        {enrollmentMessage && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, padding: '8px 12px', background: 'rgba(5,150,105,0.1)', border: '1px solid rgba(5,150,105,0.2)', borderRadius: 8 }}>
+            <CheckCircleIcon style={{ width: 14, height: 14, color: '#34d399' }} />
+            <span style={{ color: '#34d399', fontSize: 12 }}>{enrollmentMessage}</span>
+          </div>
+        )}
+
+        <div style={{ overflowX: 'auto' }}>
+          <table className="data-table" style={{ minWidth: 960 }}>
+            <thead><tr>
+              {['Request ID', 'DID', 'Organization', 'Status', 'Requested Scopes', 'Decision', 'Updated'].map(h => <th key={h}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {enrollmentRequests.map(req => {
+                const sc = req.status === 'approved' ? { bg: 'rgba(5,150,105,0.12)', border: 'rgba(5,150,105,0.3)', text: '#34d399' } : req.status === 'rejected' ? { bg: 'rgba(220,38,38,0.12)', border: 'rgba(220,38,38,0.3)', text: '#fca5a5' } : req.status === 'expired' ? { bg: 'rgba(100,116,139,0.12)', border: 'rgba(100,116,139,0.3)', text: '#94a3b8' } : { bg: 'rgba(217,119,6,0.12)', border: 'rgba(217,119,6,0.3)', text: '#fbbf24' };
+                return (
+                  <tr key={req.requestId}>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{req.requestId}</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, maxWidth: 180, wordBreak: 'break-all' }}>{req.did}</td>
+                    <td><p style={{ margin: 0 }}>{req.requesterOrganizationName}</p><p style={{ color: '#475569', fontSize: 11, margin: 0 }}>{req.requesterOrganizationId}</p></td>
+                    <td><span style={{ display: 'inline-flex', padding: '2px 8px', borderRadius: 99, background: sc.bg, border: `1px solid ${sc.border}`, color: sc.text, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{req.status}</span></td>
+                    <td style={{ fontSize: 11 }}><p style={{ margin: '0 0 2px', color: '#94a3b8' }}>{req.requestedClaims.join(', ') || 'None'}</p><p style={{ margin: 0, color: '#475569' }}>{req.requestedProfileFields.join(', ') || 'None'}</p></td>
+                    <td style={{ fontSize: 11, color: '#64748b' }}>{req.status === 'approved' ? `Claims: ${(req.approvedClaims || []).join(', ') || 'None'}` : req.status === 'rejected' ? `Reason: ${req.decisionReason || 'Rejected'}` : 'Awaiting decision'}</td>
+                    <td style={{ fontSize: 11, color: '#475569', whiteSpace: 'nowrap' }}>{new Date(req.updatedAt).toLocaleString()}</td>
+                  </tr>
+                );
+              })}
+              {enrollmentRequests.length === 0 && (
+                <tr><td colSpan={7} style={{ textAlign: 'center', color: '#334155', padding: '32px 0' }}>
+                  {enrollmentLoading ? 'Loading...' : 'No enrollment requests for current filter'}
+                </td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Employee Directory */}
+      <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '20px 24px', overflowX: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          <UsersIcon style={{ width: 16, height: 16, color: '#94a3b8' }} />
+          <h3 style={{ color: '#f1f5f9', fontWeight: 600, fontSize: 14, margin: 0 }}>Employee Directory ({employees.length})</h3>
+        </div>
+        <table className="data-table">
+          <thead><tr>
+            {['Employee', 'Department', 'Badge', 'Hash ID', 'Challenge Fingerprint'].map(h => <th key={h}>{h}</th>)}
+          </tr></thead>
           <tbody>
-            {employees.map((employee) => (
-              <tr key={employee.id} className="border-b border-white/10 text-slate-100 align-top">
-                <td className="py-2 pr-3">
-                  <p className="font-semibold">{employee.name}</p>
-                  <p className="text-xs text-slate-400">{employee.id}</p>
-                </td>
-                <td className="py-2 pr-3">{employee.department}</td>
-                <td className="py-2 pr-3 uppercase">{employee.badge}</td>
-                <td className="py-2 pr-3 font-mono text-xs break-all">{employee.hashId}</td>
-                <td className="py-2 pr-3 font-mono text-xs">{employee.challengeFingerprint || '-'}</td>
-              </tr>
-            ))}
+            {employees.map(emp => {
+              const bs = BADGE_STYLES[emp.badge] || BADGE_STYLES.employee;
+              return (
+                <tr key={emp.id}>
+                  <td><p style={{ margin: 0, fontWeight: 600 }}>{emp.name}</p><p style={{ color: '#475569', fontSize: 11, margin: 0 }}>{emp.id}</p></td>
+                  <td>{emp.department}</td>
+                  <td><span style={{ display: 'inline-flex', padding: '2px 8px', borderRadius: 99, background: bs.bg, border: `1px solid ${bs.border}`, color: bs.text, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{emp.badge}</span></td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, wordBreak: 'break-all', maxWidth: 200 }}>{emp.hashId}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#475569' }}>{emp.challengeFingerprint || '—'}</td>
+                </tr>
+              );
+            })}
+            {employees.length === 0 && (
+              <tr><td colSpan={5} style={{ textAlign: 'center', color: '#334155', padding: '32px 0' }}>
+                {adminLoading ? 'Loading employees...' : 'Enter admin token and click Load Data'}
+              </td></tr>
+            )}
           </tbody>
         </table>
       </div>
     </div>
   );
 
-  return (
-    <div className="min-h-screen bg-black relative overflow-hidden">
-      <div className="absolute inset-0 opacity-60">
-        <Orb hue={215} hoverIntensity={1.8} rotateOnHover={true} />
-      </div>
+  // ── Root Render ───────────────────────────────────────────────────────────
 
+  return (
+    <div style={{ minHeight: '100vh', background: '#050505', position: 'relative', overflow: 'hidden' }}>
       {renderTopNav()}
 
+      {/* Error and offline banners */}
       {!isConnected && (
-        <div className="relative z-20 max-w-7xl mx-auto px-6 pt-4">
-          <div className="rounded-xl border border-red-400/40 bg-red-500/10 p-3 text-red-200 text-sm">Backend is offline. Start backend before login/admin operations.</div>
+        <div style={{ position: 'relative', zIndex: 20, maxWidth: 1200, margin: '16px auto 0', padding: '0 24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 10 }}>
+            <XCircleIcon style={{ width: 14, height: 14, color: '#fca5a5' }} />
+            <span style={{ color: '#fca5a5', fontSize: 13 }}>Backend is offline. Start the backend service before performing login or admin operations.</span>
+          </div>
         </div>
       )}
 
       {error && (
-        <div className="relative z-20 max-w-7xl mx-auto px-6 pt-4">
-          <div className="rounded-xl border border-rose-400/40 bg-rose-500/10 p-3 text-rose-200 text-sm">{error}</div>
+        <div style={{ position: 'relative', zIndex: 20, maxWidth: 1200, margin: '12px auto 0', padding: '0 24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 10 }}>
+            <ExclamationTriangleIcon style={{ width: 14, height: 14, color: '#fca5a5' }} />
+            <span style={{ color: '#fca5a5', fontSize: 13 }}>{error}</span>
+            <button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>×</button>
+          </div>
         </div>
       )}
 
-      <main className="relative z-10">
+      <main style={{ position: 'relative', zIndex: 10 }}>
         {mode === 'admin' ? renderAdminPortal() : renderLoginPortal()}
       </main>
     </div>
