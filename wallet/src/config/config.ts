@@ -7,22 +7,30 @@ export interface AppConfig {
   network: string;
 }
 
-// ── Hardcoded configuration ──────────────────────────────────────────────────
-// Change BACKEND_IP to match your machine's LAN IP (same network as the phone).
-// Run `ipconfig` (Windows) or `ifconfig` (Mac/Linux) and look for the IPv4 address.
-// IMPORTANT: This IP MUST match the IP in backend/.env PRIMARY_HOST_IP
-const BACKEND_IP = '192.168.1.33';  // ← Your actual IP
-const BACKEND_PORT = 3001;
+const DEFAULT_API_URL = 'http://127.0.0.1:3001';
+
+const primaryApiUrl = process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL;
+const fallbackApiUrl1 = process.env.EXPO_PUBLIC_API_URL_FALLBACK_1 || 'http://localhost:3001';
+const fallbackApiUrl2 = process.env.EXPO_PUBLIC_API_URL_FALLBACK_2 || 'https://did-platform-backend.railway.app';
+
+const parsedTimeout = Number.parseInt(process.env.EXPO_PUBLIC_NETWORK_TIMEOUT || '30000', 10);
+const parsedChainId = Number.parseInt(process.env.EXPO_PUBLIC_CHAIN_ID || '11155111', 10);
+
+const networkTimeout = Number.isFinite(parsedTimeout) ? parsedTimeout : 30000;
+const chainId = Number.isFinite(parsedChainId) ? parsedChainId : 11155111;
+const autoDiscover = (process.env.EXPO_PUBLIC_AUTO_DISCOVER || 'true').toLowerCase() === 'true';
+
+const fallbackUrls = [fallbackApiUrl1, fallbackApiUrl2].filter(
+  (url, index, allUrls) => Boolean(url) && url !== primaryApiUrl && allUrls.indexOf(url) === index
+);
 
 export const config: AppConfig = {
-  apiUrl: `http://${BACKEND_IP}:${BACKEND_PORT}`,
-  fallbackUrls: [
-    'https://did-platform-backend.railway.app',
-  ],
-  networkTimeout: 30000,  // Increased to 30 seconds for slow networks
-  autoDiscover: false,
-  chainId: 11155111,
-  network: 'sepolia',
+  apiUrl: primaryApiUrl,
+  fallbackUrls,
+  networkTimeout,
+  autoDiscover,
+  chainId,
+  network: process.env.EXPO_PUBLIC_NETWORK || 'sepolia',
 };
 
 // Network discovery configuration

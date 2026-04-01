@@ -1,13 +1,23 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { walletService, Employee, AuthRequest } from '../services/wallet';
+import { walletService, Employee, AuthRequest, RequestedClaimsContract } from '../services/wallet';
+import { WalletCredentialRecordV1, WalletCredentialSource } from '../types/credentials';
 
 interface WalletContextType {
   address: string | null;
   did: string | null;
   employees: Employee[];
+  credentials: WalletCredentialRecordV1[];
   isInitialized: boolean;
   addEmployee: (employee: Employee) => Promise<void>;
   removeEmployee: (id: string) => Promise<void>;
+  addCredential: (
+    credentialJwt: string,
+    options?: {
+      employeeId?: string;
+      subjectDid?: string;
+      source?: WalletCredentialSource;
+    },
+  ) => Promise<WalletCredentialRecordV1>;
   signMessage: (message: string) => Promise<string>;
   getAuthChallenge: () => Promise<AuthRequest>;
   submitAuthResponse: (
@@ -16,6 +26,10 @@ interface WalletContextType {
     challenge?: string,
     apiEndpoint?: string,
     employeeId?: string,
+    verifierId?: string,
+    requestedClaims?: RequestedClaimsContract,
+    verifierCredentialRequired?: boolean,
+    badgeType?: string,
   ) => Promise<any>;
   parseQRCode: (data: string) => AuthRequest | null;
   exportWallet: () => Promise<{ privateKey: string; did: string; address: string }>;
@@ -30,6 +44,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [address, setAddress] = useState<string | null>(null);
   const [did, setDID] = useState<string | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [credentials, setCredentials] = useState<WalletCredentialRecordV1[]>([]);
   const [isInitialized, setIsInitialized] = useState<boolean>(false);
 
   useEffect(() => {
@@ -42,6 +57,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       setAddress(walletService.getAddress());
       setDID(walletService.getDID());
       setEmployees(walletService.getEmployees());
+      setCredentials(walletService.getCredentials());
       setIsInitialized(true);
     } catch (error) {
       console.error('Failed to initialize wallet:', error);
@@ -56,6 +72,20 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const removeEmployee = async (id: string) => {
     await walletService.removeEmployee(id);
     setEmployees(walletService.getEmployees());
+    setCredentials(walletService.getCredentials());
+  };
+
+  const addCredential = async (
+    credentialJwt: string,
+    options?: {
+      employeeId?: string;
+      subjectDid?: string;
+      source?: WalletCredentialSource;
+    },
+  ): Promise<WalletCredentialRecordV1> => {
+    const record = await walletService.addCredential(credentialJwt, options);
+    setCredentials(walletService.getCredentials());
+    return record;
   };
 
   const signMessage = async (message: string): Promise<string> => {
@@ -72,8 +102,22 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     challenge?: string,
     apiEndpoint?: string,
     employeeId?: string,
+    verifierId?: string,
+    requestedClaims?: RequestedClaimsContract,
+    verifierCredentialRequired?: boolean,
+    badgeType?: string,
   ): Promise<any> => {
-    return await walletService.submitAuthResponse(challengeId, employeeDID, challenge, apiEndpoint, employeeId);
+    return await walletService.submitAuthResponse(
+      challengeId,
+      employeeDID,
+      challenge,
+      apiEndpoint,
+      employeeId,
+      verifierId,
+      requestedClaims,
+      verifierCredentialRequired,
+      badgeType,
+    );
   };
 
   const parseQRCode = (data: string): AuthRequest | null => {
@@ -94,6 +138,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setAddress(null);
     setDID(null);
     setEmployees([]);
+    setCredentials([]);
     setIsInitialized(false);
   };
 
@@ -107,9 +152,11 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         address,
         did,
         employees,
+        credentials,
         isInitialized,
         addEmployee,
         removeEmployee,
+        addCredential,
         signMessage,
         getAuthChallenge,
         submitAuthResponse,
