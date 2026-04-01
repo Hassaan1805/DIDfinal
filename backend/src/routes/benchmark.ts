@@ -25,9 +25,14 @@ interface BenchmarkResult {
 const benchmarkResults: BenchmarkResult[] = [];
 
 // Pre-loaded test wallet for consistent DID testing
-const TEST_WALLET = new ethers.Wallet('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80');
+// SECURITY: Use environment variable for test wallet, with random fallback for benchmarks only
+const TEST_PRIVATE_KEY = process.env.BENCHMARK_TEST_PRIVATE_KEY || ethers.Wallet.createRandom().privateKey;
+const TEST_WALLET = new ethers.Wallet(TEST_PRIVATE_KEY);
 const TEST_DID = `did:ethr:${TEST_WALLET.address}`;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secure-jwt-secret-key';
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required');
+}
+const JWT_SECRET = process.env.JWT_SECRET;
 
 console.log('🧪 Benchmark Suite initialized with test wallet:', TEST_WALLET.address);
 

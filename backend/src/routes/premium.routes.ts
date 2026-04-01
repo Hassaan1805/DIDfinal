@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import { ZKProofService } from '../services/zkproof.service';
 
 /**
@@ -7,6 +8,12 @@ import { ZKProofService } from '../services/zkproof.service';
  * Protected routes that require Corporate Excellence 2025 NFT ownership
  * verified through zero-knowledge proofs. Access is completely anonymous.
  */
+
+// JWT secret for anonymous tokens (must be different from main auth)
+const ANONYMOUS_JWT_SECRET = process.env.ANONYMOUS_JWT_SECRET;
+if (!ANONYMOUS_JWT_SECRET && process.env.NODE_ENV === 'production') {
+  console.error('❌ ANONYMOUS_JWT_SECRET must be set in production');
+}
 
 // Define types for request with anonymous auth
 interface AnonymousAuthRequest extends Request {
@@ -18,16 +25,77 @@ interface AnonymousAuthRequest extends Request {
   };
 }
 
-// Simple middleware to simulate NFT requirement (for demo purposes)
+/**
+ * Middleware to verify anonymous premium access token
+ * SECURITY: No longer simulates NFT ownership - requires valid token from ZK-proof verification
+ */
 const requireCorporateExcellenceNFT = (req: AnonymousAuthRequest, res: Response, next: any) => {
-  // In demo mode, we'll simulate NFT ownership
-  req.anonymousAuth = {
-    accessLevel: 'premium',
-    grantType: 'nft-ownership',
-    issuedAt: Math.floor(Date.now() / 1000),
-    expiresAt: Math.floor(Date.now() / 1000) + (60 * 60) // 1 hour
-  };
-  next();
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({
+        success: false,
+        error: 'Premium access token required',
+        message: 'Prove NFT ownership via /api/zkp/verify-premium to get access token',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    const token = authHeader.substring(7);
+    
+    // If no secret configured, reject all tokens in production
+    if (!ANONYMOUS_JWT_SECRET) {
+      if (process.env.NODE_ENV === 'production') {
+        res.status(503).json({
+          success: false,
+          error: 'Premium service not configured',
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+      // In development, allow with warning
+      console.warn('⚠️ ANONYMOUS_JWT_SECRET not set - using development fallback');
+    }
+
+    const secret = ANONYMOUS_JWT_SECRET || 'development-only-zkp-secret';
+    const decoded = jwt.verify(token, secret) as any;
+    
+    if (decoded.accessLevel !== 'premium_content') {
+      res.status(403).json({
+        success: false,
+        error: 'Invalid access level',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    req.anonymousAuth = {
+      accessLevel: decoded.accessLevel,
+      grantType: decoded.grantType || 'nft-ownership',
+      issuedAt: decoded.iat || Math.floor(Date.now() / 1000),
+      expiresAt: decoded.exp || Math.floor(Date.now() / 1000) + 3600
+    };
+    
+    next();
+  } catch (error: any) {
+    if (error.name === 'TokenExpiredError') {
+      res.status(401).json({
+        success: false,
+        error: 'Premium access token expired',
+        message: 'Re-verify NFT ownership to get a new token',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+    
+    res.status(401).json({
+      success: false,
+      error: 'Invalid premium access token',
+      timestamp: new Date().toISOString()
+    });
+  }
 };
 
 const router = Router();
