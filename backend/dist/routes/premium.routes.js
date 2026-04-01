@@ -1,15 +1,73 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const zkproof_service_1 = require("../services/zkproof.service");
+const ANONYMOUS_JWT_SECRET = process.env.ANONYMOUS_JWT_SECRET;
+if (!ANONYMOUS_JWT_SECRET && process.env.NODE_ENV === 'production') {
+    console.error('❌ ANONYMOUS_JWT_SECRET must be set in production');
+}
 const requireCorporateExcellenceNFT = (req, res, next) => {
-    req.anonymousAuth = {
-        accessLevel: 'premium',
-        grantType: 'nft-ownership',
-        issuedAt: Math.floor(Date.now() / 1000),
-        expiresAt: Math.floor(Date.now() / 1000) + (60 * 60)
-    };
-    next();
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            res.status(401).json({
+                success: false,
+                error: 'Premium access token required',
+                message: 'Prove NFT ownership via /api/zkp/verify-premium to get access token',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        const token = authHeader.substring(7);
+        if (!ANONYMOUS_JWT_SECRET) {
+            if (process.env.NODE_ENV === 'production') {
+                res.status(503).json({
+                    success: false,
+                    error: 'Premium service not configured',
+                    timestamp: new Date().toISOString()
+                });
+                return;
+            }
+            console.warn('⚠️ ANONYMOUS_JWT_SECRET not set - using development fallback');
+        }
+        const secret = ANONYMOUS_JWT_SECRET || 'development-only-zkp-secret';
+        const decoded = jsonwebtoken_1.default.verify(token, secret);
+        if (decoded.accessLevel !== 'premium_content') {
+            res.status(403).json({
+                success: false,
+                error: 'Invalid access level',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        req.anonymousAuth = {
+            accessLevel: decoded.accessLevel,
+            grantType: decoded.grantType || 'nft-ownership',
+            issuedAt: decoded.iat || Math.floor(Date.now() / 1000),
+            expiresAt: decoded.exp || Math.floor(Date.now() / 1000) + 3600
+        };
+        next();
+    }
+    catch (error) {
+        if (error.name === 'TokenExpiredError') {
+            res.status(401).json({
+                success: false,
+                error: 'Premium access token expired',
+                message: 'Re-verify NFT ownership to get a new token',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        res.status(401).json({
+            success: false,
+            error: 'Invalid premium access token',
+            timestamp: new Date().toISOString()
+        });
+    }
 };
 const router = (0, express_1.Router)();
 const zkProofService = new zkproof_service_1.ZKProofService();

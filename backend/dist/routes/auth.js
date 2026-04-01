@@ -12,8 +12,16 @@ const did_jwt_1 = require("did-jwt");
 const blockchainService_1 = require("../services/blockchainService");
 const SepoliaService_1 = require("../services/SepoliaService");
 const auth_middleware_1 = require("../middleware/auth.middleware");
+const rateLimiter_middleware_1 = require("../middleware/rateLimiter.middleware");
+const validation_middleware_1 = require("../middleware/validation.middleware");
+const refreshToken_service_1 = require("../services/refreshToken.service");
 const employeeDirectory_1 = require("../services/employeeDirectory");
 const employeeOnChainRegistry_1 = require("../services/employeeOnChainRegistry");
+const issuerTrust_service_1 = require("../services/issuerTrust.service");
+const credentialStatus_service_1 = require("../services/credentialStatus.service");
+const verifierProfiles_service_1 = require("../services/verifierProfiles.service");
+const authTimeline_service_1 = require("../services/authTimeline.service");
+const challengeStorage_service_1 = require("../services/challengeStorage.service");
 const router = (0, express_1.Router)();
 exports.authRoutes = router;
 const blockchainService = new blockchainService_1.BlockchainService({
@@ -21,12 +29,564 @@ const blockchainService = new blockchainService_1.BlockchainService({
     contractAddress: process.env.DID_REGISTRY_ADDRESS || '0x5FbDB2315678afecb367f032d93F642f64180aa3',
     gasStationPrivateKey: process.env.GAS_STATION_PRIVATE_KEY || '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
 });
-const challenges = new Map();
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secure-jwt-secret-key';
+if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET environment variable is required');
+}
+const JWT_SECRET = process.env.JWT_SECRET;
+const SHOULD_SKIP_ONCHAIN_VERIFY = process.env.ONCHAIN_VERIFY_MODE === 'off';
 const CHALLENGE_EXPIRY_TIME = 10 * 60 * 1000;
-router.get('/challenge', async (req, res) => {
+const CHALLENGE_EXPIRY_SECONDS = Math.floor(CHALLENGE_EXPIRY_TIME / 1000);
+const DISCLOSURE_BINDING_VERSION = 'sd-bind-v1';
+const DISCLOSURE_BINDING_PREFIX = 'Selective disclosure binding:';
+const AUTH_TIMELINE_EVENT_TYPES = [
+    'challenge_created',
+    'challenge_expired',
+    'verification_attempted',
+    'verification_succeeded',
+    'verification_failed',
+    'token_verified',
+    'token_verification_failed',
+    'session_status_checked',
+];
+const AUTH_TIMELINE_EVENT_STATUS = ['success', 'failure', 'info'];
+function getSingleQueryValue(value) {
+    if (Array.isArray(value)) {
+        return typeof value[0] === 'string' ? value[0] : undefined;
+    }
+    return typeof value === 'string' ? value : undefined;
+}
+function normalizeOptionalString(value) {
+    const raw = getSingleQueryValue(value);
+    if (!raw) {
+        return undefined;
+    }
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+}
+function parsePositiveInteger(value, fallback) {
+    const raw = normalizeOptionalString(value);
+    if (!raw) {
+        return fallback;
+    }
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        return fallback;
+    }
+    return Math.floor(parsed);
+}
+function isChallengeExpired(challengeData, now = Date.now()) {
+    return now - challengeData.timestamp > CHALLENGE_EXPIRY_TIME;
+}
+function getRemainingChallengeTtlSeconds(challengeData, now = Date.now()) {
+    const expiresAt = challengeData.timestamp + CHALLENGE_EXPIRY_TIME;
+    const remainingMs = expiresAt - now;
+    return Math.max(1, Math.ceil(remainingMs / 1000));
+}
+async function persistChallengeState(challengeId, challengeData) {
+    const now = Date.now();
+    if (isChallengeExpired(challengeData, now)) {
+        await (0, challengeStorage_service_1.deleteChallenge)(challengeId);
+        return;
+    }
+    await (0, challengeStorage_service_1.setChallenge)(challengeId, challengeData, getRemainingChallengeTtlSeconds(challengeData, now));
+}
+async function getChallengeEntryBySessionId(sessionId) {
+    const challengeIds = await (0, challengeStorage_service_1.getAllChallengeIds)();
+    for (const challengeId of challengeIds) {
+        const challengeData = await (0, challengeStorage_service_1.getChallenge)(challengeId);
+        if (!challengeData) {
+            continue;
+        }
+        if (challengeId.includes(sessionId) || challengeData.challenge.includes(sessionId)) {
+            return {
+                challengeId,
+                challengeData,
+            };
+        }
+    }
+    return null;
+}
+async function listChallengeIds() {
+    return await (0, challengeStorage_service_1.getAllChallengeIds)();
+}
+function isAuthTimelineEventType(value) {
+    return AUTH_TIMELINE_EVENT_TYPES.includes(value);
+}
+function isAuthTimelineEventStatus(value) {
+    return AUTH_TIMELINE_EVENT_STATUS.includes(value);
+}
+function normalizeBaseUrl(baseUrl) {
+    return baseUrl.replace(/\/+$/, '');
+}
+function isPrivateIpv4(value) {
+    return /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)\d{1,3}\.\d{1,3}$/.test(value);
+}
+function resolveApiBaseUrl(req) {
+    const configuredBaseUrl = process.env.PUBLIC_API_BASE_URL;
+    if (configuredBaseUrl) {
+        return normalizeBaseUrl(configuredBaseUrl);
+    }
+    const preferredHostIp = process.env.PRIMARY_HOST_IP || process.env.LOCAL_IP;
+    if (preferredHostIp && isPrivateIpv4(preferredHostIp)) {
+        return `http://${preferredHostIp}:${process.env.PORT || '3001'}`;
+    }
+    if (req) {
+        const forwardedProtoHeader = req.headers['x-forwarded-proto'];
+        const forwardedHostHeader = req.headers['x-forwarded-host'];
+        const forwardedProto = Array.isArray(forwardedProtoHeader)
+            ? forwardedProtoHeader[0]
+            : forwardedProtoHeader;
+        const forwardedHost = Array.isArray(forwardedHostHeader)
+            ? forwardedHostHeader[0]
+            : forwardedHostHeader;
+        const host = forwardedHost || req.get('host');
+        const protocol = forwardedProto || req.protocol || 'http';
+        if (host) {
+            return normalizeBaseUrl(`${protocol}://${host}`);
+        }
+    }
+    return `http://localhost:${process.env.PORT || '3001'}`;
+}
+function normalizeClaimValue(value) {
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : undefined;
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+        return String(value);
+    }
+    return undefined;
+}
+function hashUtf8(value) {
+    return ethers_1.ethers.keccak256(ethers_1.ethers.toUtf8Bytes(value));
+}
+function canonicalizeClaims(claims) {
+    return Object.entries(claims)
+        .filter(([, value]) => typeof value === 'string' && value.trim().length > 0)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, value]) => `${key}=${value.trim()}`)
+        .join('|');
+}
+function computeClaimDigest(claims) {
+    const canonical = canonicalizeClaims(claims);
+    return hashUtf8(canonical || 'no-claims');
+}
+function computeBindingDigest(input) {
+    const material = [
+        input.challengeId,
+        input.challengeDigest,
+        input.claimDigest,
+        input.credentialDigest || 'no-credential',
+        input.bindingVersion,
+    ].join('|');
+    return hashUtf8(material);
+}
+function parseDisclosedClaimsProof(input) {
+    if (input === undefined || input === null) {
+        return undefined;
+    }
+    if (typeof input !== 'object' || Array.isArray(input)) {
+        throw new Error('disclosedClaimsProof must be an object when provided');
+    }
+    const raw = input;
+    const requiredStringFields = [
+        'bindingVersion',
+        'challengeId',
+        'challengeDigest',
+        'claimDigest',
+        'bindingDigest',
+        'signedBinding',
+    ];
+    for (const field of requiredStringFields) {
+        if (typeof raw[field] !== 'string' || !raw[field].trim()) {
+            throw new Error(`disclosedClaimsProof.${field} must be a non-empty string`);
+        }
+    }
+    if (raw.credentialDigest !== undefined && (typeof raw.credentialDigest !== 'string' || !raw.credentialDigest.trim())) {
+        throw new Error('disclosedClaimsProof.credentialDigest must be a non-empty string when provided');
+    }
+    if (raw.createdAt !== undefined && (typeof raw.createdAt !== 'string' || !raw.createdAt.trim())) {
+        throw new Error('disclosedClaimsProof.createdAt must be a non-empty string when provided');
+    }
+    return {
+        bindingVersion: String(raw.bindingVersion).trim(),
+        challengeId: String(raw.challengeId).trim(),
+        challengeDigest: String(raw.challengeDigest).trim(),
+        claimDigest: String(raw.claimDigest).trim(),
+        credentialDigest: typeof raw.credentialDigest === 'string' ? raw.credentialDigest.trim() : undefined,
+        bindingDigest: String(raw.bindingDigest).trim(),
+        signedBinding: String(raw.signedBinding).trim(),
+        createdAt: typeof raw.createdAt === 'string' ? raw.createdAt.trim() : undefined,
+    };
+}
+function verifyDisclosedClaimsProof(input) {
+    if (input.proof.bindingVersion !== DISCLOSURE_BINDING_VERSION) {
+        return {
+            verified: false,
+            reason: `Unsupported bindingVersion: ${input.proof.bindingVersion}`,
+        };
+    }
+    if (input.proof.challengeId !== input.challengeId) {
+        return {
+            verified: false,
+            reason: 'challengeId mismatch in disclosedClaimsProof',
+        };
+    }
+    const expectedChallengeDigest = hashUtf8(input.challengeText);
+    if (input.proof.challengeDigest !== expectedChallengeDigest) {
+        return {
+            verified: false,
+            reason: 'challengeDigest mismatch in disclosedClaimsProof',
+        };
+    }
+    const expectedClaimDigest = computeClaimDigest(input.disclosedClaims);
+    if (input.proof.claimDigest !== expectedClaimDigest) {
+        return {
+            verified: false,
+            reason: 'claimDigest mismatch in disclosedClaimsProof',
+        };
+    }
+    const expectedCredentialDigest = input.credential ? hashUtf8(input.credential) : undefined;
+    if (expectedCredentialDigest && input.proof.credentialDigest !== expectedCredentialDigest) {
+        return {
+            verified: false,
+            reason: 'credentialDigest mismatch in disclosedClaimsProof',
+        };
+    }
+    const recomputedBindingDigest = computeBindingDigest({
+        challengeId: input.challengeId,
+        challengeDigest: expectedChallengeDigest,
+        claimDigest: expectedClaimDigest,
+        credentialDigest: expectedCredentialDigest,
+        bindingVersion: input.proof.bindingVersion,
+    });
+    if (input.proof.bindingDigest !== recomputedBindingDigest) {
+        return {
+            verified: false,
+            reason: 'bindingDigest mismatch in disclosedClaimsProof',
+        };
+    }
     try {
-        const challenge = await generateChallenge();
+        const recoveredAddress = ethers_1.ethers.verifyMessage(`${DISCLOSURE_BINDING_PREFIX} ${input.proof.bindingDigest}`, input.proof.signedBinding);
+        if (recoveredAddress.toLowerCase() !== input.walletAddress.toLowerCase()) {
+            return {
+                verified: false,
+                reason: 'signedBinding signature does not match wallet address',
+            };
+        }
+    }
+    catch (error) {
+        return {
+            verified: false,
+            reason: error?.message || 'Unable to verify signedBinding signature',
+        };
+    }
+    return {
+        verified: true,
+        bindingDigest: recomputedBindingDigest,
+    };
+}
+function parseDisclosedClaims(input) {
+    if (input === undefined || input === null) {
+        return {};
+    }
+    if (typeof input !== 'object' || Array.isArray(input)) {
+        throw new Error('disclosedClaims must be an object when provided');
+    }
+    const raw = input;
+    const parsed = {};
+    for (const [key, value] of Object.entries(raw)) {
+        if (!verifierProfiles_service_1.SUPPORTED_VERIFIER_CLAIM_KEYS.includes(key)) {
+            throw new Error(`Unsupported disclosed claim key: ${key}`);
+        }
+        const normalized = normalizeClaimValue(value);
+        if (!normalized) {
+            throw new Error(`disclosedClaims.${key} must be a non-empty string-compatible value`);
+        }
+        parsed[key] = normalized;
+    }
+    return parsed;
+}
+function buildExpectedClaimValues(input) {
+    return {
+        subjectDid: input.resolvedDid,
+        employeeId: input.resolvedEmployee?.id || input.credentialClaims?.employeeId,
+        name: input.resolvedEmployee?.name || input.credentialClaims?.name,
+        role: input.credentialClaims?.role || input.resolvedEmployee?.badge,
+        department: input.resolvedEmployee?.department || input.credentialClaims?.department,
+        email: input.resolvedEmployee?.email || input.credentialClaims?.email,
+    };
+}
+function verifyDisclosedClaims(input) {
+    const missingClaims = [];
+    const mismatchedClaims = [];
+    for (const claimKey of input.requiredClaims) {
+        const disclosedValue = input.disclosedClaims[claimKey];
+        if (!disclosedValue) {
+            missingClaims.push(claimKey);
+            continue;
+        }
+        const expectedValue = input.expectedClaims[claimKey];
+        if (!expectedValue || disclosedValue !== expectedValue) {
+            mismatchedClaims.push(claimKey);
+        }
+    }
+    return {
+        verified: missingClaims.length === 0 && mismatchedClaims.length === 0,
+        missingClaims,
+        mismatchedClaims,
+    };
+}
+async function verifyCredentialAgainstDid(credential, expectedDid) {
+    const verificationResult = await (0, did_jwt_1.verifyJWT)(credential, {
+        resolver: undefined,
+        audience: undefined,
+    });
+    const vcPayload = verificationResult.payload;
+    if (!vcPayload?.vc || !vcPayload.vc?.credentialSubject) {
+        throw new Error('Invalid credential structure');
+    }
+    const credentialId = (typeof vcPayload.vc?.id === 'string' && vcPayload.vc.id.trim()) ||
+        (typeof vcPayload.jti === 'string' && vcPayload.jti.trim()) ||
+        null;
+    const credentialPolicy = (0, credentialStatus_service_1.getCredentialStatusPolicy)();
+    if (credentialPolicy.requireCredentialId && !credentialId) {
+        throw new Error('Credential ID is required by policy');
+    }
+    const credentialStatus = (0, credentialStatus_service_1.getCredentialStatus)(credentialId);
+    if (credentialStatus.status === 'revoked') {
+        throw new Error(credentialStatus.reason || 'Credential has been revoked');
+    }
+    if (credentialStatus.status === 'expired') {
+        throw new Error(credentialStatus.reason || 'Credential has expired');
+    }
+    if (credentialPolicy.strictStatusCheck && credentialStatus.status === 'unknown') {
+        throw new Error('Credential status is unknown in registry');
+    }
+    const credentialSubject = vcPayload.vc.credentialSubject;
+    if (credentialSubject.id !== expectedDid) {
+        throw new Error('Credential not issued to authenticated user');
+    }
+    const issuer = typeof vcPayload.vc.issuer === 'string'
+        ? vcPayload.vc.issuer
+        : vcPayload.vc.issuer?.id;
+    if (!issuer) {
+        throw new Error('Credential issuer is missing');
+    }
+    const issuerTrust = (0, issuerTrust_service_1.evaluateIssuerTrust)(issuer);
+    if (!issuerTrust.issuerTrusted && issuerTrust.strictIssuerTrust) {
+        throw new Error('Credential not issued by a trusted issuer');
+    }
+    if (!issuerTrust.issuerTrusted) {
+        console.warn('⚠️ Credential issuer is not in trusted list, but strict mode is disabled:', {
+            issuer,
+            trustedIssuers: issuerTrust.trustedIssuers,
+        });
+    }
+    if (vcPayload.exp && vcPayload.exp < Math.floor(Date.now() / 1000)) {
+        throw new Error('Credential has expired');
+    }
+    return {
+        credentialId,
+        credentialStatus: credentialStatus.status,
+        credentialFoundInRegistry: credentialStatus.foundInRegistry,
+        issuer,
+        issuerTrusted: issuerTrust.issuerTrusted,
+        strictIssuerTrust: issuerTrust.strictIssuerTrust,
+        subjectDid: credentialSubject.id,
+        employeeId: credentialSubject.employeeId,
+        name: credentialSubject.name,
+        role: credentialSubject.role,
+        department: credentialSubject.department,
+        email: credentialSubject.email,
+    };
+}
+router.get('/trusted-issuers', (req, res) => {
+    const policy = (0, issuerTrust_service_1.getIssuerTrustPolicy)();
+    res.json({
+        success: true,
+        data: policy,
+        timestamp: new Date().toISOString(),
+    });
+});
+router.get('/credential-status/:credentialId', (req, res) => {
+    const { credentialId } = req.params;
+    const policy = (0, credentialStatus_service_1.getCredentialStatusPolicy)();
+    const status = (0, credentialStatus_service_1.getCredentialStatus)(credentialId);
+    res.json({
+        success: true,
+        data: {
+            policy,
+            status,
+        },
+        timestamp: new Date().toISOString(),
+    });
+});
+router.get('/verifier-profiles', (req, res) => {
+    const includeInactive = req.query.includeInactive === 'true';
+    const profiles = (0, verifierProfiles_service_1.listVerifierProfiles)({ includeInactive });
+    res.json({
+        success: true,
+        data: profiles,
+        timestamp: new Date().toISOString(),
+    });
+});
+router.get('/verifier-profiles/:verifierId', (req, res) => {
+    const { verifierId } = req.params;
+    const profile = (0, verifierProfiles_service_1.getVerifierProfile)(verifierId);
+    if (!profile) {
+        res.status(404).json({
+            success: false,
+            error: 'Verifier profile not found',
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+    res.json({
+        success: true,
+        data: profile,
+        timestamp: new Date().toISOString(),
+    });
+});
+router.get('/timeline', (req, res) => {
+    const did = normalizeOptionalString(req.query.did);
+    const userAddress = normalizeOptionalString(req.query.userAddress);
+    const employeeId = normalizeOptionalString(req.query.employeeId);
+    const companyId = normalizeOptionalString(req.query.companyId);
+    const verifierId = normalizeOptionalString(req.query.verifierId);
+    const eventTypeValue = normalizeOptionalString(req.query.eventType);
+    const statusValue = normalizeOptionalString(req.query.status);
+    const from = normalizeOptionalString(req.query.from);
+    const to = normalizeOptionalString(req.query.to);
+    const limit = parsePositiveInteger(req.query.limit, 50);
+    const cursor = parsePositiveInteger(req.query.cursor, 0);
+    if (!did && !userAddress && !employeeId && !companyId && !verifierId) {
+        res.status(400).json({
+            success: false,
+            error: 'At least one scope filter is required: did, userAddress, employeeId, companyId, or verifierId',
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+    if (eventTypeValue && !isAuthTimelineEventType(eventTypeValue)) {
+        res.status(400).json({
+            success: false,
+            error: `Invalid eventType. Allowed values: ${AUTH_TIMELINE_EVENT_TYPES.join(', ')}`,
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+    if (statusValue && !isAuthTimelineEventStatus(statusValue)) {
+        res.status(400).json({
+            success: false,
+            error: `Invalid status. Allowed values: ${AUTH_TIMELINE_EVENT_STATUS.join(', ')}`,
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+    const filters = {
+        did,
+        userAddress,
+        employeeId,
+        companyId,
+        verifierId,
+        eventType: eventTypeValue,
+        status: statusValue,
+        from,
+        to,
+    };
+    const listing = (0, authTimeline_service_1.listAuthTimelineEvents)({
+        filters,
+        limit,
+        cursor,
+    });
+    const summary = (0, authTimeline_service_1.summarizeAuthTimeline)({ filters });
+    res.json({
+        success: true,
+        data: {
+            filters,
+            events: listing.events,
+            pagination: {
+                limit,
+                cursor,
+                returned: listing.returned,
+                total: listing.total,
+                hasMore: listing.hasMore,
+                nextCursor: listing.nextCursor,
+            },
+            summary,
+        },
+        timestamp: new Date().toISOString(),
+    });
+});
+router.get('/timeline/me', auth_middleware_1.verifyAuthToken, (req, res) => {
+    const eventTypeValue = normalizeOptionalString(req.query.eventType);
+    const statusValue = normalizeOptionalString(req.query.status);
+    const from = normalizeOptionalString(req.query.from);
+    const to = normalizeOptionalString(req.query.to);
+    const limit = parsePositiveInteger(req.query.limit, 50);
+    const cursor = parsePositiveInteger(req.query.cursor, 0);
+    if (!req.user?.address && !req.user?.did) {
+        res.status(401).json({
+            success: false,
+            error: 'Authenticated identity is missing in token',
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+    if (eventTypeValue && !isAuthTimelineEventType(eventTypeValue)) {
+        res.status(400).json({
+            success: false,
+            error: `Invalid eventType. Allowed values: ${AUTH_TIMELINE_EVENT_TYPES.join(', ')}`,
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+    if (statusValue && !isAuthTimelineEventStatus(statusValue)) {
+        res.status(400).json({
+            success: false,
+            error: `Invalid status. Allowed values: ${AUTH_TIMELINE_EVENT_STATUS.join(', ')}`,
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+    const filters = {
+        did: req.user.did,
+        userAddress: req.user.address,
+        eventType: eventTypeValue,
+        status: statusValue,
+        from,
+        to,
+    };
+    const listing = (0, authTimeline_service_1.listAuthTimelineEvents)({
+        filters,
+        limit,
+        cursor,
+    });
+    const summary = (0, authTimeline_service_1.summarizeAuthTimeline)({ filters });
+    res.json({
+        success: true,
+        data: {
+            filters,
+            events: listing.events,
+            pagination: {
+                limit,
+                cursor,
+                returned: listing.returned,
+                total: listing.total,
+                hasMore: listing.hasMore,
+                nextCursor: listing.nextCursor,
+            },
+            summary,
+        },
+        timestamp: new Date().toISOString(),
+    });
+});
+router.get('/challenge', rateLimiter_middleware_1.challengeRateLimiter, async (req, res) => {
+    try {
+        const challenge = await generateChallenge({
+            apiBaseUrl: resolveApiBaseUrl(req),
+        });
         res.json({
             success: true,
             data: challenge,
@@ -43,9 +603,9 @@ router.get('/challenge', async (req, res) => {
         });
     }
 });
-router.post('/challenge', async (req, res) => {
+router.post('/challenge', rateLimiter_middleware_1.challengeRateLimiter, (0, validation_middleware_1.validateBody)(validation_middleware_1.authSchemas.challenge), async (req, res) => {
     try {
-        const { employeeId, companyId, requestType } = req.body;
+        const { employeeId, companyId, requestType, verifierId } = req.body;
         if (employeeId) {
             const employee = (0, employeeDirectory_1.getEmployeeById)(employeeId.toUpperCase());
             if (!employee) {
@@ -65,10 +625,36 @@ router.post('/challenge', async (req, res) => {
                 return;
             }
         }
+        let verifierProfile;
+        try {
+            verifierProfile = (0, verifierProfiles_service_1.resolveVerifierProfile)({
+                verifierId,
+                organizationId: companyId,
+            });
+        }
+        catch (profileError) {
+            res.status(400).json({
+                success: false,
+                error: 'Invalid verifier profile input',
+                details: profileError?.message || 'Unable to resolve verifier profile',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+        if (companyId && verifierProfile.organizationId !== companyId) {
+            res.status(400).json({
+                success: false,
+                error: 'companyId does not match verifier profile organization',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
         const challenge = await generateChallenge({
             employeeId: employeeId?.toUpperCase(),
-            companyId,
-            requestType: requestType || 'portal_access'
+            companyId: verifierProfile.organizationId,
+            requestType: requestType || 'portal_access',
+            verifierProfile,
+            apiBaseUrl: resolveApiBaseUrl(req),
         });
         res.json({
             success: true,
@@ -97,6 +683,23 @@ async function generateChallenge(context) {
     const badge = (employee?.badge || 'employee');
     const badgeDefinition = (0, employeeDirectory_1.getBadgeDefinition)(badge);
     const timestamp = Date.now();
+    const apiBaseUrl = context?.apiBaseUrl || resolveApiBaseUrl();
+    const requestType = (context?.requestType || 'portal_access');
+    const verifierProfile = context?.verifierProfile
+        || (0, verifierProfiles_service_1.resolveVerifierProfile)({ organizationId: context?.companyId });
+    if (!verifierProfile.allowedRequestTypes.includes(requestType)) {
+        throw new Error(`Verifier ${verifierProfile.verifierId} does not allow request type ${requestType}`);
+    }
+    if (!verifierProfile.allowedBadges.includes(badge)) {
+        throw new Error(`Badge ${badge} is not allowed for verifier ${verifierProfile.verifierId}`);
+    }
+    const requestedClaims = {
+        requestType,
+        requiredClaims: (0, verifierProfiles_service_1.resolveRequestedClaims)(verifierProfile, requestType),
+        policyVersion: verifierProfile.policyVersion,
+        proofRequired: true,
+        bindingVersion: DISCLOSURE_BINDING_VERSION,
+    };
     const randomPart = crypto_1.default.randomBytes(32).toString('hex');
     const challengeId = crypto_1.default.randomUUID();
     const challenge = [
@@ -106,7 +709,7 @@ async function generateChallenge(context) {
         `employee:${employee?.id || 'unknown'}`,
         `issued:${new Date(timestamp).toISOString()}`,
     ].join('|');
-    challenges.set(challengeId, {
+    await (0, challengeStorage_service_1.setChallenge)(challengeId, {
         challenge,
         timestamp,
         used: false,
@@ -118,20 +721,56 @@ async function generateChallenge(context) {
         didRegistrationTxHash: employee?.didRegistrationTxHash,
         adminGasPayerAddress: SepoliaService_1.sepoliaService.getGasPayerAddress(),
         adminGasPayerEtherscanUrl: SepoliaService_1.sepoliaService.getGasPayerEtherscanUrl(),
-        companyId: context?.companyId,
-        requestType: context?.requestType
+        companyId: verifierProfile.organizationId,
+        verifierId: verifierProfile.verifierId,
+        verifierOrganizationId: verifierProfile.organizationId,
+        verifierOrganizationName: verifierProfile.organizationName,
+        verifierPolicyVersion: verifierProfile.policyVersion,
+        verifierCredentialRequired: verifierProfile.requireCredential,
+        requestType,
+        requestedClaims,
+    }, CHALLENGE_EXPIRY_SECONDS);
+    (0, authTimeline_service_1.addAuthTimelineEvent)({
+        eventType: 'challenge_created',
+        status: 'info',
+        reason: 'challenge_issued',
+        challengeId,
+        did: employee?.did,
+        userAddress: employee?.address,
+        employeeId: employee?.id,
+        companyId: verifierProfile.organizationId,
+        verifierId: verifierProfile.verifierId,
+        verifierOrganizationId: verifierProfile.organizationId,
+        verifierOrganizationName: verifierProfile.organizationName,
+        requestType,
+        metadata: {
+            requiredClaims: requestedClaims.requiredClaims,
+            proofRequired: requestedClaims.proofRequired,
+            expiresAt: new Date(timestamp + CHALLENGE_EXPIRY_TIME).toISOString(),
+        },
     });
-    cleanupExpiredChallenges();
+    await cleanupExpiredChallenges();
     const qrCodeData = JSON.stringify({
         type: "did-auth-request",
         version: "1.0",
         challengeId,
         challenge,
         domain: 'decentralized-trust.platform',
-        companyId: context?.companyId || 'dtp_enterprise_001',
+        companyId: verifierProfile.organizationId,
+        verifierId: verifierProfile.verifierId,
+        verifier: {
+            verifierId: verifierProfile.verifierId,
+            organizationId: verifierProfile.organizationId,
+            organizationName: verifierProfile.organizationName,
+            policyVersion: verifierProfile.policyVersion,
+            requireCredential: verifierProfile.requireCredential,
+            allowedBadges: verifierProfile.allowedBadges,
+            requiredClaimsByRequestType: verifierProfile.requiredClaimsByRequestType,
+        },
+        requestedClaims,
         timestamp,
         expiresAt: timestamp + CHALLENGE_EXPIRY_TIME,
-        apiEndpoint: 'http://192.168.1.33:3001/api/auth/verify',
+        apiEndpoint: `${apiBaseUrl}/api/auth/verify`,
         instruction: 'Authenticate with your DID wallet to access Enterprise Portal',
         badge: {
             type: badge,
@@ -153,6 +792,16 @@ async function generateChallenge(context) {
         challenge,
         expiresIn: Math.floor(CHALLENGE_EXPIRY_TIME / 1000),
         qrCodeData,
+        verifier: {
+            verifierId: verifierProfile.verifierId,
+            organizationId: verifierProfile.organizationId,
+            organizationName: verifierProfile.organizationName,
+            policyVersion: verifierProfile.policyVersion,
+            requireCredential: verifierProfile.requireCredential,
+            allowedBadges: verifierProfile.allowedBadges,
+            requiredClaimsByRequestType: verifierProfile.requiredClaimsByRequestType,
+        },
+        requestedClaims,
         ...(context?.employeeId && {
             employee,
         })
@@ -161,7 +810,7 @@ async function generateChallenge(context) {
 router.get('/status/:challengeId', async (req, res) => {
     try {
         const { challengeId } = req.params;
-        const challengeData = challenges.get(challengeId);
+        const challengeData = await (0, challengeStorage_service_1.getChallenge)(challengeId);
         if (!challengeData) {
             res.status(404).json({
                 success: false,
@@ -170,8 +819,22 @@ router.get('/status/:challengeId', async (req, res) => {
             });
             return;
         }
-        if (Date.now() - challengeData.timestamp > CHALLENGE_EXPIRY_TIME) {
-            challenges.delete(challengeId);
+        if (isChallengeExpired(challengeData)) {
+            await (0, challengeStorage_service_1.deleteChallenge)(challengeId);
+            (0, authTimeline_service_1.addAuthTimelineEvent)({
+                eventType: 'challenge_expired',
+                status: 'info',
+                reason: 'expired_on_status_check',
+                challengeId,
+                did: challengeData.did,
+                userAddress: challengeData.userAddress,
+                employeeId: challengeData.employeeId,
+                companyId: challengeData.companyId,
+                verifierId: challengeData.verifierId,
+                verifierOrganizationId: challengeData.verifierOrganizationId,
+                verifierOrganizationName: challengeData.verifierOrganizationName,
+                requestType: challengeData.requestType,
+            });
             res.status(400).json({
                 success: false,
                 error: 'Challenge has expired',
@@ -185,8 +848,15 @@ router.get('/status/:challengeId', async (req, res) => {
                 challengeId,
                 status: challengeData.used ? 'completed' : 'pending',
                 expiresAt: challengeData.timestamp + CHALLENGE_EXPIRY_TIME,
+                verifierId: challengeData.verifierId,
+                verifierOrganizationId: challengeData.verifierOrganizationId,
+                verifierOrganizationName: challengeData.verifierOrganizationName,
+                verifierPolicyVersion: challengeData.verifierPolicyVersion,
+                verifierCredentialRequired: challengeData.verifierCredentialRequired,
+                requestedClaims: challengeData.requestedClaims,
                 ...(challengeData.used && challengeData.token && {
                     token: challengeData.token,
+                    refreshToken: challengeData.refreshToken,
                     did: challengeData.did,
                     userAddress: challengeData.userAddress,
                     employeeId: challengeData.employeeId,
@@ -199,13 +869,19 @@ router.get('/status/:challengeId', async (req, res) => {
                     authVerifyTxHash: challengeData.authVerifyTxHash,
                     adminGasPayerAddress: challengeData.adminGasPayerAddress,
                     adminGasPayerEtherscanUrl: challengeData.adminGasPayerEtherscanUrl,
+                    disclosedClaims: challengeData.disclosedClaims,
+                    disclosedClaimsVerified: challengeData.disclosedClaimsVerified,
+                    disclosedClaimsProofVerified: challengeData.disclosedClaimsProofVerified,
+                    disclosedClaimsBindingDigest: challengeData.disclosedClaimsBindingDigest,
                 })
             },
             timestamp: new Date().toISOString()
         });
         if (challengeData.used && challengeData.token) {
             setTimeout(() => {
-                challenges.delete(challengeId);
+                void (0, challengeStorage_service_1.deleteChallenge)(challengeId).catch((deleteError) => {
+                    console.warn('⚠️ Failed to delete completed challenge:', deleteError);
+                });
             }, 30000);
         }
     }
@@ -221,15 +897,9 @@ router.get('/status/:challengeId', async (req, res) => {
 router.get('/status/session/:sessionId', async (req, res) => {
     try {
         const { sessionId } = req.params;
-        let matchingChallenge = null;
-        let challengeId = null;
-        for (const [cId, challengeData] of challenges.entries()) {
-            if (cId.includes(sessionId) || challengeData.challenge.includes(sessionId)) {
-                matchingChallenge = challengeData;
-                challengeId = cId;
-                break;
-            }
-        }
+        const challengeEntry = await getChallengeEntryBySessionId(sessionId);
+        const matchingChallenge = challengeEntry?.challengeData || null;
+        const challengeId = challengeEntry?.challengeId || null;
         if (!matchingChallenge) {
             res.status(404).json({
                 success: false,
@@ -238,8 +908,22 @@ router.get('/status/session/:sessionId', async (req, res) => {
             });
             return;
         }
-        if (Date.now() - matchingChallenge.timestamp > CHALLENGE_EXPIRY_TIME) {
-            challenges.delete(challengeId);
+        if (isChallengeExpired(matchingChallenge)) {
+            await (0, challengeStorage_service_1.deleteChallenge)(challengeId);
+            (0, authTimeline_service_1.addAuthTimelineEvent)({
+                eventType: 'challenge_expired',
+                status: 'info',
+                reason: 'expired_on_session_status_check',
+                challengeId: challengeId || undefined,
+                did: matchingChallenge.did,
+                userAddress: matchingChallenge.userAddress,
+                employeeId: matchingChallenge.employeeId,
+                companyId: matchingChallenge.companyId,
+                verifierId: matchingChallenge.verifierId,
+                verifierOrganizationId: matchingChallenge.verifierOrganizationId,
+                verifierOrganizationName: matchingChallenge.verifierOrganizationName,
+                requestType: matchingChallenge.requestType,
+            });
             res.status(400).json({
                 success: false,
                 error: 'Session has expired',
@@ -308,11 +992,32 @@ router.post('/verify-token', async (req, res) => {
         }
         try {
             const decoded = jsonwebtoken_1.default.verify(token, JWT_SECRET);
+            (0, authTimeline_service_1.addAuthTimelineEvent)({
+                eventType: 'token_verified',
+                status: 'success',
+                reason: 'token_valid',
+                challengeId: typeof decoded.challengeId === 'string' ? decoded.challengeId : undefined,
+                did: typeof decoded.did === 'string' ? decoded.did : undefined,
+                userAddress: typeof decoded.address === 'string' ? decoded.address : undefined,
+                employeeId: typeof decoded.employeeId === 'string' ? decoded.employeeId : undefined,
+                verifierId: typeof decoded.verifierId === 'string' ? decoded.verifierId : undefined,
+                verifierOrganizationId: typeof decoded.verifierOrganizationId === 'string' ? decoded.verifierOrganizationId : undefined,
+                verifierOrganizationName: typeof decoded.verifierOrganizationName === 'string' ? decoded.verifierOrganizationName : undefined,
+            });
             res.json({
                 success: true,
                 data: {
                     did: decoded.did,
-                    userAddress: decoded.userAddress,
+                    userAddress: decoded.userAddress || decoded.address,
+                    challengeId: decoded.challengeId,
+                    verifierId: decoded.verifierId,
+                    verifierOrganizationId: decoded.verifierOrganizationId,
+                    verifierPolicyVersion: decoded.verifierPolicyVersion,
+                    requestedClaims: decoded.requestedClaims,
+                    disclosedClaims: decoded.disclosedClaims,
+                    disclosedClaimsVerified: decoded.disclosedClaimsVerified,
+                    disclosedClaimsProofVerified: decoded.disclosedClaimsProofVerified,
+                    disclosedClaimsBindingDigest: decoded.disclosedClaimsBindingDigest,
                     issuedAt: decoded.iat,
                     expiresAt: decoded.exp
                 },
@@ -321,6 +1026,14 @@ router.post('/verify-token', async (req, res) => {
             });
         }
         catch (jwtError) {
+            (0, authTimeline_service_1.addAuthTimelineEvent)({
+                eventType: 'token_verification_failed',
+                status: 'failure',
+                reason: 'token_invalid_or_expired',
+                metadata: {
+                    error: jwtError?.message,
+                },
+            });
             res.status(401).json({
                 success: false,
                 error: 'Invalid or expired token',
@@ -338,10 +1051,25 @@ router.post('/verify-token', async (req, res) => {
         });
     }
 });
-router.post('/verify', async (req, res) => {
+router.post('/verify', rateLimiter_middleware_1.authRateLimiter, (0, validation_middleware_1.validateBody)(validation_middleware_1.authSchemas.verify), async (req, res) => {
+    const requestedChallengeId = typeof req.body?.challengeId === 'string' ? req.body.challengeId : undefined;
+    const requestedVerifierId = typeof req.body?.verifierId === 'string' ? req.body.verifierId : undefined;
+    const requestedAddress = typeof req.body?.address === 'string' ? req.body.address : undefined;
+    const requestedEmployeeId = typeof req.body?.employeeId === 'string' ? req.body.employeeId : undefined;
+    const requestedDid = typeof req.body?.did === 'string' ? req.body.did : undefined;
+    let auditStatus = 'failure';
+    let auditReason = 'verification_failed';
+    let auditHttpStatus = 500;
+    let auditChallengeData;
+    let auditVerifierProfile;
+    let auditResolvedDid;
+    let auditResolvedAddress;
+    let auditResolvedEmployeeId;
     try {
-        const { challengeId, signature, address, message, employeeId } = req.body;
+        const { challengeId, signature, address, message, employeeId, did, credential, verifierId, disclosedClaims, disclosedClaimsProof, } = req.body;
         if (!challengeId || !signature || !address || !message) {
+            auditReason = 'missing_required_fields';
+            auditHttpStatus = 400;
             res.status(400).json({
                 success: false,
                 error: 'Missing required fields: challengeId, signature, address, message',
@@ -349,8 +1077,11 @@ router.post('/verify', async (req, res) => {
             });
             return;
         }
-        const challengeData = challenges.get(challengeId);
+        const challengeData = await (0, challengeStorage_service_1.getChallenge)(challengeId);
+        auditChallengeData = challengeData || undefined;
         if (!challengeData) {
+            auditReason = 'invalid_or_expired_challenge';
+            auditHttpStatus = 400;
             res.status(400).json({
                 success: false,
                 error: 'Invalid or expired challenge',
@@ -359,6 +1090,8 @@ router.post('/verify', async (req, res) => {
             return;
         }
         if (challengeData.used) {
+            auditReason = 'challenge_already_used';
+            auditHttpStatus = 400;
             res.status(400).json({
                 success: false,
                 error: 'Challenge has already been used',
@@ -367,8 +1100,24 @@ router.post('/verify', async (req, res) => {
             return;
         }
         const now = Date.now();
-        if (now - challengeData.timestamp > CHALLENGE_EXPIRY_TIME) {
-            challenges.delete(challengeId);
+        if (isChallengeExpired(challengeData, now)) {
+            await (0, challengeStorage_service_1.deleteChallenge)(challengeId);
+            auditReason = 'challenge_expired';
+            auditHttpStatus = 400;
+            (0, authTimeline_service_1.addAuthTimelineEvent)({
+                eventType: 'challenge_expired',
+                status: 'info',
+                reason: 'expired_during_verification',
+                challengeId,
+                did: challengeData.did,
+                userAddress: challengeData.userAddress,
+                employeeId: challengeData.employeeId,
+                companyId: challengeData.companyId,
+                verifierId: challengeData.verifierId,
+                verifierOrganizationId: challengeData.verifierOrganizationId,
+                verifierOrganizationName: challengeData.verifierOrganizationName,
+                requestType: challengeData.requestType,
+            });
             res.status(400).json({
                 success: false,
                 error: 'Challenge has expired',
@@ -376,32 +1125,55 @@ router.post('/verify', async (req, res) => {
             });
             return;
         }
-        try {
-            const isDevelopmentMode = process.env.NODE_ENV === 'development' || process.env.DEMO_MODE === 'true';
-            console.log('🔧 Environment check:', {
-                NODE_ENV: process.env.NODE_ENV,
-                DEMO_MODE: process.env.DEMO_MODE,
-                isDevelopmentMode
+        if (verifierId && challengeData.verifierId && verifierId !== challengeData.verifierId) {
+            auditReason = 'verifier_mismatch';
+            auditHttpStatus = 401;
+            res.status(401).json({
+                success: false,
+                error: 'Verifier mismatch for authentication challenge',
+                timestamp: new Date().toISOString(),
             });
+            return;
+        }
+        let verifierProfile;
+        try {
+            verifierProfile = (0, verifierProfiles_service_1.resolveVerifierProfile)({
+                verifierId: challengeData.verifierId || verifierId,
+                organizationId: challengeData.companyId,
+            });
+            auditVerifierProfile = verifierProfile;
+        }
+        catch (profileError) {
+            auditReason = 'verifier_policy_resolution_failed';
+            auditHttpStatus = 403;
+            res.status(403).json({
+                success: false,
+                error: 'Verifier policy resolution failed',
+                details: profileError?.message || 'Unable to resolve verifier profile',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+        try {
+            console.log('🔐 Verifying Ethereum signature');
             let signatureValid = false;
             let recoveredAddress = '';
-            if (isDevelopmentMode) {
-                console.log('🔧 Development mode: Accepting demo signature');
-                signatureValid = true;
-                recoveredAddress = address;
+            try {
+                recoveredAddress = ethers_1.ethers.verifyMessage(message, signature);
+                signatureValid = recoveredAddress.toLowerCase() === address.toLowerCase();
+                console.log('🔐 Signature verification result:', {
+                    signatureValid,
+                    expectedAddress: address,
+                    recoveredAddress
+                });
             }
-            else {
-                console.log('🔐 Production mode: Verifying real signature');
-                try {
-                    recoveredAddress = ethers_1.ethers.verifyMessage(message, signature);
-                    signatureValid = recoveredAddress.toLowerCase() === address.toLowerCase();
-                }
-                catch (error) {
-                    console.error('Signature verification failed:', error);
-                    signatureValid = false;
-                }
+            catch (error) {
+                console.error('Signature verification failed:', error);
+                signatureValid = false;
             }
             if (!signatureValid || recoveredAddress.toLowerCase() !== address.toLowerCase()) {
+                auditReason = 'signature_verification_failed';
+                auditHttpStatus = 401;
                 res.status(401).json({
                     success: false,
                     error: 'Signature verification failed - address mismatch',
@@ -410,6 +1182,8 @@ router.post('/verify', async (req, res) => {
                 return;
             }
             if (!message.includes(challengeData.challenge)) {
+                auditReason = 'challenge_message_mismatch';
+                auditHttpStatus = 401;
                 res.status(401).json({
                     success: false,
                     error: 'Invalid challenge in signed message',
@@ -420,13 +1194,198 @@ router.post('/verify', async (req, res) => {
             console.log('✅ Signature verification successful for address:', address);
             const challengeEmployee = challengeData.employeeId ? (0, employeeDirectory_1.getEmployeeById)(challengeData.employeeId) : undefined;
             const resolvedEmployee = employeeId ? (0, employeeDirectory_1.getEmployeeById)(employeeId) : challengeEmployee;
-            const resolvedAddress = isDevelopmentMode && resolvedEmployee ? resolvedEmployee.address : address;
+            const resolvedAddress = address;
             const resolvedDid = resolvedEmployee?.did || `did:ethr:${resolvedAddress}`;
+            auditResolvedAddress = resolvedAddress;
+            auditResolvedDid = resolvedDid;
+            auditResolvedEmployeeId = resolvedEmployee?.id || challengeData.employeeId;
+            (0, authTimeline_service_1.addAuthTimelineEvent)({
+                eventType: 'verification_attempted',
+                status: 'info',
+                reason: 'verification_attempt_started',
+                challengeId,
+                did: resolvedDid,
+                userAddress: resolvedAddress,
+                employeeId: auditResolvedEmployeeId,
+                companyId: challengeData.companyId,
+                verifierId: verifierProfile.verifierId,
+                verifierOrganizationId: verifierProfile.organizationId,
+                verifierOrganizationName: verifierProfile.organizationName,
+                requestType: challengeData.requestType,
+            });
+            if (did && did !== resolvedDid) {
+                auditReason = 'did_mismatch';
+                auditHttpStatus = 401;
+                res.status(401).json({
+                    success: false,
+                    error: 'Provided DID does not match authenticated identity',
+                    timestamp: new Date().toISOString(),
+                });
+                return;
+            }
+            let credentialVerified = false;
+            let credentialIssuer = null;
+            let credentialIssuerTrusted = null;
+            let credentialId = null;
+            let credentialStatus = null;
+            let credentialFoundInRegistry = null;
+            let credentialClaims = {};
+            if (credential) {
+                try {
+                    const verifiedCredential = await verifyCredentialAgainstDid(credential, resolvedDid);
+                    credentialVerified = true;
+                    credentialIssuer = verifiedCredential.issuer;
+                    credentialIssuerTrusted = verifiedCredential.issuerTrusted;
+                    credentialId = verifiedCredential.credentialId;
+                    credentialStatus = verifiedCredential.credentialStatus;
+                    credentialFoundInRegistry = verifiedCredential.credentialFoundInRegistry;
+                    credentialClaims = {
+                        subjectDid: verifiedCredential.subjectDid,
+                        employeeId: verifiedCredential.employeeId,
+                        name: verifiedCredential.name,
+                        role: verifiedCredential.role,
+                        department: verifiedCredential.department,
+                        email: verifiedCredential.email,
+                    };
+                    console.log('✅ Optional credential verification successful for DID:', resolvedDid);
+                }
+                catch (credentialError) {
+                    console.error('❌ Optional credential verification failed:', credentialError.message);
+                    auditReason = 'credential_verification_failed';
+                    auditHttpStatus = 401;
+                    res.status(401).json({
+                        success: false,
+                        error: 'Credential verification failed',
+                        details: credentialError.message,
+                        timestamp: new Date().toISOString(),
+                    });
+                    return;
+                }
+            }
+            let parsedDisclosedClaims;
+            try {
+                parsedDisclosedClaims = parseDisclosedClaims(disclosedClaims);
+            }
+            catch (claimsParseError) {
+                auditReason = 'invalid_disclosed_claims_payload';
+                auditHttpStatus = 400;
+                res.status(400).json({
+                    success: false,
+                    error: 'Invalid disclosedClaims payload',
+                    details: claimsParseError?.message || 'Unable to parse disclosedClaims',
+                    timestamp: new Date().toISOString(),
+                });
+                return;
+            }
+            const requiredClaims = challengeData.requestedClaims?.requiredClaims
+                || (0, verifierProfiles_service_1.resolveRequestedClaims)(verifierProfile, challengeData.requestType);
+            let parsedDisclosedClaimsProof;
+            try {
+                parsedDisclosedClaimsProof = parseDisclosedClaimsProof(disclosedClaimsProof);
+            }
+            catch (proofParseError) {
+                auditReason = 'invalid_disclosed_claims_proof_payload';
+                auditHttpStatus = 400;
+                res.status(400).json({
+                    success: false,
+                    error: 'Invalid disclosedClaimsProof payload',
+                    details: proofParseError?.message || 'Unable to parse disclosedClaimsProof',
+                    timestamp: new Date().toISOString(),
+                });
+                return;
+            }
+            const expectedClaims = buildExpectedClaimValues({
+                resolvedDid,
+                resolvedEmployee,
+                credentialClaims,
+            });
+            const disclosedClaimsEvaluation = verifyDisclosedClaims({
+                requiredClaims,
+                disclosedClaims: parsedDisclosedClaims,
+                expectedClaims,
+            });
+            if (!disclosedClaimsEvaluation.verified) {
+                auditReason = 'selective_disclosure_verification_failed';
+                auditHttpStatus = 403;
+                res.status(403).json({
+                    success: false,
+                    error: 'Selective disclosure verification failed',
+                    details: {
+                        missingClaims: disclosedClaimsEvaluation.missingClaims,
+                        mismatchedClaims: disclosedClaimsEvaluation.mismatchedClaims,
+                        requiredClaims,
+                    },
+                    timestamp: new Date().toISOString(),
+                });
+                return;
+            }
+            let disclosedClaimsProofVerified = false;
+            let disclosedClaimsBindingDigest = null;
+            if (requiredClaims.length > 0) {
+                if (!parsedDisclosedClaimsProof) {
+                    auditReason = 'selective_disclosure_proof_required';
+                    auditHttpStatus = 403;
+                    res.status(403).json({
+                        success: false,
+                        error: 'Selective disclosure proof is required',
+                        details: {
+                            requiredClaims,
+                            bindingVersion: DISCLOSURE_BINDING_VERSION,
+                        },
+                        timestamp: new Date().toISOString(),
+                    });
+                    return;
+                }
+                const proofEvaluation = verifyDisclosedClaimsProof({
+                    challengeId,
+                    challengeText: challengeData.challenge,
+                    disclosedClaims: parsedDisclosedClaims,
+                    credential,
+                    walletAddress: resolvedAddress,
+                    proof: parsedDisclosedClaimsProof,
+                });
+                if (!proofEvaluation.verified) {
+                    auditReason = 'selective_disclosure_binding_failed';
+                    auditHttpStatus = 403;
+                    res.status(403).json({
+                        success: false,
+                        error: 'Selective disclosure cryptographic binding failed',
+                        details: {
+                            reason: proofEvaluation.reason,
+                            requiredClaims,
+                            bindingVersion: DISCLOSURE_BINDING_VERSION,
+                        },
+                        timestamp: new Date().toISOString(),
+                    });
+                    return;
+                }
+                disclosedClaimsProofVerified = true;
+                disclosedClaimsBindingDigest = proofEvaluation.bindingDigest || null;
+            }
+            const resolvedBadgeForPolicy = (resolvedEmployee?.badge || challengeData.badge || 'employee');
+            const policyEvaluation = (0, verifierProfiles_service_1.evaluateVerifierPolicy)(verifierProfile, {
+                badge: resolvedBadgeForPolicy,
+                requestType: challengeData.requestType,
+                credentialProvided: Boolean(credential) || requiredClaims.length > 0,
+                credentialVerified: credentialVerified || disclosedClaimsEvaluation.verified,
+            });
+            if (!policyEvaluation.allowed) {
+                auditReason = 'verifier_policy_denied';
+                auditHttpStatus = 403;
+                res.status(403).json({
+                    success: false,
+                    error: 'Verifier policy denied authentication',
+                    details: policyEvaluation.reason,
+                    policy: policyEvaluation.policy,
+                    timestamp: new Date().toISOString(),
+                });
+                return;
+            }
             const resolvedEmployeeWithChain = resolvedEmployee
                 ? await (0, employeeOnChainRegistry_1.enrichEmployeeWithOnChainProfile)(resolvedEmployee)
                 : undefined;
             const onChainAuth = resolvedEmployeeWithChain
-                ? await (0, employeeOnChainRegistry_1.recordEmployeeAuthenticationOnChain)(resolvedEmployeeWithChain, challengeId, message, signature)
+                ? await (0, employeeOnChainRegistry_1.recordEmployeeAuthenticationOnChain)(resolvedEmployeeWithChain, challengeId, message, signature, { skipOnChainVerification: SHOULD_SKIP_ONCHAIN_VERIFY })
                 : undefined;
             challengeData.used = true;
             challengeData.userAddress = resolvedAddress;
@@ -441,6 +1400,15 @@ router.post('/verify', async (req, res) => {
             challengeData.authVerifyTxHash = onChainAuth?.authVerifyTxHash;
             challengeData.adminGasPayerAddress = SepoliaService_1.sepoliaService.getGasPayerAddress();
             challengeData.adminGasPayerEtherscanUrl = SepoliaService_1.sepoliaService.getGasPayerEtherscanUrl();
+            challengeData.verifierId = verifierProfile.verifierId;
+            challengeData.verifierOrganizationId = verifierProfile.organizationId;
+            challengeData.verifierOrganizationName = verifierProfile.organizationName;
+            challengeData.verifierPolicyVersion = verifierProfile.policyVersion;
+            challengeData.verifierCredentialRequired = verifierProfile.requireCredential;
+            challengeData.disclosedClaims = parsedDisclosedClaims;
+            challengeData.disclosedClaimsVerified = disclosedClaimsEvaluation.verified;
+            challengeData.disclosedClaimsProofVerified = disclosedClaimsProofVerified;
+            challengeData.disclosedClaimsBindingDigest = disclosedClaimsBindingDigest || undefined;
             const tokenPayload = {
                 address: resolvedAddress,
                 did: resolvedDid,
@@ -456,18 +1424,47 @@ router.post('/verify', async (req, res) => {
                 adminGasPayerEtherscanUrl: challengeData.adminGasPayerEtherscanUrl,
                 challengeId: challengeId,
                 authenticated: true,
+                credentialProvided: Boolean(credential),
+                credentialVerified,
+                credentialIssuer,
+                credentialIssuerTrusted,
+                credentialId,
+                credentialStatus,
+                credentialFoundInRegistry,
+                verifierId: verifierProfile.verifierId,
+                verifierOrganizationId: verifierProfile.organizationId,
+                verifierOrganizationName: verifierProfile.organizationName,
+                verifierPolicyVersion: verifierProfile.policyVersion,
+                verifierCredentialRequired: verifierProfile.requireCredential,
+                requestedClaims: challengeData.requestedClaims,
+                disclosedClaims: parsedDisclosedClaims,
+                disclosedClaimsVerified: disclosedClaimsEvaluation.verified,
+                disclosedClaimsProofVerified,
+                disclosedClaimsBindingDigest,
+                verifierPolicySatisfied: true,
                 timestamp: new Date().toISOString()
             };
             const token = jsonwebtoken_1.default.sign(tokenPayload, JWT_SECRET, {
                 expiresIn: '24h',
                 issuer: 'decentralized-trust-platform'
             });
+            const refreshToken = (0, refreshToken_service_1.generateRefreshToken)();
+            (0, refreshToken_service_1.storeRefreshToken)(refreshToken, resolvedAddress, resolvedDid, 7);
             challengeData.token = token;
-            cleanupExpiredChallenges();
+            challengeData.refreshToken = refreshToken;
+            await persistChallengeState(challengeId, challengeData);
+            await cleanupExpiredChallenges();
+            auditStatus = 'success';
+            auditReason = 'verification_succeeded';
+            auditHttpStatus = 200;
+            auditResolvedAddress = resolvedAddress;
+            auditResolvedDid = resolvedDid;
+            auditResolvedEmployeeId = challengeData.employeeId;
             res.status(200).json({
                 success: true,
                 data: {
                     token: token,
+                    refreshToken: refreshToken,
                     address: resolvedAddress,
                     did: resolvedDid,
                     employee: resolvedEmployeeWithChain || null,
@@ -479,6 +1476,24 @@ router.post('/verify', async (req, res) => {
                     authVerifyTxHash: challengeData.authVerifyTxHash,
                     adminGasPayerAddress: challengeData.adminGasPayerAddress,
                     adminGasPayerEtherscanUrl: challengeData.adminGasPayerEtherscanUrl,
+                    credentialProvided: Boolean(credential),
+                    credentialVerified,
+                    credentialIssuer,
+                    credentialIssuerTrusted,
+                    credentialId,
+                    credentialStatus,
+                    credentialFoundInRegistry,
+                    verifierId: verifierProfile.verifierId,
+                    verifierOrganizationId: verifierProfile.organizationId,
+                    verifierOrganizationName: verifierProfile.organizationName,
+                    verifierPolicyVersion: verifierProfile.policyVersion,
+                    verifierCredentialRequired: verifierProfile.requireCredential,
+                    requestedClaims: challengeData.requestedClaims,
+                    disclosedClaims: parsedDisclosedClaims,
+                    disclosedClaimsVerified: disclosedClaimsEvaluation.verified,
+                    disclosedClaimsProofVerified,
+                    disclosedClaimsBindingDigest,
+                    verifierPolicySatisfied: true,
                     challengeId: challengeId,
                     expiresIn: '24h'
                 },
@@ -488,6 +1503,8 @@ router.post('/verify', async (req, res) => {
         }
         catch (error) {
             console.error('Signature verification error:', error);
+            auditReason = 'verification_runtime_exception';
+            auditHttpStatus = 401;
             res.status(401).json({
                 success: false,
                 error: 'Signature verification failed',
@@ -498,11 +1515,39 @@ router.post('/verify', async (req, res) => {
     }
     catch (error) {
         console.error('Verify endpoint error:', error);
+        auditReason = 'verify_endpoint_exception';
+        auditHttpStatus = 500;
         res.status(500).json({
             success: false,
             error: 'Internal server error',
             timestamp: new Date().toISOString()
         });
+    }
+    finally {
+        try {
+            (0, authTimeline_service_1.addAuthTimelineEvent)({
+                eventType: auditStatus === 'success' ? 'verification_succeeded' : 'verification_failed',
+                status: auditStatus,
+                reason: auditReason,
+                challengeId: requestedChallengeId,
+                did: auditResolvedDid || requestedDid,
+                userAddress: auditResolvedAddress || requestedAddress,
+                employeeId: auditResolvedEmployeeId || auditChallengeData?.employeeId || requestedEmployeeId,
+                companyId: auditChallengeData?.companyId,
+                verifierId: auditVerifierProfile?.verifierId || auditChallengeData?.verifierId || requestedVerifierId,
+                verifierOrganizationId: auditVerifierProfile?.organizationId || auditChallengeData?.verifierOrganizationId,
+                verifierOrganizationName: auditVerifierProfile?.organizationName || auditChallengeData?.verifierOrganizationName,
+                requestType: auditChallengeData?.requestType,
+                metadata: {
+                    httpStatus: auditHttpStatus,
+                    credentialProvided: Boolean(req.body?.credential),
+                    disclosedClaimsProvided: Boolean(req.body?.disclosedClaims),
+                },
+            });
+        }
+        catch (auditError) {
+            console.warn('⚠️ Failed to record auth timeline event:', auditError);
+        }
     }
 });
 router.post('/login', async (req, res) => {
@@ -517,7 +1562,7 @@ router.post('/login', async (req, res) => {
             return;
         }
         console.log('🔐 Starting credential-aware authentication for DID:', did);
-        const challengeData = challenges.get(challengeId);
+        const challengeData = await (0, challengeStorage_service_1.getChallenge)(challengeId);
         if (!challengeData) {
             res.status(400).json({
                 success: false,
@@ -535,8 +1580,8 @@ router.post('/login', async (req, res) => {
             return;
         }
         const now = Date.now();
-        if (now - challengeData.timestamp > CHALLENGE_EXPIRY_TIME) {
-            challenges.delete(challengeId);
+        if (isChallengeExpired(challengeData, now)) {
+            await (0, challengeStorage_service_1.deleteChallenge)(challengeId);
             res.status(400).json({
                 success: false,
                 error: 'Challenge has expired',
@@ -573,31 +1618,13 @@ router.post('/login', async (req, res) => {
         }
         console.log('✅ Step 1: Signature verification successful');
         try {
-            const COMPANY_DID = process.env.COMPANY_DID || 'did:ethr:0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
-            const verificationResult = await (0, did_jwt_1.verifyJWT)(credential, {
-                resolver: undefined,
-                audience: undefined
-            });
-            const vcPayload = verificationResult.payload;
-            if (!vcPayload.vc || !vcPayload.vc.credentialSubject) {
-                throw new Error('Invalid credential structure');
-            }
-            const credentialSubject = vcPayload.vc.credentialSubject;
-            if (credentialSubject.id !== did) {
-                throw new Error('Credential not issued to authenticated user');
-            }
-            if (vcPayload.vc.issuer !== COMPANY_DID) {
-                throw new Error('Credential not issued by authorized company');
-            }
-            if (vcPayload.exp && vcPayload.exp < Math.floor(Date.now() / 1000)) {
-                throw new Error('Credential has expired');
-            }
+            const verifiedCredential = await verifyCredentialAgainstDid(credential, did);
             console.log('✅ Step 2: Credential verification successful');
-            const employeeRole = credentialSubject.role;
-            const employeeId = credentialSubject.employeeId;
-            const employeeName = credentialSubject.name;
-            const employeeDepartment = credentialSubject.department;
-            const employeeEmail = credentialSubject.email;
+            const employeeRole = verifiedCredential.role;
+            const employeeId = verifiedCredential.employeeId;
+            const employeeName = verifiedCredential.name;
+            const employeeDepartment = verifiedCredential.department;
+            const employeeEmail = verifiedCredential.email;
             console.log('👤 Authenticated user:', {
                 name: employeeName,
                 role: employeeRole,
@@ -615,6 +1642,11 @@ router.post('/login', async (req, res) => {
                 challengeId: challengeId,
                 authenticated: true,
                 credentialVerified: true,
+                credentialId: verifiedCredential.credentialId,
+                credentialStatus: verifiedCredential.credentialStatus,
+                credentialFoundInRegistry: verifiedCredential.credentialFoundInRegistry,
+                credentialIssuer: verifiedCredential.issuer,
+                credentialIssuerTrusted: verifiedCredential.issuerTrusted,
                 isAdmin: employeeRole === 'HR Director',
                 timestamp: new Date().toISOString()
             };
@@ -622,15 +1654,20 @@ router.post('/login', async (req, res) => {
                 expiresIn: '24h',
                 issuer: 'decentralized-trust-platform'
             });
+            const credentialRefreshToken = (0, refreshToken_service_1.generateRefreshToken)();
+            (0, refreshToken_service_1.storeRefreshToken)(credentialRefreshToken, userAddress, did, 7);
             challengeData.used = true;
             challengeData.userAddress = userAddress;
             challengeData.did = did;
             challengeData.token = enhancedToken;
-            cleanupExpiredChallenges();
+            challengeData.refreshToken = credentialRefreshToken;
+            await persistChallengeState(challengeId, challengeData);
+            await cleanupExpiredChallenges();
             res.status(200).json({
                 success: true,
                 data: {
                     token: enhancedToken,
+                    refreshToken: credentialRefreshToken,
                     user: {
                         did: did,
                         address: userAddress,
@@ -639,6 +1676,11 @@ router.post('/login', async (req, res) => {
                         role: employeeRole,
                         department: employeeDepartment,
                         email: employeeEmail,
+                        credentialId: verifiedCredential.credentialId,
+                        credentialStatus: verifiedCredential.credentialStatus,
+                        credentialFoundInRegistry: verifiedCredential.credentialFoundInRegistry,
+                        credentialIssuer: verifiedCredential.issuer,
+                        credentialIssuerTrusted: verifiedCredential.issuerTrusted,
                         isAdmin: employeeRole === 'HR Director'
                     },
                     challengeId: challengeId,
@@ -686,6 +1728,21 @@ router.get('/session-status', auth_middleware_1.verifyAuthToken, (req, res) => {
             premiumAccess: sessionInfo.accessLevel === 'premium',
             tokenValid: true
         });
+        (0, authTimeline_service_1.addAuthTimelineEvent)({
+            eventType: 'session_status_checked',
+            status: 'info',
+            reason: 'session_status_polled',
+            challengeId: req.user?.challengeId,
+            did: req.user?.did,
+            userAddress: req.user?.address,
+            employeeId: req.user?.employeeId,
+            verifierId: req.user?.verifierId,
+            verifierOrganizationId: req.user?.verifierOrganizationId,
+            verifierOrganizationName: req.user?.verifierOrganizationName,
+            metadata: {
+                accessLevel: sessionInfo.accessLevel,
+            },
+        });
         res.status(200).json({
             success: true,
             data: sessionInfo,
@@ -702,16 +1759,39 @@ router.get('/session-status', auth_middleware_1.verifyAuthToken, (req, res) => {
         });
     }
 });
-function cleanupExpiredChallenges() {
+async function cleanupExpiredChallenges() {
     const now = Date.now();
-    for (const [challengeId, challengeData] of challenges.entries()) {
-        if (now - challengeData.timestamp > CHALLENGE_EXPIRY_TIME) {
-            challenges.delete(challengeId);
+    const challengeIds = await (0, challengeStorage_service_1.getAllChallengeIds)();
+    for (const challengeId of challengeIds) {
+        const challengeData = await (0, challengeStorage_service_1.getChallenge)(challengeId);
+        if (!challengeData) {
+            continue;
+        }
+        if (isChallengeExpired(challengeData, now)) {
+            (0, authTimeline_service_1.addAuthTimelineEvent)({
+                eventType: 'challenge_expired',
+                status: 'info',
+                reason: 'expired_by_cleanup_job',
+                challengeId,
+                did: challengeData.did,
+                userAddress: challengeData.userAddress,
+                employeeId: challengeData.employeeId,
+                companyId: challengeData.companyId,
+                verifierId: challengeData.verifierId,
+                verifierOrganizationId: challengeData.verifierOrganizationId,
+                verifierOrganizationName: challengeData.verifierOrganizationName,
+                requestType: challengeData.requestType,
+            });
+            await (0, challengeStorage_service_1.deleteChallenge)(challengeId);
         }
     }
 }
-setInterval(cleanupExpiredChallenges, 10 * 60 * 1000);
-router.post('/sepolia-verify', async (req, res) => {
+setInterval(() => {
+    void cleanupExpiredChallenges().catch((error) => {
+        console.warn('⚠️ Challenge cleanup job failed:', error);
+    });
+}, 10 * 60 * 1000);
+router.post('/sepolia-verify', rateLimiter_middleware_1.authRateLimiter, (0, validation_middleware_1.validateBody)(validation_middleware_1.authSchemas.sepoliaVerify), async (req, res) => {
     try {
         const { challengeId, signature, address, message, storeOnChain = true } = req.body;
         console.log('🔗 Starting Sepolia blockchain authentication:', {
@@ -738,14 +1818,15 @@ router.post('/sepolia-verify', async (req, res) => {
             return;
         }
         console.log('🔍 Sepolia-verify: Looking for challengeId:', challengeId);
-        console.log('📋 Sepolia-verify: Available challenges:', Array.from(challenges.keys()));
-        const challengeData = challenges.get(challengeId);
+        const availableChallengeIds = await listChallengeIds();
+        console.log('📋 Sepolia-verify: Available challenges:', availableChallengeIds);
+        const challengeData = await (0, challengeStorage_service_1.getChallenge)(challengeId);
         if (!challengeData) {
             console.log('❌ Sepolia-verify: Challenge not found in memory');
             res.status(400).json({
                 success: false,
                 error: 'Invalid or expired challenge',
-                details: `Challenge ${challengeId} not found. Available: ${Array.from(challenges.keys()).join(', ')}`,
+                details: `Challenge ${challengeId} not found. Available: ${availableChallengeIds.join(', ')}`,
                 timestamp: new Date().toISOString()
             });
             return;
@@ -759,8 +1840,8 @@ router.post('/sepolia-verify', async (req, res) => {
             return;
         }
         const now = Date.now();
-        if (now - challengeData.timestamp > CHALLENGE_EXPIRY_TIME) {
-            challenges.delete(challengeId);
+        if (isChallengeExpired(challengeData, now)) {
+            await (0, challengeStorage_service_1.deleteChallenge)(challengeId);
             res.status(400).json({
                 success: false,
                 error: 'Challenge has expired',
@@ -770,35 +1851,26 @@ router.post('/sepolia-verify', async (req, res) => {
         }
         let isSignatureValid = false;
         try {
-            const isDevelopmentMode = process.env.NODE_ENV === 'development' || process.env.DEMO_MODE === 'true';
-            console.log('🔧 Sepolia-verify Environment check:', {
-                NODE_ENV: process.env.NODE_ENV,
-                DEMO_MODE: process.env.DEMO_MODE,
-                isDevelopmentMode
-            });
+            console.log('🔐 Sepolia-verify: Verifying Ethereum signature');
             let recoveredAddress = '';
-            if (isDevelopmentMode) {
-                console.log('🔧 Sepolia-verify Development mode: Accepting demo signature');
-                isSignatureValid = true;
-                recoveredAddress = address;
+            try {
+                recoveredAddress = ethers_1.ethers.verifyMessage(message, signature);
+                isSignatureValid = recoveredAddress.toLowerCase() === address.toLowerCase();
+                console.log('🔐 Sepolia-verify signature result:', {
+                    isSignatureValid,
+                    expectedAddress: address,
+                    recoveredAddress
+                });
             }
-            else {
-                console.log('🔐 Sepolia-verify Production mode: Verifying real signature');
-                try {
-                    recoveredAddress = ethers_1.ethers.verifyMessage(message, signature);
-                    isSignatureValid = recoveredAddress.toLowerCase() === address.toLowerCase();
-                }
-                catch (error) {
-                    console.error('Sepolia-verify Signature verification failed:', error);
-                    isSignatureValid = false;
-                }
+            catch (error) {
+                console.error('Sepolia-verify Signature verification failed:', error);
+                isSignatureValid = false;
             }
             if (!isSignatureValid || recoveredAddress.toLowerCase() !== address.toLowerCase()) {
                 console.log('❌ Sepolia-verify Signature verification failed:', {
                     isSignatureValid,
                     expectedAddress: address,
-                    recoveredAddress,
-                    isDevelopmentMode
+                    recoveredAddress
                 });
                 res.status(401).json({
                     success: false,
@@ -880,6 +1952,7 @@ router.post('/sepolia-verify', async (req, res) => {
                             didInfo: didInfo.didInfo,
                             completedAt: new Date().toISOString()
                         };
+                        await persistChallengeState(challengeId, challengeData);
                     }
                     console.log('🎉 Background: All blockchain operations completed successfully!');
                 }
@@ -887,6 +1960,7 @@ router.post('/sepolia-verify', async (req, res) => {
                     console.error('❌ Background: Blockchain operations failed:', error);
                     if (challengeData) {
                         challengeData.blockchainError = error?.message || 'Unknown blockchain error';
+                        await persistChallengeState(challengeId, challengeData);
                     }
                 }
             })();
@@ -911,7 +1985,11 @@ router.post('/sepolia-verify', async (req, res) => {
             expiresIn: '24h',
             issuer: 'decentralized-trust-platform'
         });
+        const refreshToken = (0, refreshToken_service_1.generateRefreshToken)();
+        (0, refreshToken_service_1.storeRefreshToken)(refreshToken, checksummedAddressForToken, `did:ethr:${checksummedAddressForToken}`, 7);
         challengeData.token = token;
+        challengeData.refreshToken = refreshToken;
+        await persistChallengeState(challengeId, challengeData);
         const response = {
             success: true,
             message: blockchainPending
@@ -937,6 +2015,7 @@ router.post('/sepolia-verify', async (req, res) => {
                 statusCheck: `/api/auth/blockchain-status/${challengeId}`
             },
             token,
+            refreshToken,
             expiresIn: '24h',
             timestamp: new Date().toISOString()
         };
@@ -964,7 +2043,7 @@ router.post('/sepolia-verify', async (req, res) => {
 router.get('/blockchain-status/:challengeId', async (req, res) => {
     try {
         const { challengeId } = req.params;
-        const challengeData = challenges.get(challengeId);
+        const challengeData = await (0, challengeStorage_service_1.getChallenge)(challengeId);
         if (!challengeData) {
             res.status(404).json({
                 success: false,
@@ -1112,6 +2191,88 @@ router.get('/sepolia-history/:address', async (req, res) => {
         res.status(500).json({
             success: false,
             error: 'Failed to get authentication history',
+            details: error.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+router.post('/refresh', rateLimiter_middleware_1.authRateLimiter, async (req, res) => {
+    try {
+        const { refreshToken } = req.body;
+        if (!refreshToken) {
+            res.status(400).json({
+                success: false,
+                error: 'Refresh token is required',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        const tokenRecord = (0, refreshToken_service_1.getRefreshToken)(refreshToken);
+        if (!tokenRecord) {
+            res.status(401).json({
+                success: false,
+                error: 'Invalid or expired refresh token',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+        const newTokenPayload = {
+            address: tokenRecord.userId,
+            did: tokenRecord.did,
+            authenticated: true,
+            refreshed: true,
+            originalIssueDate: tokenRecord.createdAt.toISOString(),
+            timestamp: new Date().toISOString()
+        };
+        const newAccessToken = jsonwebtoken_1.default.sign(newTokenPayload, JWT_SECRET, {
+            expiresIn: '24h',
+            issuer: 'decentralized-trust-platform'
+        });
+        const newRefreshToken = (0, refreshToken_service_1.generateRefreshToken)();
+        (0, refreshToken_service_1.storeRefreshToken)(newRefreshToken, tokenRecord.userId, tokenRecord.did, 7, tokenRecord.deviceInfo);
+        (0, refreshToken_service_1.revokeRefreshToken)(refreshToken);
+        res.json({
+            success: true,
+            message: 'Token refreshed successfully',
+            token: newAccessToken,
+            refreshToken: newRefreshToken,
+            expiresIn: '24h',
+            timestamp: new Date().toISOString()
+        });
+    }
+    catch (error) {
+        console.error('❌ Token refresh error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to refresh token',
+            details: error.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+router.post('/logout', async (req, res) => {
+    try {
+        const { refreshToken } = req.body;
+        if (refreshToken) {
+            const revoked = (0, refreshToken_service_1.revokeRefreshToken)(refreshToken);
+            res.json({
+                success: true,
+                message: revoked ? 'Logged out successfully' : 'Already logged out',
+                timestamp: new Date().toISOString()
+            });
+        }
+        else {
+            res.json({
+                success: true,
+                message: 'Logged out successfully',
+                timestamp: new Date().toISOString()
+            });
+        }
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Logout failed',
             details: error.message,
             timestamp: new Date().toISOString()
         });
