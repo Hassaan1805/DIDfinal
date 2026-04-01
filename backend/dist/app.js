@@ -22,6 +22,7 @@ const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
 const morgan_1 = __importDefault(require("morgan"));
+const rateLimiter_middleware_1 = require("./middleware/rateLimiter.middleware");
 const auth_1 = require("./routes/auth");
 const did_1 = require("./routes/did");
 const health_1 = require("./routes/health");
@@ -32,6 +33,10 @@ const premium_routes_1 = __importDefault(require("./routes/premium.routes"));
 const monitoring_1 = __importDefault(require("./routes/monitoring"));
 const simple_test_1 = __importDefault(require("./routes/simple-test"));
 const blockchain_1 = __importDefault(require("./routes/blockchain"));
+const identity_1 = require("./routes/identity");
+const zkpAccess_routes_1 = __importDefault(require("./routes/zkpAccess.routes"));
+const redis_service_1 = require("./services/redis.service");
+const challengeStorage_service_1 = require("./services/challengeStorage.service");
 const app = (0, express_1.default)();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -97,6 +102,7 @@ app.use((0, cors_1.default)({
 app.use((0, morgan_1.default)('combined'));
 app.use(express_1.default.json({ limit: '10mb' }));
 app.use(express_1.default.urlencoded({ extended: true, limit: '10mb' }));
+app.use(rateLimiter_middleware_1.generalRateLimiter);
 app.use('/api/health', health_1.healthRoutes);
 app.use('/api/auth', auth_1.authRoutes);
 app.use('/api/auth', zkp_routes_1.default);
@@ -107,6 +113,8 @@ app.use('/api/premium', premium_routes_1.default);
 app.use('/api/monitor', monitoring_1.default);
 app.use('/api/simple-test', simple_test_1.default);
 app.use('/api/blockchain', blockchain_1.default);
+app.use('/api/identity', identity_1.identityRoutes);
+app.use('/api/zkp', zkpAccess_routes_1.default);
 app.use((err, req, res, next) => {
     console.error('Error:', err);
     if (err.name === 'ValidationError') {
@@ -132,12 +140,37 @@ app.use('*', (req, res) => {
         message: `Route ${req.originalUrl} not found`
     });
 });
-app.listen(PORT, HOST, () => {
-    console.log(`🚀 Decentralized Trust Platform Backend running on ${HOST}:${PORT}`);
-    console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔗 Health check: http://${HOST}:${PORT}/api/health`);
-    console.log(`🌐 Network access: http://192.168.1.33:${PORT}/api/health`);
-    console.log(`📱 Mobile access: Use 192.168.1.33:${PORT} in your mobile app`);
+async function startServer() {
+    try {
+        await (0, redis_service_1.initializeRedis)();
+        (0, challengeStorage_service_1.initializeChallengeStorage)();
+        app.listen(PORT, HOST, () => {
+            const configuredHostIp = process.env.PRIMARY_HOST_IP || process.env.LOCAL_IP || '';
+            const preferredHostIp = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)\d{1,3}\.\d{1,3}$/.test(configuredHostIp)
+                ? configuredHostIp
+                : 'localhost';
+            console.log(`🚀 Decentralized Trust Platform Backend running on ${HOST}:${PORT}`);
+            console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+            console.log(`🔗 Health check: http://${HOST}:${PORT}/api/health`);
+            console.log(`🌐 Network access: http://${preferredHostIp}:${PORT}/api/health`);
+            console.log(`📱 Mobile access: Use ${preferredHostIp}:${PORT} in your mobile app`);
+        });
+    }
+    catch (error) {
+        console.error('❌ Failed to start server:', error);
+        process.exit(1);
+    }
+}
+process.on('SIGTERM', async () => {
+    console.log('👋 SIGTERM received, shutting down gracefully...');
+    await (0, redis_service_1.closeRedis)();
+    process.exit(0);
 });
+process.on('SIGINT', async () => {
+    console.log('👋 SIGINT received, shutting down gracefully...');
+    await (0, redis_service_1.closeRedis)();
+    process.exit(0);
+});
+startServer();
 exports.default = app;
 //# sourceMappingURL=app.js.map
