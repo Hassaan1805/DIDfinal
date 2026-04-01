@@ -60,9 +60,10 @@ export class ZKProofService {
         try {
             // Check if ZK-proof service is enabled
             if (!this.isEnabled) {
-                console.log('⚠️  ZK-proof service disabled - returning demo verification');
-                console.log('✅ Demo mode: Accepting proof for development/testing');
-                return true; // Allow verification in demo mode
+                // SECURITY: Fail closed - if service is not properly configured, reject all proofs
+                console.error('❌ ZK-proof service disabled - verification REJECTED (fail closed)');
+                console.error('   Configure ZKP_VERIFICATION_KEY_PATH to enable proof verification');
+                return false;
             }
 
             console.log('🔍 Starting ZK-proof verification process...');

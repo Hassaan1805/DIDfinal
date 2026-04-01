@@ -22,12 +22,23 @@ interface BlockchainConfig {
   gasStationPrivateKey: string;
 }
 
+export interface BlockchainReadiness {
+  configured: boolean;
+  ready: boolean;
+  reasons: string[];
+  rpcUrl: string;
+  contractAddress: string;
+  gasStationAddress: string;
+}
+
 export class BlockchainService {
+  private config: BlockchainConfig;
   private provider: ethers.JsonRpcProvider;
   private gasStationWallet: ethers.Wallet;
   private didRegistryContract: ethers.Contract;
 
   constructor(config: BlockchainConfig) {
+    this.config = config;
     // Initialize provider
     this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
     
@@ -40,6 +51,47 @@ export class BlockchainService {
       DID_REGISTRY_ABI,
       this.gasStationWallet
     );
+  }
+
+  private static isPlaceholderRpcUrl(value: string): boolean {
+    return !value || value.includes('your-project-id');
+  }
+
+  private static isPlaceholderContractAddress(value: string): boolean {
+    return !value || value === '0x0000000000000000000000000000000000000000';
+  }
+
+  private static isPlaceholderPrivateKey(value: string): boolean {
+    return !value || value === '0x1234567890123456789012345678901234567890123456789012345678901234';
+  }
+
+  getReadinessStatus(): BlockchainReadiness {
+    const reasons: string[] = [];
+
+    if (BlockchainService.isPlaceholderRpcUrl(this.config.rpcUrl)) {
+      reasons.push('ETHEREUM_RPC_URL is missing or still set to placeholder value');
+    }
+
+    if (BlockchainService.isPlaceholderContractAddress(this.config.contractAddress)) {
+      reasons.push('CONTRACT_ADDRESS/DID_REGISTRY_ADDRESS is missing or invalid');
+    }
+
+    if (BlockchainService.isPlaceholderPrivateKey(this.config.gasStationPrivateKey)) {
+      reasons.push('GAS_STATION_PRIVATE_KEY is missing or still set to development placeholder');
+    }
+
+    return {
+      configured: reasons.length === 0,
+      ready: reasons.length === 0,
+      reasons,
+      rpcUrl: this.config.rpcUrl,
+      contractAddress: this.config.contractAddress,
+      gasStationAddress: this.gasStationWallet.address,
+    };
+  }
+
+  isReady(): boolean {
+    return this.getReadinessStatus().ready;
   }
 
   /**
@@ -476,7 +528,10 @@ export class BlockchainService {
 // Create and export a blockchain service instance
 const blockchainConfig = {
   rpcUrl: process.env.ETHEREUM_RPC_URL || 'https://sepolia.infura.io/v3/your-project-id',
-  contractAddress: process.env.CONTRACT_ADDRESS || '0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48',
+  contractAddress:
+    process.env.CONTRACT_ADDRESS
+    || process.env.DID_REGISTRY_ADDRESS
+    || '0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48',
   gasStationPrivateKey: process.env.GAS_STATION_PRIVATE_KEY || '0x1234567890123456789012345678901234567890123456789012345678901234'
 };
 

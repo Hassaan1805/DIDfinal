@@ -642,6 +642,153 @@ export class SepoliaBlockchainService {
     isReady(): boolean {
         return !!(this.provider && this.wallet && this.contract);
     }
+
+    /**
+     * Get comprehensive readiness status with actionable messages
+     */
+    getReadinessStatus(): {
+        ready: boolean;
+        configured: boolean;
+        issues: string[];
+        actionableMessages: string[];
+        config: {
+            rpcUrl: string;
+            contractAddress: string;
+            walletAddress: string;
+            chainId: number;
+        };
+    } {
+        const issues: string[] = [];
+        const actionableMessages: string[] = [];
+
+        // Check RPC URL
+        if (!this.config.rpcUrl) {
+            issues.push('SEPOLIA_RPC_URL not configured');
+            actionableMessages.push('Set SEPOLIA_RPC_URL in your .env file (e.g., https://sepolia.infura.io/v3/YOUR_KEY)');
+        }
+
+        // Check private key
+        if (!this.config.privateKey) {
+            issues.push('PLATFORM_PRIVATE_KEY not configured');
+            actionableMessages.push('Set PLATFORM_PRIVATE_KEY in your .env file (use a dedicated wallet for gas payments)');
+        }
+
+        // Check contract address
+        if (!this.config.contractAddress) {
+            issues.push('SEPOLIA_CONTRACT_ADDRESS not configured');
+            actionableMessages.push('Set SEPOLIA_CONTRACT_ADDRESS in your .env file after deploying the contract');
+        }
+
+        // Check provider initialization
+        if (this.config.rpcUrl && !this.provider) {
+            issues.push('Provider failed to initialize');
+            actionableMessages.push('Check that SEPOLIA_RPC_URL is valid and accessible');
+        }
+
+        // Check wallet initialization
+        if (this.config.privateKey && !this.wallet) {
+            issues.push('Wallet failed to initialize');
+            actionableMessages.push('Check that PLATFORM_PRIVATE_KEY is a valid Ethereum private key');
+        }
+
+        // Check contract initialization
+        if (this.config.contractAddress && !this.contract) {
+            issues.push('Contract failed to initialize');
+            actionableMessages.push('Verify the contract is deployed at SEPOLIA_CONTRACT_ADDRESS');
+        }
+
+        return {
+            ready: issues.length === 0 && this.isReady(),
+            configured: this.isConfigured(),
+            issues,
+            actionableMessages,
+            config: {
+                rpcUrl: this.config.rpcUrl ? `${this.config.rpcUrl.substring(0, 30)}...` : 'not set',
+                contractAddress: this.config.contractAddress || 'not set',
+                walletAddress: this.wallet?.address || 'not initialized',
+                chainId: this.config.chainId,
+            },
+        };
+    }
+
+    /**
+     * Get unified blockchain status combining all readiness checks
+     */
+    async getUnifiedStatus(): Promise<{
+        sepolia: {
+            ready: boolean;
+            configured: boolean;
+            status: 'operational' | 'degraded' | 'unavailable';
+            issues: string[];
+            actionableMessages: string[];
+            networkStatus?: {
+                networkName: string;
+                chainId: number;
+                blockNumber: number;
+                gasPrice: string;
+                walletBalance: string;
+                contractDeployed: boolean;
+            };
+        };
+        recommendedAction: string;
+    }> {
+        const readiness = this.getReadinessStatus();
+        
+        let status: 'operational' | 'degraded' | 'unavailable' = 'unavailable';
+        let networkStatus: any = undefined;
+        let recommendedAction = '';
+
+        if (readiness.ready) {
+            try {
+                const networkResult = await this.getNetworkStatus();
+                if (networkResult.success && networkResult.status) {
+                    networkStatus = networkResult.status;
+                    status = networkResult.status.contractDeployed ? 'operational' : 'degraded';
+                    
+                    if (!networkResult.status.contractDeployed) {
+                        readiness.issues.push('Contract not deployed at configured address');
+                        readiness.actionableMessages.push('Deploy the contract using: npm run blockchain:deploy');
+                    }
+                    
+                    // Check wallet balance
+                    const balanceNum = parseFloat(networkResult.status.walletBalance);
+                    if (balanceNum < 0.01) {
+                        readiness.issues.push('Low wallet balance for gas payments');
+                        readiness.actionableMessages.push(`Fund wallet ${this.wallet?.address} with Sepolia ETH from https://sepoliafaucet.com/`);
+                        status = 'degraded';
+                    }
+                } else {
+                    status = 'degraded';
+                    readiness.issues.push('Network status check failed');
+                    readiness.actionableMessages.push('Verify RPC endpoint is accessible');
+                }
+            } catch (error: any) {
+                status = 'degraded';
+                readiness.issues.push(`Network check error: ${error.message}`);
+            }
+        }
+
+        // Generate recommended action
+        if (status === 'operational') {
+            recommendedAction = 'Sepolia blockchain is operational. You can register DIDs and authenticate.';
+        } else if (status === 'degraded') {
+            recommendedAction = readiness.actionableMessages[0] || 'Review configuration and resolve issues.';
+        } else {
+            recommendedAction = 'Configure Sepolia environment variables to enable blockchain features.';
+        }
+
+        return {
+            sepolia: {
+                ready: status === 'operational',
+                configured: readiness.configured,
+                status,
+                issues: readiness.issues,
+                actionableMessages: readiness.actionableMessages,
+                networkStatus,
+            },
+            recommendedAction,
+        };
+    }
 }
 
 // Export singleton instance
