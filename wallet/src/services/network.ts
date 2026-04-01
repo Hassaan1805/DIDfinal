@@ -31,7 +31,7 @@ class NetworkService {
 
       const response = await fetch(`${url}/api/health`, {
         method: 'GET',
-        signal: controller.signal,
+        signal: controller.signal as any,
         headers: { 'Content-Type': 'application/json' },
       });
 
@@ -111,7 +111,7 @@ class NetworkService {
       try {
         const response = await fetch(`${baseUrl}${endpoint}`, {
           method,
-          signal: controller.signal,
+          signal: controller.signal as any,
           headers: { 'Content-Type': 'application/json' },
           body: data ? JSON.stringify(data) : undefined,
         });

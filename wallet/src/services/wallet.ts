@@ -2,12 +2,143 @@ import { ethers } from 'ethers';
 import { StorageService } from './storage';
 import { networkService } from './network';
 import { config, isValidEthereumAddress } from '../config/config';
+import {
+  WalletCredentialRecordV1,
+  WalletCredentialSource,
+  WalletCredentialStatusHint,
+} from '../types/credentials';
 
 export interface Employee {
   id: string;
   name: string;
   did: string;
   role: string;
+  department?: string;
+  email?: string;
+  credential?: string;
+}
+
+export type VerifierClaimKey = 'subjectDid' | 'employeeId' | 'name' | 'role' | 'department' | 'email';
+
+export interface RequestedClaimsContract {
+  requestType: 'portal_access' | 'general_auth';
+  requiredClaims: VerifierClaimKey[];
+  policyVersion: number;
+  proofRequired?: boolean;
+  bindingVersion?: string;
+}
+
+export type DisclosedClaimsPayload = Partial<Record<VerifierClaimKey, string>>;
+
+interface DisclosedClaimsProofPayload {
+  bindingVersion: string;
+  challengeId: string;
+  challengeDigest: string;
+  claimDigest: string;
+  credentialDigest?: string;
+  bindingDigest: string;
+  signedBinding: string;
+  createdAt: string;
+}
+
+const DISCLOSURE_BINDING_VERSION = 'sd-bind-v1';
+const DISCLOSURE_BINDING_PREFIX = 'Selective disclosure binding:';
+
+function computeCredentialFingerprint(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+function toIsoFromEpochSeconds(value: unknown): string | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  const parsed = new Date(value * 1000);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+}
+
+function decodeJwtPayload(credentialJwt: string): Record<string, any> | null {
+  const parts = credentialJwt.split('.');
+  if (parts.length < 2) {
+    return null;
+  }
+
+  const payloadSegment = parts[1];
+  const padded = payloadSegment
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+    .padEnd(Math.ceil(payloadSegment.length / 4) * 4, '=');
+
+  if (typeof globalThis.atob !== 'function') {
+    return null;
+  }
+
+  try {
+    const payloadText = globalThis.atob(padded);
+    return JSON.parse(payloadText) as Record<string, any>;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeDid(value?: string): string | undefined {
+  if (!value || !value.trim()) {
+    return undefined;
+  }
+  return value.trim().toLowerCase();
+}
+
+function resolveStatusHint(expiresAt?: string): WalletCredentialStatusHint {
+  if (!expiresAt) {
+    return 'active';
+  }
+
+  const epoch = Date.parse(expiresAt);
+  if (Number.isNaN(epoch)) {
+    return 'unknown';
+  }
+
+  return Date.now() > epoch ? 'expired' : 'active';
+}
+
+function hashUtf8(value: string): string {
+  return ethers.keccak256(ethers.toUtf8Bytes(value));
+}
+
+function canonicalizeClaims(claims: DisclosedClaimsPayload): string {
+  return Object.entries(claims)
+    .filter(([, value]) => typeof value === 'string' && value.trim().length > 0)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${value.trim()}`)
+    .join('|');
+}
+
+function computeClaimDigest(claims: DisclosedClaimsPayload): string {
+  const canonical = canonicalizeClaims(claims);
+  return hashUtf8(canonical || 'no-claims');
+}
+
+function computeBindingDigest(input: {
+  challengeId: string;
+  challengeDigest: string;
+  claimDigest: string;
+  credentialDigest?: string;
+  bindingVersion: string;
+}): string {
+  const material = [
+    input.challengeId,
+    input.challengeDigest,
+    input.claimDigest,
+    input.credentialDigest || 'no-credential',
+    input.bindingVersion,
+  ].join('|');
+
+  return hashUtf8(material);
 }
 
 export interface AuthRequest {
@@ -34,22 +165,25 @@ export interface AuthRequest {
   expectedDID?: string;
   type?: string;
   domain?: string;
+  verifierId?: string;
+  verifier?: {
+    verifierId: string;
+    organizationId?: string;
+    organizationName?: string;
+    policyVersion?: number;
+    requireCredential?: boolean;
+    allowedBadges?: string[];
+  };
+  requestedClaims?: RequestedClaimsContract;
 }
 
 class WalletService {
   private wallet: ethers.HDNodeWallet | ethers.Wallet | null = null;
   private employees: Employee[] = [];
-
+  private credentials: WalletCredentialRecordV1[] = [];
   /**
    * Initialize wallet (load or create)
    */
-  // Default employees matching the backend & portal
-  private static readonly DEFAULT_EMPLOYEES: Employee[] = [
-    { id: 'EMP001', name: 'Zaid',    did: 'did:ethr:0xcB65d5364c1aF83Bf77344634EE4029b765F0167', role: 'CEO & Founder' },
-    { id: 'EMP002', name: 'Hassaan', did: 'did:ethr:0x2345678901234567890123456789012345678901', role: 'CTO' },
-    { id: 'EMP003', name: 'Atharva', did: 'did:ethr:0x3456789012345678901234567890123456789012', role: 'Product Manager' },
-    { id: 'EMP004', name: 'Gracian', did: 'did:ethr:0x4567890123456789012345678901234567890123', role: 'Senior Designer' },
-  ];
 
   async initialize(): Promise<void> {
     const privateKey = await StorageService.getPrivateKey();
@@ -60,15 +194,231 @@ class WalletService {
       await this.createWallet();
     }
 
-    // Load employees; seed defaults if not yet seeded (version check)
+    // Load employees from backend when possible; fallback to locally cached records
     this.employees = await StorageService.getEmployees();
-    const alreadySeeded = await StorageService.isEmployeesSeeded();
-    if (!alreadySeeded) {
-      this.employees = [...WalletService.DEFAULT_EMPLOYEES];
-      await StorageService.saveEmployees(this.employees);
-      await StorageService.markEmployeesSeeded();
-      console.log('✅ Seeded default employees:', this.employees.length);
+    this.credentials = await StorageService.getCredentialRecords();
+    await this.syncEmployeesFromBackend();
+    await this.syncCredentialsFromBackend();
+
+    await this.migrateLegacyEmployeeCredentials();
+  }
+
+  private buildCredentialRecord(
+    credentialJwt: string,
+    source: WalletCredentialSource,
+    options?: {
+      employeeId?: string;
+      subjectDid?: string;
+    },
+  ): WalletCredentialRecordV1 {
+    const now = new Date().toISOString();
+    const decodedPayload = decodeJwtPayload(credentialJwt);
+    const credentialSubject = decodedPayload?.vc?.credentialSubject || {};
+
+    const credentialId =
+      (typeof decodedPayload?.vc?.id === 'string' && decodedPayload.vc.id.trim())
+      || (typeof decodedPayload?.jti === 'string' && decodedPayload.jti.trim())
+      || undefined;
+
+    const issuerDid =
+      (typeof decodedPayload?.vc?.issuer === 'string' && decodedPayload.vc.issuer.trim())
+      || (typeof decodedPayload?.vc?.issuer?.id === 'string' && decodedPayload.vc.issuer.id.trim())
+      || (typeof decodedPayload?.iss === 'string' && decodedPayload.iss.trim())
+      || undefined;
+
+    const subjectDid =
+      (typeof credentialSubject?.id === 'string' && credentialSubject.id.trim())
+      || (typeof options?.subjectDid === 'string' && options.subjectDid.trim())
+      || undefined;
+
+    const employeeId =
+      (typeof credentialSubject?.employeeId === 'string' && credentialSubject.employeeId.trim())
+      || (typeof options?.employeeId === 'string' && options.employeeId.trim())
+      || undefined;
+
+    const issuedAt =
+      (typeof decodedPayload?.nbf === 'number' && toIsoFromEpochSeconds(decodedPayload.nbf))
+      || (typeof decodedPayload?.iat === 'number' && toIsoFromEpochSeconds(decodedPayload.iat))
+      || (typeof decodedPayload?.vc?.issuanceDate === 'string' && decodedPayload.vc.issuanceDate)
+      || undefined;
+
+    const expiresAt =
+      (typeof decodedPayload?.exp === 'number' && toIsoFromEpochSeconds(decodedPayload.exp))
+      || (typeof decodedPayload?.vc?.expirationDate === 'string' && decodedPayload.vc.expirationDate)
+      || undefined;
+
+    const recordId = credentialId
+      ? `${credentialId}:${computeCredentialFingerprint(credentialJwt)}`
+      : `cred:${computeCredentialFingerprint(credentialJwt)}`;
+
+    return {
+      schemaVersion: 1,
+      recordId,
+      credentialJwt,
+      credentialId,
+      issuerDid,
+      subjectDid,
+      employeeId,
+      issuedAt,
+      expiresAt,
+      importedAt: now,
+      updatedAt: now,
+      source,
+      statusHint: resolveStatusHint(expiresAt),
+    };
+  }
+
+  private upsertCredentialRecord(record: WalletCredentialRecordV1): void {
+    const byJwtIndex = this.credentials.findIndex((existing) => existing.credentialJwt === record.credentialJwt);
+    if (byJwtIndex >= 0) {
+      this.credentials[byJwtIndex] = {
+        ...this.credentials[byJwtIndex],
+        ...record,
+        updatedAt: new Date().toISOString(),
+      };
+      return;
     }
+
+    this.credentials.unshift(record);
+  }
+
+  private async migrateLegacyEmployeeCredentials(): Promise<void> {
+    let updated = false;
+
+    for (const employee of this.employees) {
+      if (!employee.credential || !employee.credential.trim()) {
+        continue;
+      }
+
+      const legacyRecord = this.buildCredentialRecord(employee.credential, 'legacy-employee', {
+        employeeId: employee.id,
+        subjectDid: employee.did,
+      });
+
+      const exists = this.credentials.some((record) => record.credentialJwt === legacyRecord.credentialJwt);
+      if (!exists) {
+        this.credentials.unshift(legacyRecord);
+        updated = true;
+      }
+    }
+
+    if (updated) {
+      await StorageService.saveCredentialRecords(this.credentials);
+      console.log('✅ Migrated legacy employee credentials into typed credential store.');
+    }
+  }
+
+  private async syncEmployeesFromBackend(): Promise<void> {
+    try {
+      const response = await networkService.get<{ success?: boolean; data?: Employee[] }>('/api/admin/directory');
+      const fetchedEmployees = Array.isArray(response?.data) ? response.data : [];
+      if (fetchedEmployees.length > 0) {
+        this.employees = fetchedEmployees;
+        await StorageService.saveEmployees(this.employees);
+        await StorageService.markEmployeesSeeded();
+        console.log('✅ Synced employees from backend:', this.employees.length);
+        return;
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to sync employees from backend, using cached records');
+    }
+
+    // Fallback to local cache if backend is unavailable.
+    if (!this.employees || this.employees.length === 0) {
+      console.warn('⚠️ No employees available locally yet. Connect to backend to sync employee directory.');
+      this.employees = [];
+    }
+  }
+
+  private async syncCredentialsFromBackend(): Promise<void> {
+    const did = this.getDID();
+    if (!did) return;
+
+    try {
+      const response = await networkService.get<{
+        success?: boolean;
+        data?: { jwt: string; credentialId: string; employeeId: string; issuedAt: string; expiresAt: string };
+      }>(`/api/admin/credential-for-did?did=${encodeURIComponent(did)}`);
+
+      if (response?.success && response.data?.jwt) {
+        const { jwt, credentialId, employeeId } = response.data;
+        const alreadyStored = this.credentials.some(
+          (r) => r.credentialId === credentialId || r.credentialJwt === jwt
+        );
+        if (!alreadyStored) {
+          const record = this.buildCredentialRecord(jwt, 'api', { employeeId, subjectDid: did });
+          this.upsertCredentialRecord(record);
+          await StorageService.saveCredentialRecords(this.credentials);
+          console.log(`✅ Fetched credential from backend for ${employeeId}`);
+        }
+      }
+    } catch {
+      // 404 (no credential issued yet) or network error — silent fail, not blocking
+    }
+  }
+
+  private getCredentialForAuth(employeeId?: string, employeeDid?: string): WalletCredentialRecordV1 | undefined {
+    const normalizedDid = normalizeDid(employeeDid);
+    const normalizedEmployeeId = employeeId?.trim().toUpperCase();
+
+    const candidates = this.credentials.filter((record) => {
+      if (record.statusHint === 'expired') {
+        return false;
+      }
+
+      const employeeMatch = normalizedEmployeeId
+        ? record.employeeId?.trim().toUpperCase() === normalizedEmployeeId
+        : false;
+
+      const didMatch = normalizedDid
+        ? normalizeDid(record.subjectDid) === normalizedDid
+        : false;
+
+      if (normalizedEmployeeId && normalizedDid) {
+        return employeeMatch || didMatch;
+      }
+
+      if (normalizedEmployeeId) {
+        return employeeMatch;
+      }
+
+      if (normalizedDid) {
+        return didMatch;
+      }
+
+      return false;
+    });
+
+    if (candidates.length === 0) {
+      return undefined;
+    }
+
+    return candidates
+      .slice()
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
+  }
+
+  async addCredential(
+    credentialJwt: string,
+    options?: {
+      employeeId?: string;
+      subjectDid?: string;
+      source?: WalletCredentialSource;
+    },
+  ): Promise<WalletCredentialRecordV1> {
+    const trimmed = credentialJwt.trim();
+    if (!trimmed) {
+      throw new Error('Credential JWT cannot be empty');
+    }
+
+    const record = this.buildCredentialRecord(trimmed, options?.source || 'manual', {
+      employeeId: options?.employeeId,
+      subjectDid: options?.subjectDid,
+    });
+
+    this.upsertCredentialRecord(record);
+    await StorageService.saveCredentialRecords(this.credentials);
+    return record;
   }
 
   /**
@@ -143,12 +493,26 @@ class WalletService {
     return this.employees;
   }
 
+  getCredentials(): WalletCredentialRecordV1[] {
+    return this.credentials;
+  }
+
   /**
    * Remove an employee
    */
   async removeEmployee(id: string): Promise<void> {
     this.employees = this.employees.filter(emp => emp.id !== id);
     await StorageService.saveEmployees(this.employees);
+
+    const normalizedEmployeeId = id.trim().toUpperCase();
+    const nextCredentials = this.credentials.filter((record) => {
+      return record.employeeId?.trim().toUpperCase() !== normalizedEmployeeId;
+    });
+
+    if (nextCredentials.length !== this.credentials.length) {
+      this.credentials = nextCredentials;
+      await StorageService.saveCredentialRecords(this.credentials);
+    }
   }
 
   /**
@@ -168,13 +532,123 @@ class WalletService {
     challenge?: string,
     apiEndpoint?: string,
     employeeId?: string,
+    verifierId?: string,
+    requestedClaims?: RequestedClaimsContract,
+    verifierCredentialRequired?: boolean,
+    badgeType?: string,
   ): Promise<any> {
     const address = this.getAddress();
+    if (!address) {
+      throw new Error('Wallet not initialized');
+    }
+
+    const selectedEmployee = employeeId
+      ? this.employees.find((employee) => employee.id === employeeId)
+      : this.employees.find((employee) => employee.did?.toLowerCase() === employeeDID?.toLowerCase());
+    const credentialRecord = this.getCredentialForAuth(employeeId, employeeDID);
+    const credential = credentialRecord?.credentialJwt || selectedEmployee?.credential;
+
+    const disclosureFromCredential = credential ? decodeJwtPayload(credential)?.vc?.credentialSubject : null;
+    const disclosedClaims: DisclosedClaimsPayload = {};
+    const requiredClaims = requestedClaims?.requiredClaims || [];
+
+    for (const claimKey of requiredClaims) {
+      let claimValue: string | undefined;
+
+      if (claimKey === 'subjectDid') {
+        claimValue = employeeDID;
+      }
+
+      if (claimKey === 'employeeId') {
+        claimValue = employeeId || disclosureFromCredential?.employeeId;
+      }
+
+      if (claimKey === 'name') {
+        claimValue = selectedEmployee?.name || disclosureFromCredential?.name;
+      }
+
+      if (claimKey === 'role') {
+        claimValue = disclosureFromCredential?.role || disclosureFromCredential?.badge || badgeType || selectedEmployee?.role;
+      }
+
+      if (claimKey === 'department') {
+        claimValue = selectedEmployee?.department || disclosureFromCredential?.department;
+      }
+
+      if (claimKey === 'email') {
+        claimValue = selectedEmployee?.email || disclosureFromCredential?.email;
+      }
+
+      if (typeof claimValue === 'string' && claimValue.trim()) {
+        disclosedClaims[claimKey] = claimValue.trim();
+      }
+    }
+
+    const missingClaims = requiredClaims.filter((claimKey) => !disclosedClaims[claimKey]);
+    if (missingClaims.length > 0) {
+      throw new Error(`Unable to assemble selective presentation for required claims: ${missingClaims.join(', ')}`);
+    }
+
+    let disclosedClaimsProof: DisclosedClaimsProofPayload | undefined;
+    if (requiredClaims.length > 0) {
+      const bindingVersion = requestedClaims?.bindingVersion || DISCLOSURE_BINDING_VERSION;
+      const challengeText = challenge
+        ? `${challenge}`
+        : `Challenge: ${challengeId}\nDID: ${employeeDID}`;
+      const challengeDigest = hashUtf8(challengeText);
+      const claimDigest = computeClaimDigest(disclosedClaims);
+      const credentialDigest = credential ? hashUtf8(credential) : undefined;
+      const bindingDigest = computeBindingDigest({
+        challengeId,
+        challengeDigest,
+        claimDigest,
+        credentialDigest,
+        bindingVersion,
+      });
+      const signedBinding = await this.signMessage(`${DISCLOSURE_BINDING_PREFIX} ${bindingDigest}`);
+
+      disclosedClaimsProof = {
+        bindingVersion,
+        challengeId,
+        challengeDigest,
+        claimDigest,
+        credentialDigest,
+        bindingDigest,
+        signedBinding,
+        createdAt: new Date().toISOString(),
+      };
+    }
+
     // Sign a message that includes the actual challenge string (backend verifies this)
     const message = challenge
       ? `${challenge}`
       : `Challenge: ${challengeId}\nDID: ${employeeDID}`;
     const signature = await this.signMessage(message);
+
+    const requestBody: Record<string, unknown> = {
+      challengeId,
+      signature,
+      address,
+      message,
+      employeeId,
+      did: employeeDID,
+    };
+
+    if (verifierId) {
+      requestBody.verifierId = verifierId;
+    }
+
+    if (requiredClaims.length > 0) {
+      requestBody.disclosedClaims = disclosedClaims;
+      requestBody.disclosedClaimsProof = disclosedClaimsProof;
+    }
+
+    if (credential && (verifierCredentialRequired || requiredClaims.length === 0)) {
+      requestBody.credential = credential;
+      console.log('🪪 Including credential in auth submission for employee:', employeeId, 'recordId:', credentialRecord?.recordId || 'legacy-inline');
+    } else if (requiredClaims.length > 0) {
+      console.log('🔒 Submitting selective presentation with disclosed claims only:', Object.keys(disclosedClaims));
+    }
 
     // Always use the wallet's own config URL — never trust the host in the QR's
     // apiEndpoint since it may contain 'localhost' or a stale IP from the portal.
@@ -187,7 +661,7 @@ class WalletService {
       const res = await fetch(verifyUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ challengeId, signature, address, message, employeeId }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal as any,
       });
       clearTimeout(timeout);
@@ -206,6 +680,9 @@ class WalletService {
       employeeDID,
       timestamp: new Date().toISOString(),
       success: response.success,
+      credentialProvided: Boolean(credential),
+      credentialRecordId: credentialRecord?.recordId || null,
+      credentialSource: credentialRecord?.source || (selectedEmployee?.credential ? 'legacy-employee' : null),
     });
 
     return response;
@@ -274,6 +751,7 @@ class WalletService {
     await StorageService.clearAll();
     this.wallet = null;
     this.employees = [];
+    this.credentials = [];
   }
 }
 
