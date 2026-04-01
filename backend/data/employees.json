@@ -1,0 +1,72 @@
+[
+  {
+    "id": "EMP001",
+    "name": "Zaid",
+    "department": "Engineering",
+    "email": "zaid@company.com",
+    "address": "0xcB65d5364c1aF83Bf77344634EE4029b765F0167",
+    "did": "did:ethr:0xcB65d5364c1aF83Bf77344634EE4029b765F0167",
+    "active": true,
+    "badge": "employee",
+    "permissions": [
+      "dashboard:view",
+      "tasks:view"
+    ]
+  },
+  {
+    "id": "EMP002",
+    "name": "Hassaan",
+    "department": "Engineering",
+    "email": "hassaan@company.com",
+    "address": "0x9a9FfAD1b91732389Ad13DC37b028fb67be911d4",
+    "did": "did:ethr:0x9a9FfAD1b91732389Ad13DC37b028fb67be911d4",
+    "active": true,
+    "badge": "employee",
+    "permissions": [
+      "dashboard:view",
+      "tasks:view"
+    ]
+  },
+  {
+    "id": "EMP003",
+    "name": "Atharva",
+    "department": "Product",
+    "email": "atharva@company.com",
+    "address": "0x390cE26185C17C5F1F9563B6c5A6c3eD5C792632",
+    "did": "did:ethr:0x390cE26185C17C5F1F9563B6c5A6c3eD5C792632",
+    "active": true,
+    "badge": "employee",
+    "permissions": [
+      "dashboard:view",
+      "tasks:view"
+    ]
+  },
+  {
+    "id": "EMP004",
+    "name": "Gracian",
+    "department": "Design",
+    "email": "gracian@company.com",
+    "address": "0x60850be0ed055D6900C35EDab501A0EB3ba0E737",
+    "did": "did:ethr:0x60850be0ed055D6900C35EDab501A0EB3ba0E737",
+    "active": true,
+    "badge": "employee",
+    "permissions": [
+      "dashboard:view",
+      "tasks:view"
+    ]
+  },
+  {
+    "id": "EMP005",
+    "name": "test",
+    "department": "Engineering",
+    "email": "test@gmail.com",
+    "address": "0x13d4e62B5F453ec7A5eF308d5Eb14391974be59b",
+    "did": "did:ethr:0x13d4e62B5F453ec7A5eF308d5Eb14391974be59b",
+    "active": true,
+    "badge": "employee",
+    "permissions": [
+      "dashboard:view",
+      "tasks:view"
+    ]
+  }
+]

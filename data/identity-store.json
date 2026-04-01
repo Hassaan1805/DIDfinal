@@ -1,0 +1,214 @@
+{
+  "version": 1,
+  "identities": [
+    {
+      "did": "did:ethr:0x0e3c9ef70ac6bf1c5ea7c6dbb1827b6a90a1a13f",
+      "walletAddress": "0x0e3c9ef70ac6bf1c5ea7c6dbb1827b6a90a1a13f",
+      "publicProfile": {
+        "displayName": "Persist Slice2 User",
+        "skills": [],
+        "links": [],
+        "profileVersion": 1,
+        "updatedAt": "2026-03-31T16:48:44.153Z"
+      },
+      "createdAt": "2026-03-31T16:48:44.153Z",
+      "updatedAt": "2026-03-31T16:48:44.153Z"
+    },
+    {
+      "did": "did:ethr:0xad3d8e7bbb12e8adc6de38cf7dd162fa290c1a97",
+      "walletAddress": "0xad3d8e7bbb12e8adc6de38cf7dd162fa290c1a97",
+      "publicProfile": {
+        "displayName": "Persist Slice2 User",
+        "skills": [],
+        "links": [],
+        "profileVersion": 1,
+        "updatedAt": "2026-03-31T16:50:11.356Z"
+      },
+      "createdAt": "2026-03-31T16:50:11.356Z",
+      "updatedAt": "2026-03-31T16:50:11.356Z"
+    },
+    {
+      "did": "did:ethr:0xf2b243c809c5c059d4933910641c6e04f1bf1e43",
+      "walletAddress": "0xf2b243c809c5c059d4933910641c6e04f1bf1e43",
+      "publicProfile": {
+        "displayName": "Proof Misuse Integration User",
+        "headline": "Integration validation profile",
+        "skills": [],
+        "links": [],
+        "profileVersion": 1,
+        "updatedAt": "2026-03-31T17:09:47.106Z"
+      },
+      "createdAt": "2026-03-31T17:09:47.106Z",
+      "updatedAt": "2026-03-31T17:09:47.106Z"
+    },
+    {
+      "did": "did:ethr:0xc0d81159df605322d89a37b2987c095c637d37d3",
+      "walletAddress": "0xc0d81159df605322d89a37b2987c095c637d37d3",
+      "publicProfile": {
+        "displayName": "Proof Misuse Integration User",
+        "headline": "Integration validation profile",
+        "skills": [],
+        "links": [],
+        "profileVersion": 1,
+        "updatedAt": "2026-03-31T17:12:32.636Z"
+      },
+      "createdAt": "2026-03-31T17:12:32.636Z",
+      "updatedAt": "2026-03-31T17:12:32.636Z"
+    },
+    {
+      "did": "did:ethr:0x2d16d523bd1ef4e2a776c7707508d364331ac589",
+      "walletAddress": "0x2d16d523bd1ef4e2a776c7707508d364331ac589",
+      "publicProfile": {
+        "displayName": "Consent Audit Smoke User",
+        "skills": [],
+        "links": [],
+        "profileVersion": 1,
+        "updatedAt": "2026-03-31T17:13:49.936Z"
+      },
+      "createdAt": "2026-03-31T17:13:49.936Z",
+      "updatedAt": "2026-03-31T17:13:49.936Z"
+    }
+  ],
+  "enrollmentRequests": [
+    {
+      "requestId": "enr_1774975724159_p0kmyrsk",
+      "did": "did:ethr:0x0e3c9ef70ac6bf1c5ea7c6dbb1827b6a90a1a13f",
+      "requesterOrganizationId": "persist_org",
+      "requesterOrganizationName": "Persist Org",
+      "purpose": "slice2 persistence check",
+      "requestedClaims": [
+        "employeeId"
+      ],
+      "requestedProfileFields": [],
+      "status": "pending",
+      "createdAt": "2026-03-31T16:48:44.159Z",
+      "updatedAt": "2026-03-31T16:48:44.159Z",
+      "expiresAt": "2026-04-03T16:48:44.159Z",
+      "approvedClaims": [],
+      "approvedProfileFields": []
+    },
+    {
+      "requestId": "enr_1774975811361_t06apd1u",
+      "did": "did:ethr:0xad3d8e7bbb12e8adc6de38cf7dd162fa290c1a97",
+      "requesterOrganizationId": "persist_org",
+      "requesterOrganizationName": "Persist Org",
+      "purpose": "slice2 persistence check",
+      "requestedClaims": [
+        "employeeId"
+      ],
+      "requestedProfileFields": [],
+      "status": "pending",
+      "createdAt": "2026-03-31T16:50:11.361Z",
+      "updatedAt": "2026-03-31T16:50:11.361Z",
+      "expiresAt": "2026-04-03T16:50:11.361Z",
+      "approvedClaims": [],
+      "approvedProfileFields": []
+    },
+    {
+      "requestId": "enr_1774976987111_t8be2w77",
+      "did": "did:ethr:0xf2b243c809c5c059d4933910641c6e04f1bf1e43",
+      "requesterOrganizationId": "misuse_org",
+      "requesterOrganizationName": "Proof Misuse Org",
+      "verifierId": "proof_misuse_verifier",
+      "purpose": "Misuse validation request A",
+      "requestedClaims": [
+        "employeeId",
+        "name"
+      ],
+      "requestedProfileFields": [
+        "headline"
+      ],
+      "status": "pending",
+      "createdAt": "2026-03-31T17:09:47.111Z",
+      "updatedAt": "2026-03-31T17:09:47.111Z",
+      "expiresAt": "2026-04-03T17:09:47.111Z",
+      "approvedClaims": [],
+      "approvedProfileFields": []
+    },
+    {
+      "requestId": "enr_1774976987115_6274ymza",
+      "did": "did:ethr:0xf2b243c809c5c059d4933910641c6e04f1bf1e43",
+      "requesterOrganizationId": "misuse_org",
+      "requesterOrganizationName": "Proof Misuse Org",
+      "verifierId": "proof_misuse_verifier",
+      "purpose": "Misuse validation request B",
+      "requestedClaims": [
+        "employeeId"
+      ],
+      "requestedProfileFields": [
+        "location"
+      ],
+      "status": "pending",
+      "createdAt": "2026-03-31T17:09:47.115Z",
+      "updatedAt": "2026-03-31T17:09:47.115Z",
+      "expiresAt": "2026-04-03T17:09:47.115Z",
+      "approvedClaims": [],
+      "approvedProfileFields": []
+    },
+    {
+      "requestId": "enr_1774977152642_aqf5h2as",
+      "did": "did:ethr:0xc0d81159df605322d89a37b2987c095c637d37d3",
+      "requesterOrganizationId": "misuse_org",
+      "requesterOrganizationName": "Proof Misuse Org",
+      "verifierId": "proof_misuse_verifier",
+      "purpose": "Misuse validation request A",
+      "requestedClaims": [
+        "employeeId",
+        "name"
+      ],
+      "requestedProfileFields": [
+        "headline"
+      ],
+      "status": "pending",
+      "createdAt": "2026-03-31T17:12:32.642Z",
+      "updatedAt": "2026-03-31T17:12:32.642Z",
+      "expiresAt": "2026-04-03T17:12:32.642Z"
+    },
+    {
+      "requestId": "enr_1774977152647_mo2p6v90",
+      "did": "did:ethr:0xc0d81159df605322d89a37b2987c095c637d37d3",
+      "requesterOrganizationId": "misuse_org",
+      "requesterOrganizationName": "Proof Misuse Org",
+      "verifierId": "proof_misuse_verifier",
+      "purpose": "Misuse validation request B",
+      "requestedClaims": [
+        "employeeId"
+      ],
+      "requestedProfileFields": [
+        "location"
+      ],
+      "status": "pending",
+      "createdAt": "2026-03-31T17:12:32.647Z",
+      "updatedAt": "2026-03-31T17:12:32.647Z",
+      "expiresAt": "2026-04-03T17:12:32.647Z"
+    },
+    {
+      "requestId": "enr_1774977229941_mqtgjsun",
+      "did": "did:ethr:0x2d16d523bd1ef4e2a776c7707508d364331ac589",
+      "requesterOrganizationId": "audit_smoke_org",
+      "requesterOrganizationName": "Audit Smoke Org",
+      "verifierId": "audit_smoke_verifier",
+      "purpose": "Consent audit smoke validation",
+      "requestedClaims": [
+        "employeeId",
+        "name"
+      ],
+      "requestedProfileFields": [
+        "headline"
+      ],
+      "status": "approved",
+      "createdAt": "2026-03-31T17:13:49.941Z",
+      "updatedAt": "2026-03-31T17:13:49.964Z",
+      "expiresAt": "2026-04-03T17:13:49.941Z",
+      "decidedAt": "2026-03-31T17:13:49.964Z",
+      "decisionReason": "Audit smoke approval",
+      "approvedClaims": [
+        "employeeId"
+      ],
+      "approvedProfileFields": [
+        "headline"
+      ]
+    }
+  ],
+  "updatedAt": "2026-03-31T17:13:49.965Z"
+}

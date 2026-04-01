@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "updatedAt": "2026-03-31T17:13:49.967Z",
+  "events": [
+    {
+      "auditId": "consent_audit_1774977229966_n9l393hb",
+      "createdAt": "2026-03-31T17:13:49.966Z",
+      "requestId": "enr_1774977229941_mqtgjsun",
+      "did": "did:ethr:0x2d16d523bd1ef4e2a776c7707508d364331ac589",
+      "decision": "approved",
+      "decidedAt": "2026-03-31T17:13:49.964Z",
+      "requesterOrganizationId": "audit_smoke_org",
+      "requesterOrganizationName": "Audit Smoke Org",
+      "verifierId": "audit_smoke_verifier",
+      "purpose": "Consent audit smoke validation",
+      "approvedClaims": [
+        "employeeId"
+      ],
+      "approvedProfileFields": [
+        "headline"
+      ],
+      "reason": "Audit smoke approval",
+      "actorAddress": "0x2d16d523bd1ef4e2a776c7707508d364331ac589",
+      "actorChallengeId": "identity_70f98153-b465-49ad-8ead-d3f45c49fb98",
+      "actorAction": "enrollment_decision"
+    }
+  ]
+}
