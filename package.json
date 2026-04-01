@@ -7,15 +7,30 @@
     "contracts",
     "backend",
     "portal",
-    "shared"
+    "shared",
+    "circuits"
   ],
   "scripts": {
+    "start": "concurrently --names \"BACKEND,PORTAL\" --prefix-colors \"blue,green\" \"npm --prefix backend run start\" \"npm --prefix portal run preview\"",
+    "start:dev": "concurrently --names \"BACKEND,PORTAL\" --prefix-colors \"blue,green\" \"npm --prefix backend run dev\" \"npm --prefix portal run dev\"",
+    "start:platform": "start-platform.bat",
+    "start:ganache": "ganache-cli --deterministic --accounts 10 --host 0.0.0.0 --port 7545",
     "dev": "concurrently --names \"BACKEND,PORTAL,WALLET\" --prefix-colors \"blue,green,yellow\" \"npm --prefix backend run dev\" \"npm --prefix portal run dev\" \"cd wallet && npx expo start\"",
-    "build": "yarn workspaces run build",
-    "test": "yarn workspaces run test",
-    "clean": "yarn workspaces run clean",
-    "setup": "yarn install && yarn workspace contracts compile",
-    "start:ganache": "ganache-cli --deterministic --accounts 10 --host 0.0.0.0 --port 7545"
+    "dev:lan": "npm run sync:network && concurrently --names \"BACKEND,PORTAL,WALLET\" --prefix-colors \"blue,green,yellow\" \"npm --prefix backend run dev\" \"npm --prefix portal run dev -- --host 0.0.0.0 --port 5173\" \"npm --prefix wallet run start -- --lan --port 8082\"",
+    "build": "npm --prefix backend run build && npm --prefix portal run build && npm --prefix circuits run compile",
+    "build:backend": "npm --prefix backend run build",
+    "build:portal": "npm --prefix portal run build",
+    "test": "npm --prefix backend run test && npm --prefix circuits run test",
+    "test:platform": "test-platform.bat",
+    "test:e2e": "npm --prefix backend run test:enterprise-e2e",
+    "test:full-e2e": "node backend/scripts/test-full-e2e-flow.js",
+    "clean": "npm --prefix backend run clean && npm --prefix portal run clean 2>/dev/null || true",
+    "setup": "npm install && npm --prefix backend install && npm --prefix portal install",
+    "setup:full": "npm run setup && npm --prefix contracts install && npm --prefix contracts run compile && npm --prefix circuits install",
+    "sync:network": "node scripts/sync-network-config.js",
+    "lint": "npm --prefix backend run lint 2>/dev/null || echo 'No lint script in backend' && npm --prefix portal run lint 2>/dev/null || echo 'No lint script in portal'",
+    "blockchain:status": "npm --prefix backend run sepolia:status",
+    "blockchain:deploy": "npm --prefix backend run blockchain:deploy"
   },
   "devDependencies": {
     "@types/node": "^24.0.13",
