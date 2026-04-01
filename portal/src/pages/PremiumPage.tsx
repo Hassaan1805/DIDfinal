@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ModernCard, StatsCard } from '../components/ModernCard';
-
-/**
- * PremiumPage Component
- * 
- * Protected premium content page that requires 'premium' access level.
- * Displays exclusive corporate content for users who have proven 
- * Corporate Excellence 2025 NFT ownership via ZK-proof.
- */
+import {
+  ArrowLeftIcon,
+  DocumentTextIcon,
+  ShieldCheckIcon,
+  ClockIcon,
+  CheckCircleIcon,
+  LockClosedIcon,
+  ArrowRightIcon,
+} from '@heroicons/react/24/outline';
+import { ShieldCheckIcon as ShieldCheckSolid } from '@heroicons/react/24/solid';
 
 interface PremiumContent {
   title: string;
@@ -34,95 +35,47 @@ const PremiumPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [premiumContent, setPremiumContent] = useState<PremiumContent[]>([]);
 
-  // Check authentication and access level on component mount
   useEffect(() => {
     const initializePage = async () => {
       await checkSessionStatus();
       await fetchPremiumContent();
     };
-    
     initializePage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /**
-   * Check current session status and access level
-   */
   const checkSessionStatus = async () => {
     try {
       setLoading(true);
-      
       const token = localStorage.getItem('authToken');
-      if (!token) {
-        console.log('❌ No authentication token found');
-        navigate('/');
-        return;
-      }
-
+      if (!token) { navigate('/'); return; }
       const response = await fetch('/api/auth/session-status', {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       });
-
-      if (!response.ok) {
-        throw new Error(`Session check failed: ${response.status}`);
-      }
-
+      if (!response.ok) throw new Error(`Session check failed: ${response.status}`);
       const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.message || 'Session verification failed');
-      }
-
+      if (!result.success) throw new Error(result.message || 'Session verification failed');
       const sessionData = result.data;
       setUserSession(sessionData);
-
-      console.log('✅ Session status verified:', {
-        authenticated: sessionData.authenticated,
-        accessLevel: sessionData.accessLevel,
-        premiumAccess: sessionData.accessLevel === 'premium'
-      });
-
-      // Redirect if user doesn't have premium access
-      if (sessionData.accessLevel !== 'premium') {
-        console.log('❌ Premium access required but user has:', sessionData.accessLevel);
-        navigate('/?premium=required');
-        return;
-      }
-
+      if (sessionData.accessLevel !== 'premium') { navigate('/?premium=required'); return; }
     } catch (error: unknown) {
-      console.error('❌ Session status check failed:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       setError(errorMessage);
-      
-      // Redirect to main page on session error
-      setTimeout(() => {
-        navigate('/');
-      }, 3000);
+      setTimeout(() => navigate('/'), 3000);
     } finally {
       setLoading(false);
     }
   };
 
-  /**
-   * Fetch premium content from backend
-   */
   const fetchPremiumContent = async () => {
     try {
       const token = localStorage.getItem('authToken');
       if (!token) return;
-
       const response = await fetch('/api/premium/content', {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       });
-
       if (response.ok) {
         const result = await response.json();
         setPremiumContent(result.data?.content || []);
@@ -132,283 +85,297 @@ const PremiumPage: React.FC = () => {
     }
   };
 
-  /**
-   * Handle back to dashboard
-   */
-  const handleBackToDashboard = () => {
-    navigate('/');
-  };
-
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-indigo-100/40 flex items-center justify-center p-6">
-        <ModernCard className="max-w-md border-0 shadow-2xl">
-          <div className="p-10 text-center">
-            <div className="w-20 h-20 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
-              <div className="animate-spin rounded-full h-10 w-10 border-4 border-white border-t-transparent"></div>
-            </div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">
-              Verifying Premium Access
-            </h2>
-            <p className="text-gray-600 text-lg">
-              Checking your session and access level...
-            </p>
+      <div style={{ minHeight: '100vh', background: '#050505', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-sans)' }}>
+        <style>{`@keyframes spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }`}</style>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            width: 52, height: 52,
+            borderRadius: '50%',
+            background: 'rgba(37,99,235,0.1)',
+            border: '1px solid rgba(37,99,235,0.22)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            margin: '0 auto 20px',
+          }}>
+            <ShieldCheckIcon style={{ width: 22, height: 22, color: '#60a5fa', animation: 'spin 1.5s linear infinite' }} />
           </div>
-        </ModernCard>
+          <h2 style={{ color: '#f8fafc', fontSize: 16, fontWeight: 600, margin: '0 0 8px' }}>Verifying Premium Access</h2>
+          <p style={{ color: '#475569', fontSize: 13, margin: 0 }}>Checking your session and access level...</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-red-50/30 to-pink-100/40 flex items-center justify-center p-6">
-        <ModernCard className="max-w-md border-0 shadow-2xl">
-          <div className="p-10 text-center">
-            <div className="w-20 h-20 bg-gradient-to-r from-red-500 to-pink-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
-              <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">
-              Access Error
-            </h2>
-            <p className="text-gray-600 text-lg mb-6">
-              {error}
-            </p>
-            <p className="text-sm text-gray-500">
-              Redirecting to main page...
-            </p>
+      <div style={{ minHeight: '100vh', background: '#050505', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-sans)' }}>
+        <div style={{ textAlign: 'center', maxWidth: 400 }}>
+          <div style={{
+            width: 52, height: 52,
+            borderRadius: '50%',
+            background: 'rgba(220,38,38,0.1)',
+            border: '1px solid rgba(220,38,38,0.22)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            margin: '0 auto 20px',
+          }}>
+            <LockClosedIcon style={{ width: 22, height: 22, color: '#f87171' }} />
           </div>
-        </ModernCard>
+          <h2 style={{ color: '#f8fafc', fontSize: 16, fontWeight: 600, margin: '0 0 8px' }}>Access Error</h2>
+          <p style={{ color: '#64748b', fontSize: 13, lineHeight: 1.6, margin: '0 0 12px' }}>{error}</p>
+          <p style={{ color: '#334155', fontSize: 12, margin: 0 }}>Redirecting to main page...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-indigo-100/40">
-      {/* Enhanced Header */}
-      <div className="relative bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-700 shadow-2xl">
-        <div className="absolute inset-0 bg-gradient-to-r from-black/20 to-transparent"></div>
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="inline-flex items-center px-6 py-3 rounded-full bg-white/20 backdrop-blur-sm border border-white/30 text-white text-sm font-medium mb-6">
-                <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                Premium Access Verified
-              </div>
-              <h1 className="text-5xl md:text-6xl font-bold text-white mb-6">
-                🎉 Premium Corporate Content
-              </h1>
-              <p className="text-xl md:text-2xl text-blue-100 max-w-3xl leading-relaxed">
-                Exclusive content for Corporate Excellence 2025 NFT holders
-              </p>
-            </div>
-            <button
-              onClick={handleBackToDashboard}
-              className="group bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white px-8 py-4 rounded-2xl transition-all duration-300 flex items-center space-x-3 border border-white/30 hover:border-white/50 hover:scale-105"
-            >
-              <svg className="w-6 h-6 group-hover:-translate-x-1 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              <span className="text-lg font-medium">Back to Dashboard</span>
-            </button>
-          </div>
+    <div style={{ minHeight: '100vh', background: '#050505', fontFamily: 'var(--font-sans)' }}>
+      <style>{`
+        @keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+      `}</style>
+
+      {/* Header */}
+      <div style={{
+        height: 54,
+        background: 'rgba(255,255,255,0.02)',
+        borderBottom: '1px solid rgba(255,255,255,0.07)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '0 28px',
+        position: 'sticky',
+        top: 0,
+        zIndex: 100,
+        backdropFilter: 'blur(16px)',
+      }}>
+        <button
+          onClick={() => navigate('/')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 7,
+            background: 'none', border: 'none', color: '#94a3b8', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+          }}
+          onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#f1f5f9'}
+          onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = '#94a3b8'}
+        >
+          <ArrowLeftIcon style={{ width: 14, height: 14 }} />
+          Back to Dashboard
+        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <ShieldCheckSolid style={{ width: 15, height: 15, color: '#34d399' }} />
+          <span style={{ color: '#f8fafc', fontSize: 14, fontWeight: 600, letterSpacing: '-0.01em' }}>Premium Content</span>
         </div>
-        <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-gray-50 to-transparent"></div>
+        <div style={{ width: 140 }} />
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 -mt-10 relative z-10">
-        {/* Premium Access Status */}
+      <div style={{ maxWidth: 900, margin: '0 auto', padding: '40px 24px' }}>
+
+        {/* Premium Session Banner */}
         {userSession && (
-          <ModernCard className="mb-12 border-0 shadow-2xl overflow-hidden">
-            <div className="relative">
-              <div className="absolute inset-0 bg-gradient-to-r from-green-500/10 via-emerald-500/10 to-teal-500/10"></div>
-              <div className="relative p-8">
-                <div className="flex items-center space-x-6">
-                  <div className="w-16 h-16 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center shadow-lg">
-                    <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                  <div className="flex-1">
-                    <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                      Premium Access Active
-                    </h2>
-                    <p className="text-lg text-gray-600">
-                      Verified via Zero-Knowledge Proof •{' '}
-                      {userSession.premiumGrantedAt && 
-                        `Granted: ${new Date(userSession.premiumGrantedAt).toLocaleString()}`
-                      }
-                    </p>
-                  </div>
-                  <div className="flex flex-col space-y-2">
-                    <span className="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white">
-                      ✓ ZK Verified
-                    </span>
-                    <span className="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-gradient-to-r from-purple-400 to-indigo-500 text-white">
-                      ✓ Premium Active
-                    </span>
-                  </div>
-                </div>
-              </div>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 12,
+            padding: '14px 20px',
+            background: 'rgba(5,150,105,0.07)',
+            border: '1px solid rgba(5,150,105,0.2)',
+            borderRadius: 12,
+            marginBottom: 32,
+            animation: 'fadeUp 0.35s ease both',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <ShieldCheckSolid style={{ width: 16, height: 16, color: '#34d399', flexShrink: 0 }} />
+              <span style={{ color: '#34d399', fontSize: 13, fontWeight: 600 }}>Premium Access Active</span>
+              <span style={{ color: '#475569', fontSize: 12 }}>· Verified via Zero-Knowledge Proof</span>
             </div>
-          </ModernCard>
+            {userSession.premiumGrantedAt && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <ClockIcon style={{ width: 12, height: 12, color: '#475569' }} />
+                <span style={{ color: '#475569', fontSize: 12 }}>
+                  Granted: {new Date(userSession.premiumGrantedAt).toLocaleString()}
+                </span>
+              </div>
+            )}
+          </div>
         )}
 
-        {/* Premium Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-          <StatsCard
-            title="Premium Content"
-            value={premiumContent.length.toString()}
-            subtitle="Articles Available"
-            trend={{ value: 25, isPositive: true }}
-            icon="📄"
-            color="blue"
-          />
-          <StatsCard
-            title="Access Level"
-            value="Premium"
-            subtitle="ZK Verified"
-            trend={{ value: 100, isPositive: true }}
-            icon="🔐"
-            color="green"
-          />
-          <StatsCard
-            title="ZK Proofs"
-            value="Valid"
-            subtitle="Cryptographically Secure"
-            trend={{ value: 99, isPositive: true }}
-            icon="✅"
-            color="purple"
-          />
-          <StatsCard
-            title="Session Status"
-            value="Active"
-            subtitle="Privacy Protected"
-            trend={{ value: 100, isPositive: true }}
-            icon="🛡️"
-            color="orange"
-          />
+        {/* Stats Row */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 36 }}>
+          {[
+            { label: 'Premium Content', value: premiumContent.length.toString(), sub: 'Articles Available', accent: '#60a5fa', bg: 'rgba(37,99,235,0.08)', border: 'rgba(37,99,235,0.18)', Icon: DocumentTextIcon },
+            { label: 'Access Level', value: 'Premium', sub: 'ZK Verified', accent: '#34d399', bg: 'rgba(5,150,105,0.08)', border: 'rgba(5,150,105,0.18)', Icon: CheckCircleIcon },
+            { label: 'ZK Proofs', value: 'Valid', sub: 'Cryptographically Secure', accent: '#a78bfa', bg: 'rgba(124,58,237,0.08)', border: 'rgba(124,58,237,0.18)', Icon: ShieldCheckIcon },
+            { label: 'Session', value: 'Active', sub: 'Privacy Protected', accent: '#fbbf24', bg: 'rgba(217,119,6,0.08)', border: 'rgba(217,119,6,0.18)', Icon: LockClosedIcon },
+          ].map(({ label, value, sub, accent, bg, border, Icon }) => (
+            <div key={label} className="stat-card" style={{ borderRadius: 12, animation: 'fadeUp 0.4s ease both' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+                <div style={{ width: 28, height: 28, borderRadius: 7, background: bg, border: `1px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon style={{ width: 14, height: 14, color: accent }} />
+                </div>
+                <span style={{ color: '#475569', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
+              </div>
+              <div style={{ color: '#f8fafc', fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em', marginBottom: 3 }}>{value}</div>
+              <div style={{ color: '#334155', fontSize: 11 }}>{sub}</div>
+            </div>
+          ))}
         </div>
 
-        {/* Premium Content Grid */}
-        <div className="space-y-8">
+        {/* Content Grid */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {premiumContent.length > 0 ? (
             premiumContent.map((content, index) => (
-              <ModernCard key={index} className="border-0 shadow-xl hover:shadow-2xl transition-all duration-500 overflow-hidden group">
-                <div className="relative">
-                  <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/5 via-purple-500/5 to-blue-500/5 group-hover:from-indigo-500/10 group-hover:via-purple-500/10 group-hover:to-blue-500/10 transition-all duration-500"></div>
-                  <div className="relative p-10">
-                    <div className="flex items-start justify-between mb-6">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-3 mb-4">
-                          <span className="px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-600 text-white text-sm font-semibold rounded-full shadow-lg">
-                            {content.category}
-                          </span>
-                          {content.restricted && (
-                            <span className="px-4 py-2 bg-gradient-to-r from-red-500 to-pink-600 text-white text-sm font-semibold rounded-full shadow-lg">
-                              🔒 Premium Only
-                            </span>
-                          )}
-                        </div>
-                        <h3 className="text-3xl font-bold text-gray-900 mb-4 group-hover:text-indigo-700 transition-colors duration-300">
-                          {content.title}
-                        </h3>
-                        <p className="text-lg text-gray-600 mb-6 leading-relaxed">
-                          {content.description}
-                        </p>
-                      </div>
-                      <div className="w-16 h-16 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center ml-6 group-hover:scale-110 transition-transform duration-300 shadow-lg">
-                        <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                      </div>
+              <div
+                key={index}
+                style={{
+                  background: 'rgba(255,255,255,0.02)',
+                  border: '1px solid rgba(255,255,255,0.07)',
+                  borderRadius: 16,
+                  padding: '24px 26px',
+                  transition: 'border-color 0.2s ease, background 0.2s ease',
+                  animation: `fadeUp ${0.35 + index * 0.05}s ease both`,
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.12)'; (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.07)'; (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'; }}
+              >
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 14 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                      <span style={{
+                        padding: '2px 10px',
+                        background: 'rgba(124,58,237,0.12)',
+                        border: '1px solid rgba(124,58,237,0.25)',
+                        borderRadius: 99,
+                        color: '#a78bfa',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                      }}>
+                        {content.category}
+                      </span>
+                      {content.restricted && (
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: '2px 8px',
+                          background: 'rgba(37,99,235,0.1)',
+                          border: '1px solid rgba(37,99,235,0.22)',
+                          borderRadius: 99,
+                          color: '#60a5fa',
+                          fontSize: 10,
+                          fontWeight: 600,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                        }}>
+                          <LockClosedIcon style={{ width: 9, height: 9 }} />
+                          Premium
+                        </span>
+                      )}
                     </div>
-                    
-                    <div className="prose prose-lg prose-gray max-w-none">
-                      <div className="text-gray-700 whitespace-pre-line leading-relaxed">
-                        {content.content}
-                      </div>
-                    </div>
-                    
-                    <div className="mt-8 pt-6 border-t border-gray-200">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm text-gray-500 flex items-center">
-                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          Last updated: {new Date(content.lastUpdated).toLocaleDateString()}
-                        </p>
-                        <div className="flex items-center text-indigo-600 font-medium group-hover:text-indigo-700 cursor-pointer">
-                          <span>Read More</span>
-                          <svg className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                          </svg>
-                        </div>
-                      </div>
-                    </div>
+                    <h3 style={{ color: '#f8fafc', fontSize: 17, fontWeight: 700, letterSpacing: '-0.02em', margin: '0 0 8px', lineHeight: 1.4 }}>
+                      {content.title}
+                    </h3>
+                    <p style={{ color: '#64748b', fontSize: 13, lineHeight: 1.7, margin: 0 }}>{content.description}</p>
+                  </div>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 10,
+                    background: 'rgba(124,58,237,0.1)',
+                    border: '1px solid rgba(124,58,237,0.2)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0,
+                  }}>
+                    <DocumentTextIcon style={{ width: 18, height: 18, color: '#a78bfa' }} />
                   </div>
                 </div>
-              </ModernCard>
+
+                <div style={{
+                  color: '#94a3b8',
+                  fontSize: 13,
+                  lineHeight: 1.7,
+                  whiteSpace: 'pre-line',
+                  marginBottom: 16,
+                }}>
+                  {content.content}
+                </div>
+
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  paddingTop: 14,
+                  borderTop: '1px solid rgba(255,255,255,0.06)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#475569', fontSize: 12 }}>
+                    <ClockIcon style={{ width: 12, height: 12 }} />
+                    Last updated: {new Date(content.lastUpdated).toLocaleDateString()}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#60a5fa', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
+                    Read More
+                    <ArrowRightIcon style={{ width: 12, height: 12 }} />
+                  </div>
+                </div>
+              </div>
             ))
           ) : (
-            <ModernCard className="border-0 shadow-xl">
-              <div className="p-12 text-center">
-                <div className="w-20 h-20 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                  <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4" />
-                  </svg>
-                </div>
-                <h3 className="text-2xl font-bold text-gray-900 mb-4">
-                  Loading Premium Content...
-                </h3>
-                <p className="text-lg text-gray-600">
-                  Fetching your exclusive Corporate Excellence 2025 content.
-                </p>
-              </div>
-            </ModernCard>
+            <div style={{
+              background: 'rgba(255,255,255,0.02)',
+              border: '1px solid rgba(255,255,255,0.07)',
+              borderRadius: 16,
+              padding: '56px 24px',
+              textAlign: 'center',
+            }}>
+              <DocumentTextIcon style={{ width: 32, height: 32, color: '#334155', margin: '0 auto 14px' }} />
+              <h3 style={{ color: '#f8fafc', fontSize: 15, fontWeight: 600, margin: '0 0 8px' }}>Loading Premium Content</h3>
+              <p style={{ color: '#475569', fontSize: 13, margin: 0 }}>Fetching your exclusive Corporate Excellence 2025 content.</p>
+            </div>
           )}
         </div>
 
-        {/* Zero-Knowledge Proof Info */}
-        <ModernCard className="mt-12 border-0 shadow-xl overflow-hidden">
-          <div className="relative">
-            <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-blue-500/10"></div>
-            <div className="relative p-10">
-              <div className="flex items-start space-x-6">
-                <div className="w-16 h-16 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg">
-                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                  </svg>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-2xl font-bold text-gray-900 mb-4">
-                    Zero-Knowledge Privacy Protection
-                  </h3>
-                  <p className="text-lg text-gray-600 leading-relaxed">
-                    Your access to this premium content was verified using zero-knowledge proof technology. 
-                    This means you proved ownership of the Corporate Excellence 2025 NFT <strong className="text-gray-800">without revealing 
-                    your wallet address or any personal information</strong>. Your privacy and anonymity are 
-                    completely protected while ensuring only legitimate NFT holders can access this content.
-                  </p>
-                  <div className="flex flex-wrap gap-3 mt-6">
-                    <span className="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white">
-                      ✓ Privacy Protected
-                    </span>
-                    <span className="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-gradient-to-r from-blue-400 to-indigo-500 text-white">
-                      ✓ Zero-Knowledge
-                    </span>
-                    <span className="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-gradient-to-r from-purple-400 to-pink-500 text-white">
-                      ✓ Cryptographically Secure
-                    </span>
-                  </div>
-                </div>
-              </div>
+        {/* ZK Privacy Info */}
+        <div style={{
+          background: 'rgba(5,150,105,0.05)',
+          border: '1px solid rgba(5,150,105,0.15)',
+          borderRadius: 16,
+          padding: '24px 26px',
+          marginTop: 32,
+          display: 'flex',
+          gap: 18,
+          alignItems: 'flex-start',
+        }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: 10,
+            background: 'rgba(5,150,105,0.12)',
+            border: '1px solid rgba(5,150,105,0.22)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+          }}>
+            <ShieldCheckIcon style={{ width: 18, height: 18, color: '#34d399' }} />
+          </div>
+          <div>
+            <h3 style={{ color: '#f8fafc', fontSize: 14, fontWeight: 700, margin: '0 0 8px' }}>Zero-Knowledge Privacy Protection</h3>
+            <p style={{ color: '#64748b', fontSize: 13, lineHeight: 1.7, margin: '0 0 14px' }}>
+              Your access was verified using zero-knowledge proof technology. You proved NFT ownership{' '}
+              <span style={{ color: '#94a3b8', fontWeight: 600 }}>without revealing your wallet address or any personal information</span>.
+              Your privacy and anonymity are completely protected.
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {['Privacy Protected', 'Zero-Knowledge', 'Cryptographically Secure'].map((tag) => (
+                <span key={tag} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  padding: '3px 10px',
+                  background: 'rgba(5,150,105,0.1)',
+                  border: '1px solid rgba(5,150,105,0.2)',
+                  borderRadius: 99,
+                  color: '#34d399',
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}>
+                  <CheckCircleIcon style={{ width: 10, height: 10 }} />
+                  {tag}
+                </span>
+              ))}
             </div>
           </div>
-        </ModernCard>
+        </div>
       </div>
     </div>
   );

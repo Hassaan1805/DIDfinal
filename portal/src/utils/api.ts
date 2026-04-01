@@ -52,18 +52,18 @@ export class ApiClient {
   /**
    * Generic request method with retry logic
    */
-  private static async request<T>(
+  static async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
     const url = `${this.baseURL}${endpoint}`;
     
     const config: RequestInit = {
+      ...options,
       headers: {
         ...DEFAULT_HEADERS,
         ...options.headers,
       },
-      ...options,
     };
 
     let lastError: Error;
@@ -78,11 +78,13 @@ export class ApiClient {
         console.log(`📡 API Response: ${response.status} ${response.statusText}`);
         
         if (!response.ok) {
-          throw new ApiError(
-            `HTTP ${response.status}: ${response.statusText}`,
-            response.status,
-            response
-          );
+          let message = `HTTP ${response.status}: ${response.statusText}`;
+          try {
+            const body = await response.clone().json();
+            if (body?.error) message = body.error;
+            else if (body?.message) message = body.message;
+          } catch { /* non-JSON body, keep default message */ }
+          throw new ApiError(message, response.status, response);
         }
         
         const data = await response.json();
@@ -183,6 +185,220 @@ export class AuthAPI {
 }
 
 /**
+ * Audit Timeline API methods
+ */
+export class AuditAPI {
+  /**
+   * Get authentication timeline with filters
+   */
+  static async getTimeline(filters: {
+    did?: string;
+    userAddress?: string;
+    employeeId?: string;
+    companyId?: string;
+    verifierId?: string;
+    eventType?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+    cursor?: number;
+  }) {
+    const params = new URLSearchParams();
+    
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        params.append(key, String(value));
+      }
+    });
+
+    const queryString = params.toString();
+    const endpoint = queryString ? `/auth/timeline?${queryString}` : '/auth/timeline';
+    
+    return ApiClient.get(endpoint);
+  }
+
+  /**
+   * Get authenticated user's timeline
+   */
+  static async getMyTimeline(filters?: {
+    eventType?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+    cursor?: number;
+  }) {
+    const params = new URLSearchParams();
+    
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          params.append(key, String(value));
+        }
+      });
+    }
+
+    const queryString = params.toString();
+    const endpoint = queryString ? `/auth/timeline/me?${queryString}` : '/auth/timeline/me';
+    
+    return ApiClient.get(endpoint);
+  }
+}
+
+/**
+ * Admin API methods
+ */
+export class AdminAPI {
+  private static adminToken: string | null = null;
+
+  /**
+   * Set admin token for authenticated requests
+   */
+  static setAdminToken(token: string) {
+    this.adminToken = token;
+    localStorage.setItem('admin_token', token);
+  }
+
+  /**
+   * Get admin token (from memory or localStorage)
+   */
+  static getAdminToken(): string | null {
+    if (!this.adminToken) {
+      this.adminToken = localStorage.getItem('admin_token');
+    }
+    return this.adminToken;
+  }
+
+  /**
+   * Clear admin token
+   */
+  static clearAdminToken() {
+    this.adminToken = null;
+    localStorage.removeItem('admin_token');
+  }
+
+  /**
+   * Make authenticated admin request
+   */
+  private static async adminRequest<T>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<ApiResponse<T>> {
+    const token = this.getAdminToken();
+    if (!token) {
+      throw new ApiError('Admin token not set', 401);
+    }
+
+    const headers = {
+      ...options.headers,
+      'Authorization': `Bearer ${token}`,
+    };
+
+    return ApiClient.request<T>(endpoint, { ...options, headers });
+  }
+
+  /**
+   * List all employees
+   */
+  static async listEmployees() {
+    return this.adminRequest('/admin/employees');
+  }
+
+  /**
+   * Get employee by ID
+   */
+  static async getEmployee(employeeId: string) {
+    return this.adminRequest(`/admin/employee/${employeeId}`);
+  }
+
+  /**
+   * Create a new employee
+   */
+  static async createEmployee(data: {
+    id: string;
+    name: string;
+    department: string;
+    email: string;
+    address: string;
+    did?: string;
+    badge?: 'employee' | 'manager' | 'admin' | 'auditor';
+    registerOnChain?: boolean;
+  }) {
+    return this.adminRequest('/admin/employees', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Update an employee
+   */
+  static async updateEmployee(employeeId: string, data: {
+    name?: string;
+    department?: string;
+    email?: string;
+    badge?: 'employee' | 'manager' | 'admin' | 'auditor';
+  }) {
+    return this.adminRequest(`/admin/employees/${employeeId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Deactivate an employee
+   */
+  static async deactivateEmployee(employeeId: string) {
+    return this.adminRequest(`/admin/employees/${employeeId}/deactivate`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Reactivate an employee
+   */
+  static async reactivateEmployee(employeeId: string) {
+    return this.adminRequest(`/admin/employees/${employeeId}/reactivate`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Register employee DID on-chain
+   */
+  static async registerOnChain(employeeId: string) {
+    return this.adminRequest(`/admin/employees/${employeeId}/register-onchain`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Issue credential to employee
+   */
+  static async issueCredential(targetEmployeeId: string, badge?: string) {
+    return this.adminRequest('/admin/issue-credential', {
+      method: 'POST',
+      body: JSON.stringify({ targetEmployeeId, badge }),
+    });
+  }
+
+  /**
+   * Get badge definitions
+   */
+  static async getBadges() {
+    return this.adminRequest('/admin/badges');
+  }
+
+  /**
+   * Get blockchain status
+   */
+  static async getBlockchainStatus() {
+    return ApiClient.get('/did/status/unified');
+  }
+}
+
+/**
  * Connection status checker
  * Useful for debugging network issues
  */
@@ -226,6 +442,8 @@ export class ConnectionChecker {
 export default {
   ApiClient,
   AuthAPI,
+  AuditAPI,
+  AdminAPI,
   ConnectionChecker,
   ApiError,
 };
