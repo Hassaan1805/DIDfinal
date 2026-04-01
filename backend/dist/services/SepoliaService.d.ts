@@ -75,6 +75,36 @@ export declare class SepoliaBlockchainService {
     getGasPayerEtherscanUrl(): string;
     isConfigured(): boolean;
     isReady(): boolean;
+    getReadinessStatus(): {
+        ready: boolean;
+        configured: boolean;
+        issues: string[];
+        actionableMessages: string[];
+        config: {
+            rpcUrl: string;
+            contractAddress: string;
+            walletAddress: string;
+            chainId: number;
+        };
+    };
+    getUnifiedStatus(): Promise<{
+        sepolia: {
+            ready: boolean;
+            configured: boolean;
+            status: 'operational' | 'degraded' | 'unavailable';
+            issues: string[];
+            actionableMessages: string[];
+            networkStatus?: {
+                networkName: string;
+                chainId: number;
+                blockNumber: number;
+                gasPrice: string;
+                walletBalance: string;
+                contractDeployed: boolean;
+            };
+        };
+        recommendedAction: string;
+    }>;
 }
 export declare const sepoliaService: SepoliaBlockchainService;
 //# sourceMappingURL=SepoliaService.d.ts.map

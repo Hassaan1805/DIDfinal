@@ -83,10 +83,38 @@ class SepoliaBlockchainService {
                     txHash: 'already-registered'
                 };
             }
-            const gasEstimate = await this.contract.registerEmployeeDID.estimateGas(employeeAddress, did, publicKeyJwk);
-            console.log(`⛽ Estimated gas: ${gasEstimate.toString()}`);
+            const balance = await this.provider.getBalance(this.wallet.address);
+            const feeData = await this.provider.getFeeData();
+            const gasPrice = feeData.gasPrice || 0n;
+            const estimatedCost = 300000n * gasPrice;
+            const requiredBalance = estimatedCost * 150n / 100n;
+            console.log(`💰 Wallet balance: ${ethers_1.ethers.formatEther(balance)} ETH`);
+            console.log(`💸 Estimated cost: ${ethers_1.ethers.formatEther(estimatedCost)} ETH`);
+            console.log(`⚠️  Required balance: ${ethers_1.ethers.formatEther(requiredBalance)} ETH`);
+            if (balance < requiredBalance) {
+                const shortfall = requiredBalance - balance;
+                return {
+                    success: false,
+                    error: `Insufficient funds in gas station wallet. ` +
+                        `Balance: ${ethers_1.ethers.formatEther(balance)} ETH, ` +
+                        `Required: ${ethers_1.ethers.formatEther(requiredBalance)} ETH, ` +
+                        `Shortfall: ${ethers_1.ethers.formatEther(shortfall)} ETH. ` +
+                        `Please fund wallet at ${this.wallet.address} using https://sepoliafaucet.com/`
+                };
+            }
+            let gasLimit;
+            try {
+                const gasEstimate = await this.contract.registerEmployeeDID.estimateGas(employeeAddress, did, publicKeyJwk);
+                console.log(`⛽ Estimated gas: ${gasEstimate.toString()}`);
+                gasLimit = gasEstimate * 150n / 100n;
+            }
+            catch (estimateError) {
+                console.warn('⚠️  Gas estimation failed, using fallback:', estimateError.message);
+                gasLimit = 300000n;
+            }
+            console.log(`⛽ Using gas limit: ${gasLimit.toString()}`);
             const tx = await this.contract.registerEmployeeDID(employeeAddress, did, publicKeyJwk, {
-                gasLimit: gasEstimate * 120n / 100n
+                gasLimit: gasLimit
             });
             console.log(`📝 Transaction submitted: ${tx.hash}`);
             console.log(`🔍 Etherscan: https://sepolia.etherscan.io/tx/${tx.hash}`);
@@ -106,9 +134,28 @@ class SepoliaBlockchainService {
         }
         catch (error) {
             console.error('❌ Sepolia employee DID registration failed:', error);
+            let errorMessage = 'Registration failed';
+            if (error.code === 'CALL_EXCEPTION') {
+                errorMessage = `Contract rejected transaction: ${error.reason || error.message}. Possible causes: DID already registered, invalid input, or contract state issue.`;
+            }
+            else if (error.code === 'INSUFFICIENT_FUNDS' || error.message?.includes('insufficient funds')) {
+                errorMessage = `Insufficient funds in wallet ${this.wallet.address}. Get testnet ETH from https://sepoliafaucet.com/`;
+            }
+            else if (error.code === 'NETWORK_ERROR' || error.code === 'SERVER_ERROR') {
+                errorMessage = `Network connection error. Check internet connection or try alternative RPC endpoint.`;
+            }
+            else if (error.code === 'TIMEOUT') {
+                errorMessage = `Transaction timeout. The transaction may still be pending on Sepolia.`;
+            }
+            else if (error.message?.includes('gas')) {
+                errorMessage = `Gas error: ${error.message}. Check wallet balance and network status.`;
+            }
+            else {
+                errorMessage = error.message || 'Unknown error occurred';
+            }
             return {
                 success: false,
-                error: error.message || 'Registration failed'
+                error: errorMessage
             };
         }
     }
@@ -118,9 +165,19 @@ class SepoliaBlockchainService {
                 throw new Error('Smart contract not available - check SEPOLIA_CONTRACT_ADDRESS');
             }
             console.log(`🔏 Recording authentication on Sepolia for challenge ${challengeId}...`);
-            const gasEstimate = await this.contract.recordAuthentication.estimateGas(challengeId, message, userAddress);
+            let gasLimit;
+            try {
+                const gasEstimate = await this.contract.recordAuthentication.estimateGas(challengeId, message, userAddress);
+                console.log(`⛽ Estimated gas: ${gasEstimate.toString()}`);
+                gasLimit = gasEstimate * 150n / 100n;
+            }
+            catch (estimateError) {
+                console.warn('⚠️  Gas estimation failed, using fallback:', estimateError.message);
+                gasLimit = 200000n;
+            }
+            console.log(`⛽ Using gas limit: ${gasLimit.toString()}`);
             const tx = await this.contract.recordAuthentication(challengeId, message, userAddress, {
-                gasLimit: gasEstimate * 120n / 100n
+                gasLimit: gasLimit
             });
             console.log(`📝 Authentication record transaction: ${tx.hash}`);
             const receipt = await tx.wait(1);
@@ -138,9 +195,25 @@ class SepoliaBlockchainService {
         }
         catch (error) {
             console.error('❌ Failed to record authentication:', error);
+            let errorMessage = 'Authentication recording failed';
+            if (error.code === 'CALL_EXCEPTION') {
+                errorMessage = `Contract rejected transaction: ${error.reason || error.message}`;
+            }
+            else if (error.code === 'INSUFFICIENT_FUNDS' || error.message?.includes('insufficient funds')) {
+                errorMessage = `Insufficient funds. Fund wallet at https://sepoliafaucet.com/`;
+            }
+            else if (error.code === 'NETWORK_ERROR' || error.code === 'SERVER_ERROR') {
+                errorMessage = `Network connection error. Check RPC endpoint.`;
+            }
+            else if (error.message?.includes('gas')) {
+                errorMessage = `Gas error: ${error.message}`;
+            }
+            else {
+                errorMessage = error.message || 'Unknown error occurred';
+            }
             return {
                 success: false,
-                error: error.message || 'Authentication recording failed'
+                error: errorMessage
             };
         }
     }
@@ -151,9 +224,19 @@ class SepoliaBlockchainService {
             }
             console.log(`🔍 Verifying authentication on Sepolia for challenge ${challengeId}...`);
             const signatureBytes = ethers_1.ethers.getBytes(signature);
-            const gasEstimate = await this.contract.verifyAuthentication.estimateGas(challengeId, signatureBytes);
+            let gasLimit;
+            try {
+                const gasEstimate = await this.contract.verifyAuthentication.estimateGas(challengeId, signatureBytes);
+                console.log(`⛽ Estimated gas: ${gasEstimate.toString()}`);
+                gasLimit = gasEstimate * 150n / 100n;
+            }
+            catch (estimateError) {
+                console.warn('⚠️  Gas estimation failed, using fallback:', estimateError.message);
+                gasLimit = 150000n;
+            }
+            console.log(`⛽ Using gas limit: ${gasLimit.toString()}`);
             const tx = await this.contract.verifyAuthentication(challengeId, signatureBytes, {
-                gasLimit: gasEstimate * 120n / 100n
+                gasLimit: gasLimit
             });
             console.log(`📝 Verification transaction: ${tx.hash}`);
             const receipt = await tx.wait(1);
@@ -331,6 +414,100 @@ class SepoliaBlockchainService {
     }
     isReady() {
         return !!(this.provider && this.wallet && this.contract);
+    }
+    getReadinessStatus() {
+        const issues = [];
+        const actionableMessages = [];
+        if (!this.config.rpcUrl) {
+            issues.push('SEPOLIA_RPC_URL not configured');
+            actionableMessages.push('Set SEPOLIA_RPC_URL in your .env file (e.g., https://sepolia.infura.io/v3/YOUR_KEY)');
+        }
+        if (!this.config.privateKey) {
+            issues.push('PLATFORM_PRIVATE_KEY not configured');
+            actionableMessages.push('Set PLATFORM_PRIVATE_KEY in your .env file (use a dedicated wallet for gas payments)');
+        }
+        if (!this.config.contractAddress) {
+            issues.push('SEPOLIA_CONTRACT_ADDRESS not configured');
+            actionableMessages.push('Set SEPOLIA_CONTRACT_ADDRESS in your .env file after deploying the contract');
+        }
+        if (this.config.rpcUrl && !this.provider) {
+            issues.push('Provider failed to initialize');
+            actionableMessages.push('Check that SEPOLIA_RPC_URL is valid and accessible');
+        }
+        if (this.config.privateKey && !this.wallet) {
+            issues.push('Wallet failed to initialize');
+            actionableMessages.push('Check that PLATFORM_PRIVATE_KEY is a valid Ethereum private key');
+        }
+        if (this.config.contractAddress && !this.contract) {
+            issues.push('Contract failed to initialize');
+            actionableMessages.push('Verify the contract is deployed at SEPOLIA_CONTRACT_ADDRESS');
+        }
+        return {
+            ready: issues.length === 0 && this.isReady(),
+            configured: this.isConfigured(),
+            issues,
+            actionableMessages,
+            config: {
+                rpcUrl: this.config.rpcUrl ? `${this.config.rpcUrl.substring(0, 30)}...` : 'not set',
+                contractAddress: this.config.contractAddress || 'not set',
+                walletAddress: this.wallet?.address || 'not initialized',
+                chainId: this.config.chainId,
+            },
+        };
+    }
+    async getUnifiedStatus() {
+        const readiness = this.getReadinessStatus();
+        let status = 'unavailable';
+        let networkStatus = undefined;
+        let recommendedAction = '';
+        if (readiness.ready) {
+            try {
+                const networkResult = await this.getNetworkStatus();
+                if (networkResult.success && networkResult.status) {
+                    networkStatus = networkResult.status;
+                    status = networkResult.status.contractDeployed ? 'operational' : 'degraded';
+                    if (!networkResult.status.contractDeployed) {
+                        readiness.issues.push('Contract not deployed at configured address');
+                        readiness.actionableMessages.push('Deploy the contract using: npm run blockchain:deploy');
+                    }
+                    const balanceNum = parseFloat(networkResult.status.walletBalance);
+                    if (balanceNum < 0.01) {
+                        readiness.issues.push('Low wallet balance for gas payments');
+                        readiness.actionableMessages.push(`Fund wallet ${this.wallet?.address} with Sepolia ETH from https://sepoliafaucet.com/`);
+                        status = 'degraded';
+                    }
+                }
+                else {
+                    status = 'degraded';
+                    readiness.issues.push('Network status check failed');
+                    readiness.actionableMessages.push('Verify RPC endpoint is accessible');
+                }
+            }
+            catch (error) {
+                status = 'degraded';
+                readiness.issues.push(`Network check error: ${error.message}`);
+            }
+        }
+        if (status === 'operational') {
+            recommendedAction = 'Sepolia blockchain is operational. You can register DIDs and authenticate.';
+        }
+        else if (status === 'degraded') {
+            recommendedAction = readiness.actionableMessages[0] || 'Review configuration and resolve issues.';
+        }
+        else {
+            recommendedAction = 'Configure Sepolia environment variables to enable blockchain features.';
+        }
+        return {
+            sepolia: {
+                ready: status === 'operational',
+                configured: readiness.configured,
+                status,
+                issues: readiness.issues,
+                actionableMessages: readiness.actionableMessages,
+                networkStatus,
+            },
+            recommendedAction,
+        };
     }
 }
 exports.SepoliaBlockchainService = SepoliaBlockchainService;

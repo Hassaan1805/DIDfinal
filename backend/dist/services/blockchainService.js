@@ -16,9 +16,42 @@ const DID_REGISTRY_ABI = [
 ];
 class BlockchainService {
     constructor(config) {
+        this.config = config;
         this.provider = new ethers_1.ethers.JsonRpcProvider(config.rpcUrl);
         this.gasStationWallet = new ethers_1.ethers.Wallet(config.gasStationPrivateKey, this.provider);
         this.didRegistryContract = new ethers_1.ethers.Contract(config.contractAddress, DID_REGISTRY_ABI, this.gasStationWallet);
+    }
+    static isPlaceholderRpcUrl(value) {
+        return !value || value.includes('your-project-id');
+    }
+    static isPlaceholderContractAddress(value) {
+        return !value || value === '0x0000000000000000000000000000000000000000';
+    }
+    static isPlaceholderPrivateKey(value) {
+        return !value || value === '0x1234567890123456789012345678901234567890123456789012345678901234';
+    }
+    getReadinessStatus() {
+        const reasons = [];
+        if (BlockchainService.isPlaceholderRpcUrl(this.config.rpcUrl)) {
+            reasons.push('ETHEREUM_RPC_URL is missing or still set to placeholder value');
+        }
+        if (BlockchainService.isPlaceholderContractAddress(this.config.contractAddress)) {
+            reasons.push('CONTRACT_ADDRESS/DID_REGISTRY_ADDRESS is missing or invalid');
+        }
+        if (BlockchainService.isPlaceholderPrivateKey(this.config.gasStationPrivateKey)) {
+            reasons.push('GAS_STATION_PRIVATE_KEY is missing or still set to development placeholder');
+        }
+        return {
+            configured: reasons.length === 0,
+            ready: reasons.length === 0,
+            reasons,
+            rpcUrl: this.config.rpcUrl,
+            contractAddress: this.config.contractAddress,
+            gasStationAddress: this.gasStationWallet.address,
+        };
+    }
+    isReady() {
+        return this.getReadinessStatus().ready;
     }
     async registerDID(userAddress, publicKey) {
         try {
@@ -34,10 +67,35 @@ class BlockchainService {
             if (existingDID) {
                 throw new Error('DID already registered for this address');
             }
-            const gasEstimate = await this.didRegistryContract.registerDID.estimateGas(userAddress, publicKey);
-            console.log(`⛽ Estimated gas: ${gasEstimate.toString()}`);
+            const balance = await this.provider.getBalance(this.gasStationWallet.address);
+            const feeData = await this.provider.getFeeData();
+            const gasPrice = feeData.gasPrice || 0n;
+            const estimatedCost = 300000n * gasPrice;
+            const requiredBalance = estimatedCost * 150n / 100n;
+            console.log(`💰 Wallet balance: ${ethers_1.ethers.formatEther(balance)} ETH`);
+            console.log(`💸 Estimated cost: ${ethers_1.ethers.formatEther(estimatedCost)} ETH`);
+            console.log(`⚠️  Required balance: ${ethers_1.ethers.formatEther(requiredBalance)} ETH`);
+            if (balance < requiredBalance) {
+                const shortfall = requiredBalance - balance;
+                throw new Error(`Insufficient funds in gas station wallet. ` +
+                    `Balance: ${ethers_1.ethers.formatEther(balance)} ETH, ` +
+                    `Required: ${ethers_1.ethers.formatEther(requiredBalance)} ETH, ` +
+                    `Shortfall: ${ethers_1.ethers.formatEther(shortfall)} ETH. ` +
+                    `Please fund wallet at ${this.gasStationWallet.address} using https://sepoliafaucet.com/`);
+            }
+            let gasLimit;
+            try {
+                const gasEstimate = await this.didRegistryContract.registerDID.estimateGas(userAddress, publicKey);
+                console.log(`⛽ Estimated gas: ${gasEstimate.toString()}`);
+                gasLimit = gasEstimate * 150n / 100n;
+            }
+            catch (estimateError) {
+                console.warn('⚠️  Gas estimation failed, using fallback:', estimateError.message);
+                gasLimit = 300000n;
+            }
+            console.log(`⛽ Using gas limit: ${gasLimit.toString()}`);
             const tx = await this.didRegistryContract.registerDID(userAddress, publicKey, {
-                gasLimit: gasEstimate * 120n / 100n
+                gasLimit: gasLimit
             });
             console.log(`📋 Transaction sent: ${tx.hash}`);
             const receipt = await tx.wait();
@@ -68,15 +126,52 @@ class BlockchainService {
         catch (error) {
             console.error('❌ Blockchain service error:', error);
             if (error.code === 'CALL_EXCEPTION') {
-                throw new Error(`Smart contract error: ${error.reason || error.message}`);
+                const reason = error.reason || error.message || 'Unknown contract error';
+                throw new Error(`Smart contract rejected transaction: ${reason}\n` +
+                    `Possible causes:\n` +
+                    `  - DID already registered\n` +
+                    `  - Invalid input data\n` +
+                    `  - Contract state issue\n` +
+                    `  - Insufficient gas limit`);
             }
-            else if (error.code === 'INSUFFICIENT_FUNDS') {
-                throw new Error('Insufficient funds in gas station wallet');
+            else if (error.code === 'INSUFFICIENT_FUNDS' || error.message?.includes('insufficient funds')) {
+                throw new Error(`Insufficient funds in gas station wallet.\n` +
+                    `Wallet address: ${this.gasStationWallet.address}\n` +
+                    `Get testnet ETH from: https://sepoliafaucet.com/\n` +
+                    `Or: https://sepolia-faucet.pk910.de/\n` +
+                    `Need at least 0.01 ETH for operations.`);
             }
-            else if (error.code === 'NETWORK_ERROR') {
-                throw new Error('Blockchain network connection error');
+            else if (error.code === 'NETWORK_ERROR' || error.code === 'SERVER_ERROR') {
+                throw new Error(`Blockchain network connection error.\n` +
+                    `Current RPC: ${this.provider._getConnection().url}\n` +
+                    `Possible solutions:\n` +
+                    `  - Check internet connection\n` +
+                    `  - Try alternative RPC endpoint\n` +
+                    `  - Verify Sepolia network is operational`);
             }
-            throw new Error(`Blockchain operation failed: ${error.message}`);
+            else if (error.code === 'TIMEOUT') {
+                throw new Error(`Transaction timeout - network congestion.\n` +
+                    `The transaction may still be pending.\n` +
+                    `Check Etherscan: https://sepolia.etherscan.io/`);
+            }
+            else if (error.code === 'NONCE_EXPIRED' || error.code === 'REPLACEMENT_UNDERPRICED') {
+                throw new Error(`Transaction nonce issue.\n` +
+                    `This usually resolves automatically.\n` +
+                    `Wait a moment and try again.`);
+            }
+            else if (error.message?.includes('gas')) {
+                throw new Error(`Gas estimation or execution failed.\n` +
+                    `Error: ${error.message}\n` +
+                    `Possible causes:\n` +
+                    `  - Insufficient funds for gas\n` +
+                    `  - Transaction would fail (contract revert)\n` +
+                    `  - Gas price spike\n` +
+                    `Check wallet balance and try again.`);
+            }
+            throw new Error(`Blockchain operation failed.\n` +
+                `Error code: ${error.code || 'UNKNOWN'}\n` +
+                `Message: ${error.message}\n` +
+                `If issue persists, check Sepolia network status.`);
         }
     }
     async isDIDRegistered(userAddress) {
@@ -246,7 +341,9 @@ class BlockchainService {
 exports.BlockchainService = BlockchainService;
 const blockchainConfig = {
     rpcUrl: process.env.ETHEREUM_RPC_URL || 'https://sepolia.infura.io/v3/your-project-id',
-    contractAddress: process.env.CONTRACT_ADDRESS || '0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48',
+    contractAddress: process.env.CONTRACT_ADDRESS
+        || process.env.DID_REGISTRY_ADDRESS
+        || '0x80c410CFb20c85eFFeA6469Bb1e4703955cF4D48',
     gasStationPrivateKey: process.env.GAS_STATION_PRIVATE_KEY || '0x1234567890123456789012345678901234567890123456789012345678901234'
 };
 exports.blockchainService = new BlockchainService(blockchainConfig);

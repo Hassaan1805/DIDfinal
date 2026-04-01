@@ -11,10 +11,18 @@ const onChainProfiles = new Map();
 function deriveHashId(employeeId, address, registrationTxHash) {
     return ethers_1.ethers.keccak256(ethers_1.ethers.toUtf8Bytes(`${employeeId}|${address.toLowerCase()}|${registrationTxHash.toLowerCase()}`));
 }
-function buildPublicKeyPayload(employeeId) {
+function buildPublicKeyPayload(employeeId, employee) {
     const wallet = employeeWallets_1.EMPLOYEE_WALLETS.get(employeeId.toUpperCase());
-    if (!wallet) {
-        throw new Error(`Missing employee wallet for ${employeeId}`);
+    if (!wallet?.privateKey) {
+        const pseudoPublicKey = ethers_1.ethers.keccak256(ethers_1.ethers.toUtf8Bytes(`${employeeId}|${employee.address.toLowerCase()}|${employee.did.toLowerCase()}`));
+        return JSON.stringify({
+            kty: 'EC',
+            crv: 'secp256k1',
+            alg: 'ES256K',
+            kid: employee.did,
+            x: pseudoPublicKey,
+            dynamicProvisioned: true,
+        });
     }
     const signingKey = new ethers_1.ethers.SigningKey(wallet.privateKey);
     return JSON.stringify({
@@ -51,7 +59,7 @@ async function ensureEmployeeRegisteredOnChain(employee) {
     if (!SepoliaService_1.sepoliaService.isReady()) {
         throw new Error('Sepolia service is not ready. Configure Sepolia environment variables before authentication.');
     }
-    const registrationResult = await SepoliaService_1.sepoliaService.registerEmployeeDID(employee.address, employee.did, buildPublicKeyPayload(employeeId));
+    const registrationResult = await SepoliaService_1.sepoliaService.registerEmployeeDID(employee.address, employee.did, buildPublicKeyPayload(employeeId, employee));
     if (!registrationResult.success) {
         throw new Error(registrationResult.error || 'Failed to register employee DID on-chain');
     }
@@ -81,27 +89,32 @@ async function enrichEmployeeWithOnChainProfile(employee) {
         lastAuthVerifyTxHash: profile.lastAuthVerifyTxHash,
     };
 }
-async function recordEmployeeAuthenticationOnChain(employee, challengeId, message, signature) {
+async function recordEmployeeAuthenticationOnChain(employee, challengeId, message, signature, options) {
     const profile = await ensureEmployeeRegisteredOnChain(employee);
     const authRecordResult = await SepoliaService_1.sepoliaService.recordAuthentication(challengeId, message, employee.address);
     if (!authRecordResult.success || !authRecordResult.txHash) {
         throw new Error(authRecordResult.error || 'Failed to record authentication on-chain');
     }
-    const verifyResult = await SepoliaService_1.sepoliaService.verifyAuthentication(challengeId, signature);
-    if (!verifyResult.success || !verifyResult.txHash) {
-        throw new Error(verifyResult.error || 'Failed to verify authentication on-chain');
+    let verifyTxHash;
+    const shouldSkipOnChainVerification = options?.skipOnChainVerification === true;
+    if (!shouldSkipOnChainVerification) {
+        const verifyResult = await SepoliaService_1.sepoliaService.verifyAuthentication(challengeId, signature);
+        if (!verifyResult.success || !verifyResult.txHash) {
+            throw new Error(verifyResult.error || 'Failed to verify authentication on-chain');
+        }
+        verifyTxHash = verifyResult.txHash;
     }
     const updated = {
         ...profile,
         lastAuthRecordTxHash: authRecordResult.txHash,
-        lastAuthVerifyTxHash: verifyResult.txHash,
+        lastAuthVerifyTxHash: verifyTxHash,
         updatedAt: new Date().toISOString(),
     };
     onChainProfiles.set(employee.id.toUpperCase(), updated);
     return {
         profile: updated,
         authRecordTxHash: authRecordResult.txHash,
-        authVerifyTxHash: verifyResult.txHash,
+        authVerifyTxHash: verifyTxHash,
     };
 }
 //# sourceMappingURL=employeeOnChainRegistry.js.map

@@ -27,9 +27,11 @@ export declare function enrichEmployeeWithOnChainProfile<T extends EmployeeRecor
 }>;
 export declare function recordEmployeeAuthenticationOnChain(employee: EmployeeRecord & {
     hashId?: string;
-}, challengeId: string, message: string, signature: string): Promise<{
+}, challengeId: string, message: string, signature: string, options?: {
+    skipOnChainVerification?: boolean;
+}): Promise<{
     profile: EmployeeOnChainProfile;
     authRecordTxHash: string;
-    authVerifyTxHash: string;
+    authVerifyTxHash?: string;
 }>;
 //# sourceMappingURL=employeeOnChainRegistry.d.ts.map
