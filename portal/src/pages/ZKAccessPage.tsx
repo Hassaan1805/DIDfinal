@@ -74,6 +74,10 @@ const ZKAccessPage: React.FC = () => {
   const [serviceStatus, setServiceStatus] = useState<any>(null);
   const [manualProof, setManualProof] = useState<string>('');
   const [manualSignals, setManualSignals] = useState<string>('');
+  const [privateKeyInput, setPrivateKeyInput] = useState<string>('');
+  const [generating, setGenerating] = useState(false);
+  const [proofMode, setProofMode] = useState<'auto' | 'manual'>('auto');
+  const [zkpFilesReady, setZkpFilesReady] = useState<boolean | null>(null);
 
   useEffect(() => {
     fetchServiceStatus();
@@ -107,7 +111,7 @@ const ZKAccessPage: React.FC = () => {
     try {
       const response = await fetch(`${API_BASE}/api/auth/zkp-challenge`);
       const data = await response.json();
-      if (data.success) { setChallenge(data.data); setSuccess('Challenge generated! Use your wallet to generate a ZK-proof.'); }
+      if (data.success) { setChallenge(data.data); setSuccess('Challenge generated! Generate a ZK-proof below.'); checkZkpFiles(); }
       else setError(data.error || 'Failed to get challenge');
     } catch (err) { setError('Network error: Unable to reach server'); }
     finally { setLoading(false); }
@@ -157,6 +161,75 @@ const ZKAccessPage: React.FC = () => {
     localStorage.removeItem('zkp_anonymous_token');
     setAnonymousToken(null); setCurrentTier('basic'); setPremiumData(null); setSuccess(null);
   };
+
+  // Check whether compiled circuit files are served under /zkp/
+  const checkZkpFiles = useCallback(async () => {
+    try {
+      const [wasmRes, zkeyRes] = await Promise.all([
+        fetch('/zkp/nftOwnership.wasm', { method: 'HEAD' }),
+        fetch('/zkp/nftOwnership_0001.zkey', { method: 'HEAD' }),
+      ]);
+      setZkpFilesReady(wasmRes.ok && zkeyRes.ok);
+    } catch {
+      setZkpFilesReady(false);
+    }
+  }, []);
+
+  // Generate a real Groth16 proof in the browser, then auto-submit it
+  const generateAndSubmitProof = useCallback(async () => {
+    if (!challenge || !privateKeyInput) return;
+    setGenerating(true);
+    setError(null);
+    try {
+      const FIELD_SIZE = BigInt('21888242871839275222246405745257275088548364400416034343698204186575808495617');
+      const pkHex = privateKeyInput.startsWith('0x') ? privateKeyInput.slice(2) : privateKeyInput;
+      if (!/^[0-9a-fA-F]{64}$/.test(pkHex)) {
+        setError('Private key must be exactly 64 hex characters (your Ethereum wallet private key).');
+        return;
+      }
+      const pkField = BigInt('0x' + pkHex) % FIELD_SIZE;
+
+      // Compute Merkle leaf using Poseidon (same hash function the circuit uses)
+      // leaf = Poseidon(Poseidon(pk, 0), contractAddr, tokenId=1)
+      const { buildPoseidon } = await import('circomlibjs');
+      const poseidon = await buildPoseidon();
+      const F = poseidon.F;
+      const contractAddr = BigInt('0x742d35Cc6634C0532925a3b8D8B5d3d8c0eF7e95');
+      const nonce = BigInt(challenge.timestamp) % FIELD_SIZE;
+
+      const addr = F.toObject(poseidon([pkField, nonce]));
+      const leaf = F.toObject(poseidon([addr, contractAddr, BigInt(1)]));
+
+      // Build single-leaf Merkle tree of depth 8 (leaf at position 0, all siblings = 0)
+      let node: bigint = leaf;
+      for (let i = 0; i < 8; i++) {
+        node = F.toObject(poseidon([node, BigInt(0)]));
+      }
+      const merkleRoot = node.toString();
+
+      // Generate the Groth16 proof entirely in the browser
+      const snarkjs = await import('snarkjs');
+      const { proof, publicSignals } = await (snarkjs as any).groth16.fullProve(
+        {
+          privateKey: pkField.toString(),
+          nonce: nonce.toString(),
+          tokenId: '1',
+          nftContractAddress: contractAddr.toString(),
+          merkleRoot,
+          merkleProof: Array(8).fill('0'),
+          merkleIndices: Array(8).fill('0'),
+        },
+        '/zkp/nftOwnership.wasm',
+        '/zkp/nftOwnership_0001.zkey',
+      );
+
+      await submitProof(proof, publicSignals);
+    } catch (err: any) {
+      setError(err.message || 'Proof generation failed. Ensure circuit files are in portal/public/zkp/');
+    } finally {
+      setGenerating(false);
+    }
+  }, [challenge, privateKeyInput, submitProof]);
 
   const generateDemoProof = useCallback(() => {
     const demoProof = {
@@ -350,51 +423,108 @@ const ZKAccessPage: React.FC = () => {
                 {/* Step 3 */}
                 {challenge && (
                   <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                       <span style={{ width: 20, height: 20, borderRadius: '50%', background: 'rgba(37,99,235,0.15)', border: '1px solid rgba(37,99,235,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#60a5fa', flexShrink: 0 }}>3</span>
-                      <h3 style={{ color: '#f1f5f9', fontSize: 13, fontWeight: 600, margin: 0 }}>Submit Proof</h3>
+                      <h3 style={{ color: '#f1f5f9', fontSize: 13, fontWeight: 600, margin: 0 }}>Generate & Submit Proof</h3>
                     </div>
-                    <p style={{ color: '#475569', fontSize: 12, margin: '0 0 10px', lineHeight: 1.5 }}>Paste the ZK-proof from your wallet:</p>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      <div>
-                        <label style={{ display: 'block', color: '#334155', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Proof (JSON)</label>
-                        <textarea
-                          value={manualProof}
-                          onChange={(e) => setManualProof(e.target.value)}
-                          placeholder='{"pi_a": [...], "pi_b": [...], "pi_c": [...]}'
-                          className="input-field"
-                          style={{ height: 100, fontFamily: 'var(--font-mono)', fontSize: 11, resize: 'vertical' }}
-                        />
-                      </div>
-                      <div>
-                        <label style={{ display: 'block', color: '#334155', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Public Signals (JSON Array)</label>
-                        <textarea
-                          value={manualSignals}
-                          onChange={(e) => setManualSignals(e.target.value)}
-                          placeholder='["1", "123456789", ...]'
-                          className="input-field"
-                          style={{ height: 64, fontFamily: 'var(--font-mono)', fontSize: 11, resize: 'vertical' }}
-                        />
-                      </div>
-                      <div style={{ display: 'flex', gap: 8 }}>
+
+                    {/* Mode toggle */}
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+                      {(['auto', 'manual'] as const).map(mode => (
                         <button
-                          onClick={generateDemoProof}
-                          className="btn-secondary"
-                          style={{ flex: 1, fontSize: 12, padding: '9px' }}
+                          key={mode}
+                          onClick={() => setProofMode(mode)}
+                          style={{
+                            flex: 1, padding: '6px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none',
+                            background: proofMode === mode ? 'rgba(37,99,235,0.2)' : 'rgba(255,255,255,0.04)',
+                            color: proofMode === mode ? '#60a5fa' : '#475569',
+                          }}
                         >
-                          Demo Proof
+                          {mode === 'auto' ? '⚡ Auto-Generate (ZK)' : '📋 Paste Manually'}
                         </button>
+                      ))}
+                    </div>
+
+                    {proofMode === 'auto' ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {zkpFilesReady === false && (
+                          <div style={{ padding: '10px 12px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 8, fontSize: 11, color: '#fbbf24', lineHeight: 1.6 }}>
+                            ⚠️ Circuit files not found at <code>/zkp/nftOwnership.wasm</code>.<br />
+                            Run the circuit setup first — see instructions below.
+                          </div>
+                        )}
+                        {zkpFilesReady === true && (
+                          <div style={{ padding: '8px 12px', background: 'rgba(5,150,105,0.08)', border: '1px solid rgba(5,150,105,0.2)', borderRadius: 8, fontSize: 11, color: '#34d399' }}>
+                            ✅ Circuit files loaded — ready to generate proof
+                          </div>
+                        )}
+                        <div>
+                          <label style={{ display: 'block', color: '#334155', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>
+                            Private Key <span style={{ color: '#475569', fontWeight: 400, textTransform: 'none' }}>(stays in browser — never sent to server)</span>
+                          </label>
+                          <input
+                            type="password"
+                            value={privateKeyInput}
+                            onChange={e => setPrivateKeyInput(e.target.value)}
+                            placeholder="0x... or 64 hex chars"
+                            className="input-field"
+                            style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}
+                          />
+                        </div>
                         <button
-                          onClick={handleManualSubmit}
-                          disabled={verifying || !manualProof || !manualSignals}
+                          onClick={generateAndSubmitProof}
+                          disabled={generating || verifying || !privateKeyInput || zkpFilesReady === false}
                           className="btn-primary"
-                          style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 12, padding: '9px' }}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '10px', fontSize: 12 }}
                         >
-                          {verifying ? <ArrowPathIcon style={{ width: 13, height: 13, animation: 'spin 0.8s linear infinite' }} /> : <CheckCircleIcon style={{ width: 13, height: 13 }} />}
-                          {verifying ? 'Verifying...' : 'Submit Proof'}
+                          {(generating || verifying)
+                            ? <ArrowPathIcon style={{ width: 13, height: 13, animation: 'spin 0.8s linear infinite' }} />
+                            : <ShieldCheckIcon style={{ width: 13, height: 13 }} />}
+                          {generating ? 'Generating proof…' : verifying ? 'Verifying…' : 'Generate & Submit Proof'}
                         </button>
+                        <p style={{ color: '#334155', fontSize: 11, margin: 0 }}>
+                          Proof generation runs entirely in your browser (~2–5s). Your private key is used only to compute the Poseidon commitment and is never transmitted.
+                        </p>
                       </div>
-                    </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <p style={{ color: '#475569', fontSize: 12, margin: 0, lineHeight: 1.5 }}>Paste a pre-generated proof (e.g. from the wallet app):</p>
+                        <div>
+                          <label style={{ display: 'block', color: '#334155', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Proof (JSON)</label>
+                          <textarea
+                            value={manualProof}
+                            onChange={(e) => setManualProof(e.target.value)}
+                            placeholder='{"pi_a": [...], "pi_b": [...], "pi_c": [...]}'
+                            className="input-field"
+                            style={{ height: 100, fontFamily: 'var(--font-mono)', fontSize: 11, resize: 'vertical' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', color: '#334155', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Public Signals (JSON Array)</label>
+                          <textarea
+                            value={manualSignals}
+                            onChange={(e) => setManualSignals(e.target.value)}
+                            placeholder='["1", "123456789", ...]'
+                            className="input-field"
+                            style={{ height: 64, fontFamily: 'var(--font-mono)', fontSize: 11, resize: 'vertical' }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button onClick={generateDemoProof} className="btn-secondary" style={{ flex: 1, fontSize: 12, padding: '9px' }}>
+                            Demo Proof
+                          </button>
+                          <button
+                            onClick={handleManualSubmit}
+                            disabled={verifying || !manualProof || !manualSignals}
+                            className="btn-primary"
+                            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 12, padding: '9px' }}
+                          >
+                            {verifying ? <ArrowPathIcon style={{ width: 13, height: 13, animation: 'spin 0.8s linear infinite' }} /> : <CheckCircleIcon style={{ width: 13, height: 13 }} />}
+                            {verifying ? 'Verifying...' : 'Submit Proof'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
