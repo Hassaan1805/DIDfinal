@@ -1,5 +1,6 @@
 // Load environment variables first
 import dotenv from 'dotenv';
+import path from 'path';
 
 // Ensure NODE_ENV is set if not already
 if (!process.env.NODE_ENV) {
@@ -131,6 +132,7 @@ app.use('/api/simple-test', simpleTestRoutes); // Simple blockchain testing
 app.use('/api/blockchain', blockchainRoutes); // Blockchain data viewer routes
 app.use('/api/identity', identityRoutes); // User identity profile and consent enrollment routes
 app.use('/api/zkp', zkpAccessRoutes); // ZK-proof access control routes
+app.use('/api/zkp/artifacts', express.static(path.join(__dirname, 'zkp'))); // Serve circuit artifacts (wasm, zkey) for client-side proof generation
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

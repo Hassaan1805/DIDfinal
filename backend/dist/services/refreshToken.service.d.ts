@@ -2,13 +2,16 @@ interface RefreshTokenRecord {
     token: string;
     userId: string;
     did: string;
+    badge?: string;
+    permissions?: string[];
+    credentialVerified?: boolean;
     expiresAt: Date;
     createdAt: Date;
     lastUsed: Date;
     deviceInfo?: string;
 }
 export declare function generateRefreshToken(): string;
-export declare function storeRefreshToken(token: string, userId: string, did: string, expiresInDays?: number, deviceInfo?: string): RefreshTokenRecord;
+export declare function storeRefreshToken(token: string, userId: string, did: string, expiresInDays?: number, deviceInfo?: string, badge?: string, permissions?: string[], credentialVerified?: boolean): RefreshTokenRecord;
 export declare function getRefreshToken(token: string): RefreshTokenRecord | null;
 export declare function revokeRefreshToken(token: string): boolean;
 export declare function revokeAllUserTokens(userId: string): number;

@@ -14,6 +14,7 @@ exports.listEnrollmentRequests = listEnrollmentRequests;
 exports.decideEnrollmentRequest = decideEnrollmentRequest;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
+const employeeDirectory_1 = require("./employeeDirectory");
 const DID_ETHR_REGEX = /^did:ethr:(0x[a-fA-F0-9]{40})$/;
 const ETHEREUM_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const DEFAULT_ENROLLMENT_EXPIRY_HOURS = 72;
@@ -219,6 +220,16 @@ function hydrateStoreFromDisk() {
                 if (!requesterOrganizationId || !requesterOrganizationName || !purpose) {
                     continue;
                 }
+                const rawEmployeeData = source.employeeData;
+                const employeeData = rawEmployeeData && typeof rawEmployeeData === 'object'
+                    ? {
+                        id: String(rawEmployeeData.id || ''),
+                        name: String(rawEmployeeData.name || ''),
+                        department: String(rawEmployeeData.department || ''),
+                        email: String(rawEmployeeData.email || ''),
+                        badge: String(rawEmployeeData.badge || 'employee'),
+                    }
+                    : undefined;
                 const hydrated = {
                     requestId: source.requestId,
                     did,
@@ -236,6 +247,7 @@ function hydrateStoreFromDisk() {
                     approvedClaims: sanitizeStringArray(source.approvedClaims),
                     approvedProfileFields: sanitizeStringArray(source.approvedProfileFields),
                     decisionReason: normalizeOptionalText(source.decisionReason),
+                    employeeData,
                 };
                 enrollmentRequestStore.set(hydrated.requestId, hydrated);
             }
@@ -311,10 +323,6 @@ function getPublicProfileByDid(did) {
 function createEnrollmentRequest(input) {
     hydrateStoreFromDisk();
     const normalizedDid = normalizeDid(input.did);
-    const identity = identityStore.get(normalizedDid);
-    if (!identity) {
-        throw new Error('Identity not found for DID. Register identity profile first.');
-    }
     const requesterOrganizationId = normalizeOptionalText(input.requesterOrganizationId);
     if (!requesterOrganizationId) {
         throw new Error('requesterOrganizationId is required');
@@ -344,6 +352,7 @@ function createEnrollmentRequest(input) {
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
         expiresAt,
+        employeeData: input.employeeData,
     };
     enrollmentRequestStore.set(requestId, request);
     persistStoreToDisk();
@@ -439,6 +448,15 @@ function decideEnrollmentRequest(input) {
     };
     enrollmentRequestStore.set(request.requestId, updated);
     persistStoreToDisk();
+    if (input.decision === 'approved' && request.employeeData) {
+        const { id, name, department, email, badge } = request.employeeData;
+        const address = normalizedDid.replace('did:ethr:', '');
+        try {
+            (0, employeeDirectory_1.createEmployee)({ id, name, department, email, address, badge: badge });
+        }
+        catch {
+        }
+    }
     return updated;
 }
 //# sourceMappingURL=identityProfile.service.js.map

@@ -5,7 +5,7 @@
   "main": "dist/app.js",
   "scripts": {
     "dev": "cross-env NODE_ENV=development TS_NODE_FILES=true nodemon src/app.ts",
-    "build": "tsc",
+    "build": "tsc && cp -r src/zkp/*.wasm dist/zkp/ && cp -r src/zkp/*.zkey dist/zkp/",
     "start": "node dist/app.js",
     "test": "jest",
     "test:verifier-profiles": "node scripts/test-verifier-profiles-flow.js",
@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
+    "circomlibjs": "^0.1.7",
     "cors": "^2.8.5",
     "decentralized-trust-platform": "file:..",
     "did-jwt": "^7.4.7",

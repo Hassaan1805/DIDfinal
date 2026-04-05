@@ -57,7 +57,18 @@ async function ensureEmployeeRegisteredOnChain(employee) {
         return cached;
     }
     if (!SepoliaService_1.sepoliaService.isReady()) {
-        throw new Error('Sepolia service is not ready. Configure Sepolia environment variables before authentication.');
+        console.warn(`⚠️  Sepolia not configured — using local profile for ${employeeId} (on-chain registration skipped)`);
+        const localTxHash = ethers_1.ethers.keccak256(ethers_1.ethers.toUtf8Bytes(`local|${employeeId}|${employee.address.toLowerCase()}|${employee.did.toLowerCase()}`));
+        const profile = {
+            employeeId,
+            address: employee.address,
+            did: employee.did,
+            hashId: deriveHashId(employeeId, employee.address, localTxHash),
+            didRegistrationTxHash: localTxHash,
+            updatedAt: new Date().toISOString(),
+        };
+        onChainProfiles.set(employeeId, profile);
+        return profile;
     }
     const registrationResult = await SepoliaService_1.sepoliaService.registerEmployeeDID(employee.address, employee.did, buildPublicKeyPayload(employeeId, employee));
     if (!registrationResult.success) {
@@ -91,6 +102,12 @@ async function enrichEmployeeWithOnChainProfile(employee) {
 }
 async function recordEmployeeAuthenticationOnChain(employee, challengeId, message, signature, options) {
     const profile = await ensureEmployeeRegisteredOnChain(employee);
+    if (!SepoliaService_1.sepoliaService.isReady()) {
+        console.warn(`⚠️  Sepolia not configured — skipping on-chain auth record for ${employee.id}`);
+        const updated = { ...profile, updatedAt: new Date().toISOString() };
+        onChainProfiles.set(employee.id.toUpperCase(), updated);
+        return { profile: updated, authRecordTxHash: profile.didRegistrationTxHash };
+    }
     const authRecordResult = await SepoliaService_1.sepoliaService.recordAuthentication(challengeId, message, employee.address);
     if (!authRecordResult.success || !authRecordResult.txHash) {
         throw new Error(authRecordResult.error || 'Failed to record authentication on-chain');

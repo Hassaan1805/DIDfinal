@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const dotenv_1 = __importDefault(require("dotenv"));
+const path_1 = __importDefault(require("path"));
 if (!process.env.NODE_ENV) {
     process.env.NODE_ENV = 'development';
 }
@@ -115,6 +116,7 @@ app.use('/api/simple-test', simple_test_1.default);
 app.use('/api/blockchain', blockchain_1.default);
 app.use('/api/identity', identity_1.identityRoutes);
 app.use('/api/zkp', zkpAccess_routes_1.default);
+app.use('/api/zkp/artifacts', express_1.default.static(path_1.default.join(__dirname, 'zkp')));
 app.use((err, req, res, next) => {
     console.error('Error:', err);
     if (err.name === 'ValidationError') {

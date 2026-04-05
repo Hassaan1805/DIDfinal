@@ -17,13 +17,16 @@ const refreshTokenStore = new Map();
 function generateRefreshToken() {
     return crypto_1.default.randomBytes(32).toString('hex');
 }
-function storeRefreshToken(token, userId, did, expiresInDays = 7, deviceInfo) {
+function storeRefreshToken(token, userId, did, expiresInDays = 7, deviceInfo, badge, permissions, credentialVerified) {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + expiresInDays * 24 * 60 * 60 * 1000);
     const record = {
         token,
         userId,
         did,
+        badge,
+        permissions,
+        credentialVerified,
         expiresAt,
         createdAt: now,
         lastUsed: now,

@@ -749,6 +749,7 @@ router.post('/enrollment-requests', (req: Request, res: Response): void => {
       requestedClaims,
       requestedProfileFields,
       expiresInHours,
+      employeeData,
     } = req.body as {
       did?: string;
       requesterOrganizationId?: string;
@@ -758,6 +759,7 @@ router.post('/enrollment-requests', (req: Request, res: Response): void => {
       requestedClaims?: string[];
       requestedProfileFields?: string[];
       expiresInHours?: number;
+      employeeData?: { id: string; name: string; department: string; email: string; badge: string };
     };
 
     if (!did || !requesterOrganizationId || !requesterOrganizationName || !purpose) {
@@ -779,6 +781,7 @@ router.post('/enrollment-requests', (req: Request, res: Response): void => {
       requestedClaims,
       requestedProfileFields,
       expiresInHours,
+      employeeData,
     });
 
     const response: ApiResponse<typeof request> = {

@@ -58,15 +58,26 @@
   {
     "id": "EMP005",
     "name": "test",
-    "department": "Engineering",
+    "department": "engineering",
     "email": "test@gmail.com",
-    "address": "0x13d4e62B5F453ec7A5eF308d5Eb14391974be59b",
-    "did": "did:ethr:0x13d4e62B5F453ec7A5eF308d5Eb14391974be59b",
+    "address": "0x0c3cdfd38c9d7df1fb6f390b82ef05d942f7330d",
+    "did": "did:ethr:0x0c3cdfd38c9d7df1fb6f390b82ef05d942f7330d",
     "active": true,
-    "badge": "employee",
+    "badge": "admin",
     "permissions": [
       "dashboard:view",
-      "tasks:view"
-    ]
+      "tasks:view",
+      "team:insights",
+      "approvals:manage",
+      "users:manage",
+      "badges:issue"
+    ],
+    "zkAddress": "14323782783891936474076389891448324731059999967273415025224307515805598731105",
+    "merkleRoots": {
+      "employee": "581597128372097325931841268138062910980287527948822461355542154399738416713",
+      "manager": "6863625752647416383464164967735203174068546930342088267571214139127679155887",
+      "auditor": "2143967094904113202575199494600494179360332886027698235286710906495164811677",
+      "admin": "15587495030579746850465466579003004391658864186293473886923613873899386313124"
+    }
   }
 ]

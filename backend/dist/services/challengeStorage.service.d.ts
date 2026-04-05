@@ -2,6 +2,9 @@ export interface AuthChallenge {
     challenge: string;
     timestamp: number;
     used: boolean;
+    challengeType?: 'standard' | 'role_proof';
+    requiredBadge?: 'employee' | 'manager' | 'admin' | 'auditor';
+    scope?: string;
     token?: string;
     refreshToken?: string;
     userAddress?: string;

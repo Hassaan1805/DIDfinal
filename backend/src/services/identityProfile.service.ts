@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { createEmployee } from './employeeDirectory';
 
 export type EnrollmentRequestStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 export type EnrollmentDecision = 'approved' | 'rejected';
@@ -56,6 +57,14 @@ export interface RegisterIdentityInput {
   privateProfilePointer?: UserPrivateProfilePointer;
 }
 
+export interface EnrollmentEmployeeData {
+  id: string;
+  name: string;
+  department: string;
+  email: string;
+  badge: string;
+}
+
 export interface CreateEnrollmentRequestInput {
   did: string;
   requesterOrganizationId: string;
@@ -65,6 +74,7 @@ export interface CreateEnrollmentRequestInput {
   requestedClaims?: string[];
   requestedProfileFields?: string[];
   expiresInHours?: number;
+  employeeData?: EnrollmentEmployeeData;
 }
 
 export interface EnrollmentRequest {
@@ -84,6 +94,7 @@ export interface EnrollmentRequest {
   approvedClaims?: string[];
   approvedProfileFields?: string[];
   decisionReason?: string;
+  employeeData?: EnrollmentEmployeeData;
 }
 
 export interface DecideEnrollmentRequestInput {
@@ -356,6 +367,18 @@ function hydrateStoreFromDisk(): void {
           continue;
         }
 
+        const rawEmployeeData = (source as any).employeeData;
+        const employeeData: EnrollmentEmployeeData | undefined =
+          rawEmployeeData && typeof rawEmployeeData === 'object'
+            ? {
+                id: String(rawEmployeeData.id || ''),
+                name: String(rawEmployeeData.name || ''),
+                department: String(rawEmployeeData.department || ''),
+                email: String(rawEmployeeData.email || ''),
+                badge: String(rawEmployeeData.badge || 'employee'),
+              }
+            : undefined;
+
         const hydrated: EnrollmentRequest = {
           requestId: source.requestId,
           did,
@@ -373,6 +396,7 @@ function hydrateStoreFromDisk(): void {
           approvedClaims: sanitizeStringArray(source.approvedClaims),
           approvedProfileFields: sanitizeStringArray(source.approvedProfileFields),
           decisionReason: normalizeOptionalText(source.decisionReason),
+          employeeData,
         };
 
         enrollmentRequestStore.set(hydrated.requestId, hydrated);
@@ -466,10 +490,6 @@ export function getPublicProfileByDid(did: string): {
 export function createEnrollmentRequest(input: CreateEnrollmentRequestInput): EnrollmentRequest {
   hydrateStoreFromDisk();
   const normalizedDid = normalizeDid(input.did);
-  const identity = identityStore.get(normalizedDid);
-  if (!identity) {
-    throw new Error('Identity not found for DID. Register identity profile first.');
-  }
 
   const requesterOrganizationId = normalizeOptionalText(input.requesterOrganizationId);
   if (!requesterOrganizationId) {
@@ -505,6 +525,7 @@ export function createEnrollmentRequest(input: CreateEnrollmentRequestInput): En
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
     expiresAt,
+    employeeData: input.employeeData,
   };
 
   enrollmentRequestStore.set(requestId, request);
@@ -628,5 +649,16 @@ export function decideEnrollmentRequest(input: DecideEnrollmentRequestInput): En
 
   enrollmentRequestStore.set(request.requestId, updated);
   persistStoreToDisk();
+
+  if (input.decision === 'approved' && request.employeeData) {
+    const { id, name, department, email, badge } = request.employeeData;
+    const address = normalizedDid.replace('did:ethr:', '');
+    try {
+      createEmployee({ id, name, department, email, address, badge: badge as any });
+    } catch {
+      // Employee may already exist (e.g. duplicate approval attempt) — safe to ignore
+    }
+  }
+
   return updated;
 }

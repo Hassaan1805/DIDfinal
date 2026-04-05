@@ -535,7 +535,7 @@ router.post('/register', requireIdentityProof('register_profile'), (req, res) =>
 });
 router.post('/enrollment-requests', (req, res) => {
     try {
-        const { did, requesterOrganizationId, requesterOrganizationName, verifierId, purpose, requestedClaims, requestedProfileFields, expiresInHours, } = req.body;
+        const { did, requesterOrganizationId, requesterOrganizationName, verifierId, purpose, requestedClaims, requestedProfileFields, expiresInHours, employeeData, } = req.body;
         if (!did || !requesterOrganizationId || !requesterOrganizationName || !purpose) {
             const response = {
                 success: false,
@@ -554,6 +554,7 @@ router.post('/enrollment-requests', (req, res) => {
             requestedClaims,
             requestedProfileFields,
             expiresInHours,
+            employeeData,
         });
         const response = {
             success: true,

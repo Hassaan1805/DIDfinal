@@ -47,6 +47,13 @@ export interface RegisterIdentityInput {
     };
     privateProfilePointer?: UserPrivateProfilePointer;
 }
+export interface EnrollmentEmployeeData {
+    id: string;
+    name: string;
+    department: string;
+    email: string;
+    badge: string;
+}
 export interface CreateEnrollmentRequestInput {
     did: string;
     requesterOrganizationId: string;
@@ -56,6 +63,7 @@ export interface CreateEnrollmentRequestInput {
     requestedClaims?: string[];
     requestedProfileFields?: string[];
     expiresInHours?: number;
+    employeeData?: EnrollmentEmployeeData;
 }
 export interface EnrollmentRequest {
     requestId: string;
@@ -74,6 +82,7 @@ export interface EnrollmentRequest {
     approvedClaims?: string[];
     approvedProfileFields?: string[];
     decisionReason?: string;
+    employeeData?: EnrollmentEmployeeData;
 }
 export interface DecideEnrollmentRequestInput {
     requestId: string;
