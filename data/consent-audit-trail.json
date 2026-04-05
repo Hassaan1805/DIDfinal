@@ -1,7 +1,41 @@
 {
   "version": 1,
-  "updatedAt": "2026-03-31T17:13:49.967Z",
+  "updatedAt": "2026-04-02T14:43:26.507Z",
   "events": [
+    {
+      "auditId": "consent_audit_1775141006506_tcz3n73g",
+      "createdAt": "2026-04-02T14:43:26.506Z",
+      "requestId": "enr_1775140988262_6wesliak",
+      "did": "did:ethr:0x0c3cdfd38c9d7df1fb6f390b82ef05d942f7330d",
+      "decision": "approved",
+      "decidedAt": "2026-04-02T14:43:26.503Z",
+      "requesterOrganizationId": "dtp_enterprise_001",
+      "requesterOrganizationName": "DTP Enterprise",
+      "purpose": "Employee onboarding",
+      "approvedClaims": [],
+      "approvedProfileFields": [],
+      "reason": "Approved in wallet",
+      "actorAddress": "0x0c3cdfd38c9d7df1fb6f390b82ef05d942f7330d",
+      "actorChallengeId": "identity_e261d5e4-a0f4-46a3-815a-29bd905737ca",
+      "actorAction": "enrollment_decision"
+    },
+    {
+      "auditId": "consent_audit_1775138438339_wry8ww7z",
+      "createdAt": "2026-04-02T14:00:38.339Z",
+      "requestId": "enr_1775138237496_ru88hegl",
+      "did": "did:ethr:0x0c3cdfd38c9d7df1fb6f390b82ef05d942f7330d",
+      "decision": "approved",
+      "decidedAt": "2026-04-02T14:00:38.337Z",
+      "requesterOrganizationId": "dtp_enterprise_001",
+      "requesterOrganizationName": "DTP Enterprise",
+      "purpose": "Employee onboarding",
+      "approvedClaims": [],
+      "approvedProfileFields": [],
+      "reason": "Approved in wallet",
+      "actorAddress": "0x0c3cdfd38c9d7df1fb6f390b82ef05d942f7330d",
+      "actorChallengeId": "identity_4b011e1f-4551-4baf-a4a6-0fa349543e86",
+      "actorAction": "enrollment_decision"
+    },
     {
       "auditId": "consent_audit_1774977229966_n9l393hb",
       "createdAt": "2026-03-31T17:13:49.966Z",

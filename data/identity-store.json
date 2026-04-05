@@ -162,7 +162,9 @@
       "status": "pending",
       "createdAt": "2026-03-31T17:12:32.642Z",
       "updatedAt": "2026-03-31T17:12:32.642Z",
-      "expiresAt": "2026-04-03T17:12:32.642Z"
+      "expiresAt": "2026-04-03T17:12:32.642Z",
+      "approvedClaims": [],
+      "approvedProfileFields": []
     },
     {
       "requestId": "enr_1774977152647_mo2p6v90",
@@ -180,7 +182,9 @@
       "status": "pending",
       "createdAt": "2026-03-31T17:12:32.647Z",
       "updatedAt": "2026-03-31T17:12:32.647Z",
-      "expiresAt": "2026-04-03T17:12:32.647Z"
+      "expiresAt": "2026-04-03T17:12:32.647Z",
+      "approvedClaims": [],
+      "approvedProfileFields": []
     },
     {
       "requestId": "enr_1774977229941_mqtgjsun",
@@ -201,14 +205,62 @@
       "updatedAt": "2026-03-31T17:13:49.964Z",
       "expiresAt": "2026-04-03T17:13:49.941Z",
       "decidedAt": "2026-03-31T17:13:49.964Z",
-      "decisionReason": "Audit smoke approval",
       "approvedClaims": [
         "employeeId"
       ],
       "approvedProfileFields": [
         "headline"
-      ]
+      ],
+      "decisionReason": "Audit smoke approval"
+    },
+    {
+      "requestId": "enr_1775138237496_ru88hegl",
+      "did": "did:ethr:0x0c3cdfd38c9d7df1fb6f390b82ef05d942f7330d",
+      "requesterOrganizationId": "dtp_enterprise_001",
+      "requesterOrganizationName": "DTP Enterprise",
+      "purpose": "Employee onboarding",
+      "requestedClaims": [],
+      "requestedProfileFields": [],
+      "status": "approved",
+      "createdAt": "2026-04-02T13:57:17.496Z",
+      "updatedAt": "2026-04-02T14:00:38.337Z",
+      "expiresAt": "2026-04-05T13:57:17.496Z",
+      "decidedAt": "2026-04-02T14:00:38.337Z",
+      "approvedClaims": [],
+      "approvedProfileFields": [],
+      "decisionReason": "Approved in wallet",
+      "employeeData": {
+        "id": "EMP005",
+        "name": "test",
+        "department": "Engineering",
+        "email": "test@gmail.com",
+        "badge": "admin"
+      }
+    },
+    {
+      "requestId": "enr_1775140988262_6wesliak",
+      "did": "did:ethr:0x0c3cdfd38c9d7df1fb6f390b82ef05d942f7330d",
+      "requesterOrganizationId": "dtp_enterprise_001",
+      "requesterOrganizationName": "DTP Enterprise",
+      "purpose": "Employee onboarding",
+      "requestedClaims": [],
+      "requestedProfileFields": [],
+      "status": "approved",
+      "createdAt": "2026-04-02T14:43:08.262Z",
+      "updatedAt": "2026-04-02T14:43:26.503Z",
+      "expiresAt": "2026-04-05T14:43:08.262Z",
+      "employeeData": {
+        "id": "EMP005",
+        "name": "test",
+        "department": "engineering",
+        "email": "test@gmail.com",
+        "badge": "admin"
+      },
+      "decidedAt": "2026-04-02T14:43:26.503Z",
+      "decisionReason": "Approved in wallet",
+      "approvedClaims": [],
+      "approvedProfileFields": []
     }
   ],
-  "updatedAt": "2026-03-31T17:13:49.965Z"
+  "updatedAt": "2026-04-02T14:43:26.503Z"
 }
