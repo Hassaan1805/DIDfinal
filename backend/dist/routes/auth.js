@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -16,6 +49,7 @@ const rateLimiter_middleware_1 = require("../middleware/rateLimiter.middleware")
 const validation_middleware_1 = require("../middleware/validation.middleware");
 const refreshToken_service_1 = require("../services/refreshToken.service");
 const employeeDirectory_1 = require("../services/employeeDirectory");
+const zkproof_service_1 = __importDefault(require("../services/zkproof.service"));
 const employeeOnChainRegistry_1 = require("../services/employeeOnChainRegistry");
 const issuerTrust_service_1 = require("../services/issuerTrust.service");
 const credentialStatus_service_1 = require("../services/credentialStatus.service");
@@ -751,41 +785,28 @@ async function generateChallenge(context) {
     });
     await cleanupExpiredChallenges();
     const qrCodeData = JSON.stringify({
-        type: "did-auth-request",
-        version: "1.0",
+        type: 'did-auth-request',
         challengeId,
         challenge,
-        domain: 'decentralized-trust.platform',
-        companyId: verifierProfile.organizationId,
         verifierId: verifierProfile.verifierId,
-        verifier: {
-            verifierId: verifierProfile.verifierId,
-            organizationId: verifierProfile.organizationId,
-            organizationName: verifierProfile.organizationName,
-            policyVersion: verifierProfile.policyVersion,
-            requireCredential: verifierProfile.requireCredential,
-            allowedBadges: verifierProfile.allowedBadges,
-            requiredClaimsByRequestType: verifierProfile.requiredClaimsByRequestType,
+        requestedClaims: {
+            requestType: requestedClaims.requestType,
+            requiredClaims: requestedClaims.requiredClaims,
+            policyVersion: requestedClaims.policyVersion,
         },
-        requestedClaims,
-        timestamp,
+        badge: { type: badge, permissions: employee?.permissions || badgeDefinition.permissions },
         expiresAt: timestamp + CHALLENGE_EXPIRY_TIME,
-        apiEndpoint: `${apiBaseUrl}/api/auth/verify`,
-        instruction: 'Authenticate with your DID wallet to access Enterprise Portal',
-        badge: {
-            type: badge,
-            label: badgeDefinition.label,
-            permissions: employee?.permissions || badgeDefinition.permissions,
-        },
         ...(context?.employeeId && {
-            employee,
+            employee: {
+                id: employee?.id,
+                name: employee?.name,
+                did: employee?.did,
+                hashId: employee?.hashId,
+                badge: employee?.badge,
+            },
             expectedDID: employee?.did,
             employeeHashId: employee?.hashId,
-            didRegistrationTxHash: employee?.didRegistrationTxHash,
-            adminGasPayerAddress: SepoliaService_1.sepoliaService.getGasPayerAddress(),
-            adminGasPayerEtherscanUrl: SepoliaService_1.sepoliaService.getGasPayerEtherscanUrl(),
         }),
-        ...(context?.requestType && { requestType: context.requestType })
     });
     return {
         challengeId,
@@ -807,6 +828,100 @@ async function generateChallenge(context) {
         })
     };
 }
+const BADGE_RANK = { admin: 4, auditor: 3, manager: 2, employee: 1 };
+function badgeMeetsRequirement(userBadge, required) {
+    return (BADGE_RANK[userBadge] ?? 1) >= (BADGE_RANK[required] ?? 1);
+}
+router.post('/role-challenge', async (req, res) => {
+    try {
+        const { requiredBadge, scope } = req.body;
+        if (!requiredBadge || !BADGE_RANK[requiredBadge]) {
+            res.status(400).json({
+                success: false,
+                error: 'requiredBadge is required (employee | manager | auditor | admin)',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+        if (!scope || typeof scope !== 'string') {
+            res.status(400).json({
+                success: false,
+                error: 'scope is required (e.g. "security:view")',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+        const challengeId = crypto_1.default.randomUUID();
+        const randomPart = crypto_1.default.randomBytes(32).toString('hex');
+        const timestamp = Date.now();
+        const challenge = [
+            `challenge:${randomPart}`,
+            `scope:role_proof`,
+            `requiredBadge:${requiredBadge}`,
+            `access:${scope}`,
+            `issued:${new Date(timestamp).toISOString()}`,
+        ].join('|');
+        const requestedClaims = {
+            requestType: 'general_auth',
+            requiredClaims: ['role'],
+            policyVersion: 1,
+            proofRequired: true,
+            bindingVersion: DISCLOSURE_BINDING_VERSION,
+        };
+        await (0, challengeStorage_service_1.setChallenge)(challengeId, {
+            challenge,
+            timestamp,
+            used: false,
+            challengeType: 'role_proof',
+            requiredBadge: requiredBadge,
+            scope,
+            badge: 'employee',
+            permissions: [],
+            requestType: 'general_auth',
+            requestedClaims,
+        }, CHALLENGE_EXPIRY_SECONDS);
+        const qrCodeData = JSON.stringify({
+            type: 'did-auth-request',
+            challengeId,
+            challenge,
+            platform: 'Enterprise Portal — Role Proof',
+            requestedClaims: {
+                requestType: requestedClaims.requestType,
+                requiredClaims: requestedClaims.requiredClaims,
+                policyVersion: requestedClaims.policyVersion,
+            },
+            badge: { type: 'employee', permissions: [] },
+            expiresAt: timestamp + CHALLENGE_EXPIRY_TIME,
+        });
+        (0, authTimeline_service_1.addAuthTimelineEvent)({
+            eventType: 'challenge_created',
+            status: 'info',
+            reason: 'role_proof_challenge_created',
+            challengeId,
+            metadata: { requiredBadge, scope },
+        });
+        res.json({
+            success: true,
+            data: {
+                challengeId,
+                challenge,
+                expiresIn: CHALLENGE_EXPIRY_SECONDS,
+                qrCodeData,
+                requiredBadge,
+                scope,
+            },
+            timestamp: new Date().toISOString(),
+        });
+    }
+    catch (error) {
+        console.error('❌ Role challenge creation error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to create role challenge',
+            timestamp: new Date().toISOString(),
+        });
+    }
+});
 router.get('/status/:challengeId', async (req, res) => {
     try {
         const { challengeId } = req.params;
@@ -847,6 +962,9 @@ router.get('/status/:challengeId', async (req, res) => {
             data: {
                 challengeId,
                 status: challengeData.used ? 'completed' : 'pending',
+                challengeType: challengeData.challengeType || 'standard',
+                scope: challengeData.scope,
+                requiredBadge: challengeData.requiredBadge,
                 expiresAt: challengeData.timestamp + CHALLENGE_EXPIRY_TIME,
                 verifierId: challengeData.verifierId,
                 verifierOrganizationId: challengeData.verifierOrganizationId,
@@ -1192,6 +1310,116 @@ router.post('/verify', rateLimiter_middleware_1.authRateLimiter, (0, validation_
                 return;
             }
             console.log('✅ Signature verification successful for address:', address);
+            if (challengeData.challengeType === 'role_proof') {
+                const resolvedDid = did || `did:ethr:${address}`;
+                const employee = (0, employeeDirectory_1.getEmployeeByDID)(resolvedDid);
+                const parsedDisclosedClaims = typeof disclosedClaims === 'object' && disclosedClaims ? disclosedClaims : {};
+                const disclosedRole = parsedDisclosedClaims.role;
+                const employeeBadge = employee?.badge || 'employee';
+                if (!disclosedRole || disclosedRole !== employeeBadge) {
+                    res.status(401).json({
+                        success: false,
+                        error: 'Disclosed role does not match registered badge',
+                        timestamp: new Date().toISOString(),
+                    });
+                    return;
+                }
+                if (!employee || !employee.active) {
+                    res.status(401).json({
+                        success: false,
+                        error: 'No active employee found for this DID',
+                        timestamp: new Date().toISOString(),
+                    });
+                    return;
+                }
+                if (!badgeMeetsRequirement(employeeBadge, challengeData.requiredBadge || 'employee')) {
+                    res.status(403).json({
+                        success: false,
+                        error: `Role proof failed: ${employeeBadge} does not meet required ${challengeData.requiredBadge}`,
+                        timestamp: new Date().toISOString(),
+                    });
+                    return;
+                }
+                let proofVerified = false;
+                let bindingDigest;
+                if (disclosedClaimsProof && typeof disclosedClaimsProof === 'object') {
+                    const proofResult = verifyDisclosedClaimsProof({
+                        challengeId,
+                        challengeText: challengeData.challenge,
+                        disclosedClaims: parsedDisclosedClaims,
+                        credential: credential || undefined,
+                        walletAddress: address,
+                        proof: disclosedClaimsProof,
+                    });
+                    proofVerified = proofResult.verified;
+                    bindingDigest = proofResult.bindingDigest;
+                    if (!proofVerified) {
+                        res.status(401).json({
+                            success: false,
+                            error: 'Selective disclosure proof verification failed',
+                            details: proofResult.reason,
+                            timestamp: new Date().toISOString(),
+                        });
+                        return;
+                    }
+                }
+                const scopedTokenPayload = {
+                    address,
+                    did: resolvedDid,
+                    badge: employeeBadge,
+                    scope: challengeData.scope,
+                    roleProofVerified: true,
+                    disclosedClaimsProofVerified: proofVerified,
+                    challengeId,
+                    authenticated: true,
+                    timestamp: new Date().toISOString(),
+                };
+                const scopedToken = jsonwebtoken_1.default.sign(scopedTokenPayload, JWT_SECRET, {
+                    expiresIn: '15m',
+                    issuer: 'decentralized-trust-platform',
+                });
+                challengeData.used = true;
+                challengeData.userAddress = address;
+                challengeData.did = resolvedDid;
+                challengeData.badge = employeeBadge;
+                challengeData.token = scopedToken;
+                challengeData.disclosedClaims = parsedDisclosedClaims;
+                challengeData.disclosedClaimsVerified = true;
+                challengeData.disclosedClaimsProofVerified = proofVerified;
+                challengeData.disclosedClaimsBindingDigest = bindingDigest;
+                await persistChallengeState(challengeId, challengeData);
+                (0, authTimeline_service_1.addAuthTimelineEvent)({
+                    eventType: 'verification_succeeded',
+                    status: 'success',
+                    reason: 'role_proof_verified',
+                    challengeId,
+                    did: resolvedDid,
+                    userAddress: address,
+                    employeeId: employee.id,
+                    metadata: {
+                        requiredBadge: challengeData.requiredBadge,
+                        provenBadge: employeeBadge,
+                        scope: challengeData.scope,
+                        proofVerified,
+                    },
+                });
+                console.log(`✅ Role proof verified: ${employee.id} proved badge=${employeeBadge} for scope=${challengeData.scope}`);
+                res.json({
+                    success: true,
+                    data: {
+                        token: scopedToken,
+                        scope: challengeData.scope,
+                        badge: employeeBadge,
+                        roleProofVerified: true,
+                        disclosedClaimsProofVerified: proofVerified,
+                        expiresIn: '15m',
+                        challengeId,
+                    },
+                    message: 'Role proof successful',
+                    timestamp: new Date().toISOString(),
+                });
+                return;
+            }
             const challengeEmployee = challengeData.employeeId ? (0, employeeDirectory_1.getEmployeeById)(challengeData.employeeId) : undefined;
             const resolvedEmployee = employeeId ? (0, employeeDirectory_1.getEmployeeById)(employeeId) : challengeEmployee;
             const resolvedAddress = address;
@@ -1213,7 +1441,7 @@ router.post('/verify', rateLimiter_middleware_1.authRateLimiter, (0, validation_
                 verifierOrganizationName: verifierProfile.organizationName,
                 requestType: challengeData.requestType,
             });
-            if (did && did !== resolvedDid) {
+            if (did && did.toLowerCase() !== resolvedDid.toLowerCase()) {
                 auditReason = 'did_mismatch';
                 auditHttpStatus = 401;
                 res.status(401).json({
@@ -1381,23 +1609,30 @@ router.post('/verify', rateLimiter_middleware_1.authRateLimiter, (0, validation_
                 });
                 return;
             }
-            const resolvedEmployeeWithChain = resolvedEmployee
-                ? await (0, employeeOnChainRegistry_1.enrichEmployeeWithOnChainProfile)(resolvedEmployee)
-                : undefined;
-            const onChainAuth = resolvedEmployeeWithChain
-                ? await (0, employeeOnChainRegistry_1.recordEmployeeAuthenticationOnChain)(resolvedEmployeeWithChain, challengeId, message, signature, { skipOnChainVerification: SHOULD_SKIP_ONCHAIN_VERIFY })
-                : undefined;
             challengeData.used = true;
             challengeData.userAddress = resolvedAddress;
             challengeData.did = resolvedDid;
-            challengeData.employeeId = resolvedEmployeeWithChain?.id || challengeData.employeeId;
-            challengeData.employeeName = resolvedEmployeeWithChain?.name || challengeData.employeeName;
-            challengeData.badge = (resolvedEmployeeWithChain?.badge || challengeData.badge || 'employee');
-            challengeData.permissions = resolvedEmployeeWithChain?.permissions || challengeData.permissions || [];
-            challengeData.hashId = onChainAuth?.profile.hashId || resolvedEmployeeWithChain?.hashId || challengeData.hashId;
-            challengeData.didRegistrationTxHash = onChainAuth?.profile.didRegistrationTxHash || resolvedEmployeeWithChain?.didRegistrationTxHash || challengeData.didRegistrationTxHash;
-            challengeData.authRecordTxHash = onChainAuth?.authRecordTxHash;
-            challengeData.authVerifyTxHash = onChainAuth?.authVerifyTxHash;
+            challengeData.employeeId = resolvedEmployee?.id || challengeData.employeeId;
+            challengeData.employeeName = resolvedEmployee?.name || challengeData.employeeName;
+            challengeData.badge = (resolvedEmployee?.badge || challengeData.badge || 'employee');
+            challengeData.permissions = resolvedEmployee?.permissions || challengeData.permissions || [];
+            challengeData.hashId = resolvedEmployee?.hashId || challengeData.hashId;
+            if (resolvedEmployee) {
+                (0, employeeOnChainRegistry_1.enrichEmployeeWithOnChainProfile)(resolvedEmployee)
+                    .then((employeeWithChain) => {
+                    challengeData.hashId = employeeWithChain?.hashId || challengeData.hashId;
+                    challengeData.didRegistrationTxHash = employeeWithChain?.didRegistrationTxHash || challengeData.didRegistrationTxHash;
+                    return (0, employeeOnChainRegistry_1.recordEmployeeAuthenticationOnChain)(employeeWithChain, challengeId, message, signature, { skipOnChainVerification: SHOULD_SKIP_ONCHAIN_VERIFY });
+                })
+                    .then((onChainAuth) => {
+                    challengeData.authRecordTxHash = onChainAuth?.authRecordTxHash;
+                    challengeData.authVerifyTxHash = onChainAuth?.authVerifyTxHash;
+                    console.log('✅ Background blockchain recording complete for challenge', challengeId);
+                })
+                    .catch((err) => {
+                    console.warn('⚠️ Background blockchain recording failed:', err?.message);
+                });
+            }
             challengeData.adminGasPayerAddress = SepoliaService_1.sepoliaService.getGasPayerAddress();
             challengeData.adminGasPayerEtherscanUrl = SepoliaService_1.sepoliaService.getGasPayerEtherscanUrl();
             challengeData.verifierId = verifierProfile.verifierId;
@@ -1449,7 +1684,7 @@ router.post('/verify', rateLimiter_middleware_1.authRateLimiter, (0, validation_
                 issuer: 'decentralized-trust-platform'
             });
             const refreshToken = (0, refreshToken_service_1.generateRefreshToken)();
-            (0, refreshToken_service_1.storeRefreshToken)(refreshToken, resolvedAddress, resolvedDid, 7);
+            (0, refreshToken_service_1.storeRefreshToken)(refreshToken, resolvedAddress, resolvedDid, 7, undefined, challengeData.badge, challengeData.permissions, credentialVerified);
             challengeData.token = token;
             challengeData.refreshToken = refreshToken;
             await persistChallengeState(challengeId, challengeData);
@@ -1467,7 +1702,7 @@ router.post('/verify', rateLimiter_middleware_1.authRateLimiter, (0, validation_
                     refreshToken: refreshToken,
                     address: resolvedAddress,
                     did: resolvedDid,
-                    employee: resolvedEmployeeWithChain || null,
+                    employee: resolvedEmployee || null,
                     badge: challengeData.badge,
                     permissions: challengeData.permissions,
                     hashId: challengeData.hashId,
@@ -1639,6 +1874,8 @@ router.post('/login', async (req, res) => {
                 role: employeeRole,
                 department: employeeDepartment,
                 email: employeeEmail,
+                badge: challengeData.badge || 'employee',
+                permissions: challengeData.permissions || [],
                 challengeId: challengeId,
                 authenticated: true,
                 credentialVerified: true,
@@ -1655,7 +1892,7 @@ router.post('/login', async (req, res) => {
                 issuer: 'decentralized-trust-platform'
             });
             const credentialRefreshToken = (0, refreshToken_service_1.generateRefreshToken)();
-            (0, refreshToken_service_1.storeRefreshToken)(credentialRefreshToken, userAddress, did, 7);
+            (0, refreshToken_service_1.storeRefreshToken)(credentialRefreshToken, userAddress, did, 7, undefined, (challengeData.badge || 'employee'), (challengeData.permissions || []), true);
             challengeData.used = true;
             challengeData.userAddress = userAddress;
             challengeData.did = did;
@@ -1976,6 +2213,8 @@ router.post('/sepolia-verify', rateLimiter_middleware_1.authRateLimiter, (0, val
         const tokenPayload = {
             address: checksummedAddressForToken,
             did: `did:ethr:${checksummedAddressForToken}`,
+            badge: challengeData.badge || 'employee',
+            permissions: challengeData.permissions || [],
             challengeId: challengeId,
             authenticated: true,
             blockchainPending: blockchainPending,
@@ -1986,7 +2225,7 @@ router.post('/sepolia-verify', rateLimiter_middleware_1.authRateLimiter, (0, val
             issuer: 'decentralized-trust-platform'
         });
         const refreshToken = (0, refreshToken_service_1.generateRefreshToken)();
-        (0, refreshToken_service_1.storeRefreshToken)(refreshToken, checksummedAddressForToken, `did:ethr:${checksummedAddressForToken}`, 7);
+        (0, refreshToken_service_1.storeRefreshToken)(refreshToken, checksummedAddressForToken, `did:ethr:${checksummedAddressForToken}`, 7, undefined, (challengeData.badge || 'employee'), (challengeData.permissions || []));
         challengeData.token = token;
         challengeData.refreshToken = refreshToken;
         await persistChallengeState(challengeId, challengeData);
@@ -2219,6 +2458,9 @@ router.post('/refresh', rateLimiter_middleware_1.authRateLimiter, async (req, re
         const newTokenPayload = {
             address: tokenRecord.userId,
             did: tokenRecord.did,
+            badge: tokenRecord.badge || 'employee',
+            permissions: tokenRecord.permissions || [],
+            credentialVerified: tokenRecord.credentialVerified || false,
             authenticated: true,
             refreshed: true,
             originalIssueDate: tokenRecord.createdAt.toISOString(),
@@ -2229,7 +2471,7 @@ router.post('/refresh', rateLimiter_middleware_1.authRateLimiter, async (req, re
             issuer: 'decentralized-trust-platform'
         });
         const newRefreshToken = (0, refreshToken_service_1.generateRefreshToken)();
-        (0, refreshToken_service_1.storeRefreshToken)(newRefreshToken, tokenRecord.userId, tokenRecord.did, 7, tokenRecord.deviceInfo);
+        (0, refreshToken_service_1.storeRefreshToken)(newRefreshToken, tokenRecord.userId, tokenRecord.did, 7, tokenRecord.deviceInfo, tokenRecord.badge, tokenRecord.permissions, tokenRecord.credentialVerified);
         (0, refreshToken_service_1.revokeRefreshToken)(refreshToken);
         res.json({
             success: true,
@@ -2276,6 +2518,341 @@ router.post('/logout', async (req, res) => {
             details: error.message,
             timestamp: new Date().toISOString()
         });
+    }
+});
+const zkProofService = new zkproof_service_1.default();
+const ROLE_HASHES = {
+    employee: '1000',
+    manager: '1001',
+    auditor: '1002',
+    admin: '1003',
+};
+router.get('/zk-identity', auth_middleware_1.verifyAuthToken, async (req, res) => {
+    try {
+        const address = req.user?.address;
+        if (!address) {
+            res.status(401).json({ success: false, error: 'Unauthorized' });
+            return;
+        }
+        const employee = (0, employeeDirectory_1.getEmployeeByAddress)(address);
+        if (!employee) {
+            res.status(404).json({ success: false, error: 'Employee not found' });
+            return;
+        }
+        res.json({ success: true, data: { hasZkIdentity: !!employee.zkAddress } });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+router.post('/zk-identity', auth_middleware_1.verifyAuthToken, async (req, res) => {
+    try {
+        const address = req.user?.address;
+        if (!address) {
+            res.status(401).json({ success: false, error: 'Unauthorized' });
+            return;
+        }
+        const employee = (0, employeeDirectory_1.getEmployeeByAddress)(address);
+        if (!employee) {
+            res.status(404).json({ success: false, error: 'Employee not found' });
+            return;
+        }
+        const { zkAddress, merkleRoots } = req.body;
+        if (!zkAddress || !/^\d+$/.test(zkAddress)) {
+            res.status(400).json({ success: false, error: 'zkAddress must be a decimal string' });
+            return;
+        }
+        if (!merkleRoots || typeof merkleRoots !== 'object') {
+            res.status(400).json({ success: false, error: 'merkleRoots object is required' });
+            return;
+        }
+        (0, employeeDirectory_1.setEmployeeZkData)(employee.id, zkAddress, merkleRoots);
+        console.log(`✅ ZK identity registered for employee ${employee.id}`);
+        res.json({ success: true, message: 'ZK identity registered' });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+router.post('/zk-role-challenge', auth_middleware_1.verifyAuthToken, async (req, res) => {
+    try {
+        const address = req.user?.address;
+        if (!address) {
+            res.status(401).json({ success: false, error: 'Unauthorized' });
+            return;
+        }
+        const { requiredBadge, scope } = req.body;
+        if (!requiredBadge || !ROLE_HASHES[requiredBadge]) {
+            res.status(400).json({ success: false, error: 'requiredBadge is required (employee|manager|auditor|admin)' });
+            return;
+        }
+        if (!scope) {
+            res.status(400).json({ success: false, error: 'scope is required' });
+            return;
+        }
+        const employee = (0, employeeDirectory_1.getEmployeeByAddress)(address);
+        if (!employee || !employee.active) {
+            res.status(401).json({ success: false, error: 'No active employee found' });
+            return;
+        }
+        if (!badgeMeetsRequirement(employee.badge, requiredBadge)) {
+            res.status(403).json({ success: false, error: `Your badge (${employee.badge}) does not meet required (${requiredBadge})` });
+            return;
+        }
+        if (!employee.zkAddress || !employee.merkleRoots?.[requiredBadge]) {
+            res.status(400).json({ success: false, error: 'ZK identity not registered. Visit the ZK setup first.' });
+            return;
+        }
+        const challengeId = crypto_1.default.randomUUID();
+        const timestamp = Date.now();
+        const roleHash = ROLE_HASHES[requiredBadge];
+        const merkleRoot = employee.merkleRoots[requiredBadge];
+        await (0, challengeStorage_service_1.setChallenge)(challengeId, {
+            challenge: `zk-role:${requiredBadge}:${scope}:${timestamp}`,
+            timestamp,
+            used: false,
+            challengeType: 'zk_groth16_role',
+            requiredBadge: requiredBadge,
+            scope,
+            badge: employee.badge,
+            permissions: [],
+            requestType: 'general_auth',
+            requestedClaims: { requestType: 'general_auth', requiredClaims: ['role'], policyVersion: 1, proofRequired: true, bindingVersion: DISCLOSURE_BINDING_VERSION },
+            userAddress: address,
+            zkRoleHash: roleHash,
+            zkMerkleRoot: merkleRoot,
+        }, CHALLENGE_EXPIRY_SECONDS);
+        res.json({
+            success: true,
+            data: { challengeId, roleHash, merkleRoot, requiredBadge, scope, timestamp },
+        });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+router.post('/zk-role-verify', async (req, res) => {
+    try {
+        const { challengeId, proof, publicSignals } = req.body;
+        if (!challengeId || !proof || !publicSignals) {
+            res.status(400).json({ success: false, error: 'challengeId, proof, and publicSignals are required' });
+            return;
+        }
+        const challengeData = await (0, challengeStorage_service_1.getChallenge)(challengeId);
+        if (!challengeData || challengeData.used || isChallengeExpired(challengeData)) {
+            res.status(401).json({ success: false, error: 'Challenge expired or already used' });
+            return;
+        }
+        if (challengeData.challengeType !== 'zk_groth16_role') {
+            res.status(400).json({ success: false, error: 'Wrong challenge type' });
+            return;
+        }
+        const result = await zkProofService.verifyRoleProof(proof, publicSignals, challengeData.zkRoleHash, challengeData.zkMerkleRoot);
+        if (!result.valid) {
+            res.status(401).json({ success: false, error: `ZK proof invalid: ${result.reason}` });
+            return;
+        }
+        challengeData.used = true;
+        await persistChallengeState(challengeId, challengeData);
+        const employee = (0, employeeDirectory_1.getEmployeeByAddress)(challengeData.userAddress);
+        if (!employee || !employee.active) {
+            res.status(401).json({ success: false, error: 'Employee not found' });
+            return;
+        }
+        const scopedToken = jsonwebtoken_1.default.sign({
+            address: challengeData.userAddress,
+            did: employee.did,
+            badge: employee.badge,
+            scope: challengeData.scope,
+            roleProofVerified: true,
+            zkProofVerified: true,
+            challengeId,
+            authenticated: true,
+        }, process.env.JWT_SECRET || 'development-only-secret-not-for-production', { expiresIn: '15m', issuer: 'decentralized-trust-platform' });
+        challengeData.token = scopedToken;
+        await persistChallengeState(challengeId, challengeData);
+        console.log(`✅ Groth16 role proof verified for ${employee.id}, scope=${challengeData.scope}`);
+        res.json({
+            success: true,
+            data: { token: scopedToken, scope: challengeData.scope, badge: employee.badge, expiresIn: '15m' },
+        });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+router.post('/zk-wallet-challenge', auth_middleware_1.verifyAuthToken, async (req, res) => {
+    try {
+        const address = req.user?.address;
+        if (!address) {
+            res.status(401).json({ success: false, error: 'Unauthorized' });
+            return;
+        }
+        const { requiredBadge, scope } = req.body;
+        if (!requiredBadge || !ROLE_HASHES[requiredBadge]) {
+            res.status(400).json({ success: false, error: 'requiredBadge required (employee|manager|auditor|admin)' });
+            return;
+        }
+        if (!scope) {
+            res.status(400).json({ success: false, error: 'scope required' });
+            return;
+        }
+        const employee = (0, employeeDirectory_1.getEmployeeByAddress)(address);
+        if (!employee || !employee.active) {
+            res.status(401).json({ success: false, error: 'No active employee found' });
+            return;
+        }
+        if (!badgeMeetsRequirement(employee.badge, requiredBadge)) {
+            res.status(403).json({ success: false, error: `Your badge (${employee.badge}) does not meet required (${requiredBadge})` });
+            return;
+        }
+        const challengeId = crypto_1.default.randomUUID();
+        const timestamp = Date.now();
+        await (0, challengeStorage_service_1.setChallenge)(challengeId, {
+            challenge: `zk-wallet-prove:${requiredBadge}:${scope}:${timestamp}`,
+            timestamp,
+            used: false,
+            challengeType: 'zk_wallet_prove_request',
+            requiredBadge: requiredBadge,
+            scope,
+            badge: employee.badge,
+            permissions: [],
+            requestType: 'general_auth',
+            requestedClaims: { requestType: 'general_auth', requiredClaims: ['role'], policyVersion: 1, proofRequired: true, bindingVersion: DISCLOSURE_BINDING_VERSION },
+            userAddress: address,
+        }, CHALLENGE_EXPIRY_SECONDS);
+        res.json({
+            success: true,
+            data: { challengeId, requiredBadge, scope, expiresAt: timestamp + CHALLENGE_EXPIRY_TIME },
+        });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+router.post('/zk-wallet-prove', async (req, res) => {
+    try {
+        const { challengeId, address, signature, message, zkPrivKey, proof, publicSignals } = req.body;
+        const isClientProof = proof && Array.isArray(publicSignals);
+        if (!challengeId || !address || !signature || !message) {
+            res.status(400).json({ success: false, error: 'challengeId, address, signature, message are required' });
+            return;
+        }
+        if (!isClientProof && !zkPrivKey) {
+            res.status(400).json({ success: false, error: 'Either {proof, publicSignals} or zkPrivKey is required' });
+            return;
+        }
+        if (!isClientProof && !/^[0-9a-fA-F]{64}$/.test(zkPrivKey)) {
+            res.status(400).json({ success: false, error: 'zkPrivKey must be 64 hex characters' });
+            return;
+        }
+        let recovered;
+        try {
+            recovered = ethers_1.ethers.verifyMessage(message, signature);
+        }
+        catch {
+            res.status(401).json({ success: false, error: 'Invalid signature' });
+            return;
+        }
+        if (recovered.toLowerCase() !== address.toLowerCase()) {
+            res.status(401).json({ success: false, error: 'Signature address mismatch' });
+            return;
+        }
+        const challengeData = await (0, challengeStorage_service_1.getChallenge)(challengeId);
+        if (!challengeData || challengeData.used || isChallengeExpired(challengeData)) {
+            res.status(401).json({ success: false, error: 'Challenge expired or already used' });
+            return;
+        }
+        if (challengeData.challengeType !== 'zk_wallet_prove_request') {
+            res.status(400).json({ success: false, error: 'Wrong challenge type' });
+            return;
+        }
+        const employee = (0, employeeDirectory_1.getEmployeeByAddress)(address);
+        if (!employee || !employee.active) {
+            res.status(401).json({ success: false, error: 'No active employee found' });
+            return;
+        }
+        const requiredBadge = challengeData.requiredBadge;
+        if (!badgeMeetsRequirement(employee.badge, requiredBadge)) {
+            res.status(403).json({ success: false, error: `Badge ${employee.badge} does not meet required ${requiredBadge}` });
+            return;
+        }
+        console.log(`\n🔐 ── ZK-WALLET-PROVE REQUEST ──────────────────────────────────`);
+        console.log(`   ChallengeId : ${challengeId}`);
+        console.log(`   Employee    : ${employee.id} (${employee.badge})`);
+        console.log(`   Address     : ${address}`);
+        console.log(`   Required    : ${requiredBadge} badge`);
+        console.log(`   Scope       : ${challengeData.scope}`);
+        console.log(`   ECDSA sig   : verified ✓ (wallet owns address)`);
+        console.log(`   Mode        : ${isClientProof ? '🛡️  CLIENT-SIDE PROOF (true ZKP — private key never left device)' : '⚠️  SERVER-SIDE GENERATION (legacy — private key sent to server)'}`);
+        let result;
+        if (isClientProof) {
+            const roleHash = ROLE_HASHES[requiredBadge];
+            if (!roleHash) {
+                res.status(400).json({ success: false, error: `Unknown badge: ${requiredBadge}` });
+                return;
+            }
+            const expectedMerkleRoot = employee.merkleRoots?.[requiredBadge];
+            const proofMerkleRoot = publicSignals[2];
+            const verifyAgainstRoot = expectedMerkleRoot || proofMerkleRoot;
+            result = await zkProofService.verifyRoleProof(proof, publicSignals, roleHash, verifyAgainstRoot);
+            if (result.valid) {
+                result.merkleRoot = proofMerkleRoot;
+            }
+        }
+        else {
+            result = await zkProofService.generateAndVerifyRoleProof(zkPrivKey, requiredBadge, employee.merkleRoots?.[requiredBadge]);
+        }
+        if (!result.valid) {
+            console.log(`   ❌ ZK proof REJECTED: ${result.reason}`);
+            res.status(401).json({ success: false, error: `ZK proof failed: ${result.reason}` });
+            return;
+        }
+        if (!employee.zkAddress && result.merkleRoot) {
+            if (isClientProof) {
+                const { setEmployeeZkData } = await Promise.resolve().then(() => __importStar(require('../services/employeeDirectory')));
+                const merkleRoots = { [requiredBadge]: result.merkleRoot };
+                setEmployeeZkData(employee.id, result.merkleRoot.slice(0, 40), merkleRoots);
+                console.log(`   ✅ Auto-registered ZK identity from client proof`);
+            }
+            else {
+                const zkAddress = await zkProofService.computeZkAddress(zkPrivKey);
+                const merkleRoots = {};
+                for (const [role] of Object.entries(ROLE_HASHES)) {
+                    try {
+                        merkleRoots[role] = await zkProofService.computeMerkleRoot(zkPrivKey, ROLE_HASHES[role]);
+                    }
+                    catch { }
+                }
+                const { setEmployeeZkData } = await Promise.resolve().then(() => __importStar(require('../services/employeeDirectory')));
+                setEmployeeZkData(employee.id, zkAddress, merkleRoots);
+                console.log(`   ✅ Auto-registered ZK identity: zkAddr=${zkAddress.slice(0, 16)}…`);
+            }
+        }
+        const scopedToken = jsonwebtoken_1.default.sign({
+            address,
+            did: employee.did,
+            badge: employee.badge,
+            scope: challengeData.scope,
+            roleProofVerified: true,
+            zkProofVerified: true,
+            walletQRProof: true,
+            clientSideProof: isClientProof,
+            challengeId,
+            authenticated: true,
+        }, process.env.JWT_SECRET || 'development-only-secret-not-for-production', { expiresIn: '15m', issuer: 'decentralized-trust-platform' });
+        challengeData.used = true;
+        challengeData.token = scopedToken;
+        challengeData.badge = employee.badge;
+        challengeData.userAddress = address;
+        await persistChallengeState(challengeId, challengeData);
+        console.log(`   ✅ Scoped JWT issued (15m, scope=${challengeData.scope})`);
+        console.log(`   ✅ Challenge marked completed — portal poll will pick up token`);
+        console.log(`🔐 ── ZK-WALLET-PROVE COMPLETE ─────────────────────────────────\n`);
+        res.json({ success: true, data: { message: 'ZK proof verified via wallet', badge: employee.badge } });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 //# sourceMappingURL=auth.js.map

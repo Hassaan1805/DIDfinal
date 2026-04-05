@@ -20,7 +20,10 @@ import {
   getBadgeDefinition,
   getEmployeeById,
   getEmployeeByDID,
+  getEmployeeByAddress,
+  setEmployeeZkData,
 } from '../services/employeeDirectory';
+import ZKProofService from '../services/zkproof.service';
 import {
   ensureEmployeeRegisteredOnChain,
   enrichEmployeeWithOnChainProfile,
@@ -1796,7 +1799,7 @@ router.post('/verify', authRateLimiter, validateBody(authSchemas.verify), async 
         requestType: challengeData.requestType,
       });
 
-      if (did && did !== resolvedDid) {
+      if (did && did.toLowerCase() !== resolvedDid.toLowerCase()) {
         auditReason = 'did_mismatch';
         auditHttpStatus = 401;
         res.status(401).json({
@@ -3121,6 +3124,407 @@ router.post('/logout', async (req: Request, res: Response): Promise<void> => {
       details: error.message,
       timestamp: new Date().toISOString()
     });
+  }
+});
+
+// ─── ZK Role Auth (real Groth16) ─────────────────────────────────────────────
+
+const zkProofService = new ZKProofService();
+
+// Role-to-field-element mapping (matches ZKRoleGate frontend constants)
+const ROLE_HASHES: Record<string, string> = {
+  employee: '1000',
+  manager:  '1001',
+  auditor:  '1002',
+  admin:    '1003',
+};
+
+/**
+ * GET /api/auth/zk-identity
+ * Returns whether the authenticated employee has a registered ZK identity.
+ */
+router.get('/zk-identity', verifyAuthToken, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const address = req.user?.address;
+    if (!address) { res.status(401).json({ success: false, error: 'Unauthorized' }); return; }
+    const employee = getEmployeeByAddress(address);
+    if (!employee) { res.status(404).json({ success: false, error: 'Employee not found' }); return; }
+    res.json({ success: true, data: { hasZkIdentity: !!employee.zkAddress } });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/auth/zk-identity
+ * Stores the employee's ZK address and per-role merkle roots (one-time setup).
+ * Body: { zkAddress: string, merkleRoots: { employee, manager, auditor, admin } }
+ */
+router.post('/zk-identity', verifyAuthToken, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const address = req.user?.address;
+    if (!address) { res.status(401).json({ success: false, error: 'Unauthorized' }); return; }
+    const employee = getEmployeeByAddress(address);
+    if (!employee) { res.status(404).json({ success: false, error: 'Employee not found' }); return; }
+
+    const { zkAddress, merkleRoots } = req.body as { zkAddress?: string; merkleRoots?: Record<string, string> };
+    if (!zkAddress || !/^\d+$/.test(zkAddress)) {
+      res.status(400).json({ success: false, error: 'zkAddress must be a decimal string' }); return;
+    }
+    if (!merkleRoots || typeof merkleRoots !== 'object') {
+      res.status(400).json({ success: false, error: 'merkleRoots object is required' }); return;
+    }
+
+    setEmployeeZkData(employee.id, zkAddress, merkleRoots as Partial<Record<BadgeType, string>>);
+    console.log(`✅ ZK identity registered for employee ${employee.id}`);
+    res.json({ success: true, message: 'ZK identity registered' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/auth/zk-role-challenge
+ * Issues a challenge for a real Groth16 role proof.
+ * Returns the merkleRoot the prover must target (from their registered identity).
+ * Body: { requiredBadge: string, scope: string }
+ */
+router.post('/zk-role-challenge', verifyAuthToken, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const address = req.user?.address;
+    if (!address) { res.status(401).json({ success: false, error: 'Unauthorized' }); return; }
+
+    const { requiredBadge, scope } = req.body as { requiredBadge?: string; scope?: string };
+    if (!requiredBadge || !ROLE_HASHES[requiredBadge]) {
+      res.status(400).json({ success: false, error: 'requiredBadge is required (employee|manager|auditor|admin)' }); return;
+    }
+    if (!scope) { res.status(400).json({ success: false, error: 'scope is required' }); return; }
+
+    const employee = getEmployeeByAddress(address);
+    if (!employee || !employee.active) {
+      res.status(401).json({ success: false, error: 'No active employee found' }); return;
+    }
+    if (!badgeMeetsRequirement(employee.badge, requiredBadge)) {
+      res.status(403).json({ success: false, error: `Your badge (${employee.badge}) does not meet required (${requiredBadge})` }); return;
+    }
+    if (!employee.zkAddress || !employee.merkleRoots?.[requiredBadge as BadgeType]) {
+      res.status(400).json({ success: false, error: 'ZK identity not registered. Visit the ZK setup first.' }); return;
+    }
+
+    const challengeId = crypto.randomUUID();
+    const timestamp = Date.now();
+    const roleHash = ROLE_HASHES[requiredBadge];
+    const merkleRoot = employee.merkleRoots![requiredBadge as BadgeType]!;
+
+    await setChallenge(challengeId, {
+      challenge: `zk-role:${requiredBadge}:${scope}:${timestamp}`,
+      timestamp,
+      used: false,
+      challengeType: 'zk_groth16_role',
+      requiredBadge: requiredBadge as BadgeType,
+      scope,
+      badge: employee.badge,
+      permissions: [],
+      requestType: 'general_auth',
+      requestedClaims: { requestType: 'general_auth', requiredClaims: ['role'], policyVersion: 1, proofRequired: true, bindingVersion: DISCLOSURE_BINDING_VERSION },
+      userAddress: address,
+      // Store expected values for verification
+      zkRoleHash: roleHash,
+      zkMerkleRoot: merkleRoot,
+    } as any, CHALLENGE_EXPIRY_SECONDS);
+
+    res.json({
+      success: true,
+      data: { challengeId, roleHash, merkleRoot, requiredBadge, scope, timestamp },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/auth/zk-role-verify
+ * Verifies a real Groth16 role proof and issues a 15-minute scoped token.
+ * Body: { challengeId, proof, publicSignals }
+ */
+router.post('/zk-role-verify', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { challengeId, proof, publicSignals } = req.body as {
+      challengeId?: string;
+      proof?: any;
+      publicSignals?: string[];
+    };
+
+    if (!challengeId || !proof || !publicSignals) {
+      res.status(400).json({ success: false, error: 'challengeId, proof, and publicSignals are required' }); return;
+    }
+
+    const challengeData = await getChallenge(challengeId) as any;
+    if (!challengeData || challengeData.used || isChallengeExpired(challengeData)) {
+      res.status(401).json({ success: false, error: 'Challenge expired or already used' }); return;
+    }
+    if (challengeData.challengeType !== 'zk_groth16_role') {
+      res.status(400).json({ success: false, error: 'Wrong challenge type' }); return;
+    }
+
+    const result = await zkProofService.verifyRoleProof(
+      proof,
+      publicSignals,
+      challengeData.zkRoleHash,
+      challengeData.zkMerkleRoot,
+    );
+
+    if (!result.valid) {
+      res.status(401).json({ success: false, error: `ZK proof invalid: ${result.reason}` }); return;
+    }
+
+    // Mark challenge used
+    challengeData.used = true;
+    await persistChallengeState(challengeId, challengeData);
+
+    // Find employee
+    const employee = getEmployeeByAddress(challengeData.userAddress);
+    if (!employee || !employee.active) {
+      res.status(401).json({ success: false, error: 'Employee not found' }); return;
+    }
+
+    const scopedToken = jwt.sign(
+      {
+        address: challengeData.userAddress,
+        did: employee.did,
+        badge: employee.badge,
+        scope: challengeData.scope,
+        roleProofVerified: true,
+        zkProofVerified: true,
+        challengeId,
+        authenticated: true,
+      },
+      process.env.JWT_SECRET || 'development-only-secret-not-for-production',
+      { expiresIn: '15m', issuer: 'decentralized-trust-platform' },
+    );
+
+    challengeData.token = scopedToken;
+    await persistChallengeState(challengeId, challengeData);
+
+    console.log(`✅ Groth16 role proof verified for ${employee.id}, scope=${challengeData.scope}`);
+
+    res.json({
+      success: true,
+      data: { token: scopedToken, scope: challengeData.scope, badge: employee.badge, expiresIn: '15m' },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/auth/zk-wallet-challenge
+ * Creates a ZK wallet-prove challenge for the portal QR display.
+ * Requires the user to be logged in (verifyAuthToken).
+ * Body: { requiredBadge, scope }
+ */
+router.post('/zk-wallet-challenge', verifyAuthToken, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const address = req.user?.address;
+    if (!address) { res.status(401).json({ success: false, error: 'Unauthorized' }); return; }
+
+    const { requiredBadge, scope } = req.body as { requiredBadge?: string; scope?: string };
+    if (!requiredBadge || !ROLE_HASHES[requiredBadge]) {
+      res.status(400).json({ success: false, error: 'requiredBadge required (employee|manager|auditor|admin)' }); return;
+    }
+    if (!scope) { res.status(400).json({ success: false, error: 'scope required' }); return; }
+
+    const employee = getEmployeeByAddress(address);
+    if (!employee || !employee.active) {
+      res.status(401).json({ success: false, error: 'No active employee found' }); return;
+    }
+    if (!badgeMeetsRequirement(employee.badge, requiredBadge)) {
+      res.status(403).json({ success: false, error: `Your badge (${employee.badge}) does not meet required (${requiredBadge})` }); return;
+    }
+
+    const challengeId = crypto.randomUUID();
+    const timestamp = Date.now();
+
+    await setChallenge(challengeId, {
+      challenge: `zk-wallet-prove:${requiredBadge}:${scope}:${timestamp}`,
+      timestamp,
+      used: false,
+      challengeType: 'zk_wallet_prove_request',
+      requiredBadge: requiredBadge as BadgeType,
+      scope,
+      badge: employee.badge,
+      permissions: [],
+      requestType: 'general_auth',
+      requestedClaims: { requestType: 'general_auth', requiredClaims: ['role'], policyVersion: 1, proofRequired: true, bindingVersion: DISCLOSURE_BINDING_VERSION },
+      userAddress: address,
+    } as any, CHALLENGE_EXPIRY_SECONDS);
+
+    res.json({
+      success: true,
+      data: { challengeId, requiredBadge, scope, expiresAt: timestamp + CHALLENGE_EXPIRY_TIME },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/auth/zk-wallet-prove
+ * Called by the mobile wallet after scanning the ZK challenge QR.
+ * Wallet sends its ZK private key; server generates + verifies the Groth16 proof,
+ * then issues a scoped 15-minute token and marks the challenge as used.
+ * Body: { challengeId, address, signature, message, zkPrivKey }
+ */
+router.post('/zk-wallet-prove', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { challengeId, address, signature, message, zkPrivKey, proof, publicSignals } = req.body as {
+      challengeId?: string;
+      address?: string;
+      signature?: string;
+      message?: string;
+      zkPrivKey?: string;
+      proof?: any;
+      publicSignals?: string[];
+    };
+
+    // Detect mode: client-side proof (true ZKP) vs server-side generation (legacy)
+    const isClientProof = proof && Array.isArray(publicSignals);
+
+    if (!challengeId || !address || !signature || !message) {
+      res.status(400).json({ success: false, error: 'challengeId, address, signature, message are required' }); return;
+    }
+    if (!isClientProof && !zkPrivKey) {
+      res.status(400).json({ success: false, error: 'Either {proof, publicSignals} or zkPrivKey is required' }); return;
+    }
+    if (!isClientProof && !/^[0-9a-fA-F]{64}$/.test(zkPrivKey!)) {
+      res.status(400).json({ success: false, error: 'zkPrivKey must be 64 hex characters' }); return;
+    }
+
+    // Verify ECDSA signature — proves wallet owns the address
+    let recovered: string;
+    try {
+      recovered = ethers.verifyMessage(message, signature);
+    } catch {
+      res.status(401).json({ success: false, error: 'Invalid signature' }); return;
+    }
+    if (recovered.toLowerCase() !== address.toLowerCase()) {
+      res.status(401).json({ success: false, error: 'Signature address mismatch' }); return;
+    }
+
+    // Validate challenge
+    const challengeData = await getChallenge(challengeId) as any;
+    if (!challengeData || challengeData.used || isChallengeExpired(challengeData)) {
+      res.status(401).json({ success: false, error: 'Challenge expired or already used' }); return;
+    }
+    if (challengeData.challengeType !== 'zk_wallet_prove_request') {
+      res.status(400).json({ success: false, error: 'Wrong challenge type' }); return;
+    }
+
+    // Look up employee
+    const employee = getEmployeeByAddress(address);
+    if (!employee || !employee.active) {
+      res.status(401).json({ success: false, error: 'No active employee found' }); return;
+    }
+
+    const requiredBadge = challengeData.requiredBadge as string;
+    if (!badgeMeetsRequirement(employee.badge, requiredBadge)) {
+      res.status(403).json({ success: false, error: `Badge ${employee.badge} does not meet required ${requiredBadge}` }); return;
+    }
+
+    console.log(`\n🔐 ── ZK-WALLET-PROVE REQUEST ──────────────────────────────────`);
+    console.log(`   ChallengeId : ${challengeId}`);
+    console.log(`   Employee    : ${employee.id} (${employee.badge})`);
+    console.log(`   Address     : ${address}`);
+    console.log(`   Required    : ${requiredBadge} badge`);
+    console.log(`   Scope       : ${challengeData.scope}`);
+    console.log(`   ECDSA sig   : verified ✓ (wallet owns address)`);
+    console.log(`   Mode        : ${isClientProof ? '🛡️  CLIENT-SIDE PROOF (true ZKP — private key never left device)' : '⚠️  SERVER-SIDE GENERATION (legacy — private key sent to server)'}`);
+
+    let result: { valid: boolean; merkleRoot?: string; reason?: string };
+
+    if (isClientProof) {
+      // ── TRUE ZKP: wallet generated the proof, we only verify ──
+      const roleHash = ROLE_HASHES[requiredBadge];
+      if (!roleHash) {
+        res.status(400).json({ success: false, error: `Unknown badge: ${requiredBadge}` }); return;
+      }
+      const expectedMerkleRoot = employee.merkleRoots?.[requiredBadge as BadgeType];
+      const proofMerkleRoot = publicSignals![2]; // signal[2] = merkleRoot
+
+      // On first use, accept any valid proof and register the merkle root
+      // On subsequent uses, the proof's merkle root must match the registered one
+      const verifyAgainstRoot = expectedMerkleRoot || proofMerkleRoot;
+      result = await zkProofService.verifyRoleProof(proof, publicSignals!, roleHash, verifyAgainstRoot);
+      if (result.valid) {
+        result.merkleRoot = proofMerkleRoot;
+      }
+    } else {
+      // ── LEGACY: server generates + verifies proof (private key exposed) ──
+      result = await zkProofService.generateAndVerifyRoleProof(
+        zkPrivKey!,
+        requiredBadge,
+        employee.merkleRoots?.[requiredBadge as BadgeType],
+      );
+    }
+
+    if (!result.valid) {
+      console.log(`   ❌ ZK proof REJECTED: ${result.reason}`);
+      res.status(401).json({ success: false, error: `ZK proof failed: ${result.reason}` }); return;
+    }
+
+    // Auto-register ZK identity if not already done
+    if (!employee.zkAddress && result.merkleRoot) {
+      if (isClientProof) {
+        // In client-proof mode we can't compute zkAddress (no private key), use merkle root as identifier
+        const { setEmployeeZkData } = await import('../services/employeeDirectory');
+        const merkleRoots: Partial<Record<BadgeType, string>> = { [requiredBadge as BadgeType]: result.merkleRoot };
+        setEmployeeZkData(employee.id, result.merkleRoot.slice(0, 40), merkleRoots);
+        console.log(`   ✅ Auto-registered ZK identity from client proof`);
+      } else {
+        const zkAddress = await zkProofService.computeZkAddress(zkPrivKey!);
+        const merkleRoots: Partial<Record<BadgeType, string>> = {};
+        for (const [role] of Object.entries(ROLE_HASHES)) {
+          try {
+            merkleRoots[role as BadgeType] = await zkProofService.computeMerkleRoot(zkPrivKey!, ROLE_HASHES[role]);
+          } catch { /* skip roles that fail */ }
+        }
+        const { setEmployeeZkData } = await import('../services/employeeDirectory');
+        setEmployeeZkData(employee.id, zkAddress, merkleRoots);
+        console.log(`   ✅ Auto-registered ZK identity: zkAddr=${zkAddress.slice(0, 16)}…`);
+      }
+    }
+
+    // Issue scoped token
+    const scopedToken = jwt.sign(
+      {
+        address,
+        did: employee.did,
+        badge: employee.badge,
+        scope: challengeData.scope,
+        roleProofVerified: true,
+        zkProofVerified: true,
+        walletQRProof: true,
+        clientSideProof: isClientProof,
+        challengeId,
+        authenticated: true,
+      },
+      process.env.JWT_SECRET || 'development-only-secret-not-for-production',
+      { expiresIn: '15m', issuer: 'decentralized-trust-platform' },
+    );
+
+    // Mark challenge used, store token (portal polls status/:challengeId to pick it up)
+    challengeData.used = true;
+    challengeData.token = scopedToken;
+    challengeData.badge = employee.badge;
+    challengeData.userAddress = address;
+    await persistChallengeState(challengeId, challengeData);
+
+    console.log(`   ✅ Scoped JWT issued (15m, scope=${challengeData.scope})`);
+    console.log(`   ✅ Challenge marked completed — portal poll will pick up token`);
+    console.log(`🔐 ── ZK-WALLET-PROVE COMPLETE ─────────────────────────────────\n`);
+    res.json({ success: true, data: { message: 'ZK proof verified via wallet', badge: employee.badge } });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
