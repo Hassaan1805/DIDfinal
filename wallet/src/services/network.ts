@@ -21,13 +21,30 @@ class NetworkService {
   }
 
   /**
+   * Generate candidate URLs by scanning the /24 subnet of a given base URL.
+   * e.g. http://192.168.0.105:3001 → http://192.168.0.1:3001 … http://192.168.0.254:3001
+   */
+  private generateSubnetUrls(baseUrl: string): string[] {
+    try {
+      const parsed = new URL(baseUrl);
+      const parts = parsed.hostname.split('.');
+      if (parts.length !== 4 || parts.some(p => isNaN(Number(p)))) return [];
+      const subnet = parts.slice(0, 3).join('.');
+      const port = parsed.port || '3001';
+      return Array.from({ length: 254 }, (_, i) => `http://${subnet}.${i + 1}:${port}`);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Test a single URL for connectivity
    */
-  async testUrl(url: string): Promise<NetworkTestResult> {
+  async testUrl(url: string, timeoutMs = 5000): Promise<NetworkTestResult> {
     const start = Date.now();
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 5000);
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
 
       const response = await fetch(`${url}/api/health`, {
         method: 'GET',
@@ -43,11 +60,27 @@ class NetworkService {
   }
 
   /**
-   * Test all configured URLs and find the best one
+   * Test all configured URLs (including full subnet scan) and find the best one.
+   * Subnet hosts are tested with a shorter 1.5s timeout to keep discovery fast.
    */
   async discoverBestUrl(): Promise<string | null> {
-    const urls = [this.currentUrl, ...config.fallbackUrls];
-    const allResults = await Promise.all(urls.map(url => this.testUrl(url)));
+    const knownUrls = [this.currentUrl, ...config.fallbackUrls];
+    const subnetUrls = this.generateSubnetUrls(config.apiUrl);
+
+    // Test known URLs at full timeout, subnet hosts at 1.5s to avoid long waits
+    const knownResults = await Promise.all(knownUrls.map(url => this.testUrl(url)));
+    const knownSuccess = knownResults.filter(r => r.success);
+    if (knownSuccess.length > 0) {
+      knownSuccess.sort((a, b) => a.latency - b.latency);
+      await this.setApiUrl(knownSuccess[0].url);
+      this.isConnected = true;
+      return knownSuccess[0].url;
+    }
+
+    // Full subnet scan — all in parallel, short timeout
+    const subnetCandidates = subnetUrls.filter(u => !knownUrls.includes(u));
+    const subnetResults = await Promise.all(subnetCandidates.map(url => this.testUrl(url, 1500)));
+    const allResults = [...knownResults, ...subnetResults];
     const successful = allResults.filter(r => r.success);
 
     if (successful.length === 0) {
@@ -80,21 +113,32 @@ class NetworkService {
   }
 
   /**
-   * Initialize network service — always start from the hardcoded config URL.
-   * Ignores any previously-cached URL in AsyncStorage to avoid stale IPs.
+   * Initialize network service.
+   * Priority: (1) last saved working URL, (2) .env primary URL, (3) full discovery + subnet scan.
    */
   async initialize(): Promise<void> {
-    // Always reset to the hardcoded URL from config (never use stale cached URL)
+    // 1. Try the last URL that actually worked (survives app restarts)
+    const savedUrl = await StorageService.getApiUrl();
+    if (savedUrl) {
+      this.currentUrl = savedUrl;
+      const result = await this.testUrl(this.currentUrl);
+      if (result.success) {
+        this.isConnected = true;
+        return;
+      }
+    }
+
+    // 2. Try the .env primary URL (handles first launch or saved URL went stale)
     this.currentUrl = config.apiUrl;
-    await StorageService.saveApiUrl(config.apiUrl); // overwrite any stale cached value
-    const result = await this.testUrl(this.currentUrl);
-    if (result.success) {
+    const primaryResult = await this.testUrl(this.currentUrl);
+    if (primaryResult.success) {
       this.isConnected = true;
+      await StorageService.saveApiUrl(this.currentUrl);
+      return;
     }
-    // If the primary fails, try fallbacks silently — don't block startup
-    if (!this.isConnected) {
-      await this.discoverBestUrl();
-    }
+
+    // 3. Full discovery: fallbacks + subnet scan
+    await this.discoverBestUrl();
   }
 
   /**

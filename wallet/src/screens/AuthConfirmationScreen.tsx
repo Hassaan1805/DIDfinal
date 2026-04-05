@@ -45,6 +45,7 @@ const AuthConfirmationScreen: React.FC = () => {
     challengeId,
     platform,
     timestamp,
+    type,
     challenge,
     apiEndpoint,
     employeeName,
@@ -58,7 +59,8 @@ const AuthConfirmationScreen: React.FC = () => {
     verifierCredentialRequired,
     requestedClaims,
   } = route.params;
-  const { did, employees, submitAuthResponse } = useWallet();
+  const isZKWalletProve = type === 'zk-wallet-prove';
+  const { did, employees, submitAuthResponse, submitZKWalletProve } = useWallet();
   const { isConnected } = useNetwork();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -94,10 +96,41 @@ const AuthConfirmationScreen: React.FC = () => {
       return;
     }
     if (submitted || isSubmitting) return;
+    if (isZKWalletProve) {
+      void handleZKProve();
+      return;
+    }
     if (!resolvedEmployeeDID) return;
     void handleAutoConfirm();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected, resolvedEmployeeDID]);
+
+  const handleZKProve = async () => {
+    if (!apiEndpoint || !badgeType) {
+      Alert.alert('Error', 'Missing apiEndpoint or requiredBadge in QR data', [
+        { text: 'Back', onPress: () => navigation.navigate('Home' as never) },
+      ]);
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await submitZKWalletProve(challengeId, badgeType, apiEndpoint);
+      const now = new Date();
+      setLoginTime(now);
+      setSessionExpiry(new Date(now.getTime() + 15 * 60 * 1000));
+      setSubmitted(true);
+      Animated.parallel([
+        Animated.spring(successScale, { toValue: 1, tension: 55, friction: 7, useNativeDriver: true }),
+        Animated.timing(successOpacity, { toValue: 1, duration: 350, useNativeDriver: true }),
+      ]).start();
+    } catch (error: any) {
+      Alert.alert('ZK Proof Failed', error.message || 'Failed to generate ZK proof', [
+        { text: 'Back', onPress: () => navigation.navigate('Home' as never) },
+      ]);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const fetchLocation = async (): Promise<LocationInfo | null> => {
     try {
@@ -177,7 +210,9 @@ const AuthConfirmationScreen: React.FC = () => {
     const sessionMins = sessionExpiry
       ? Math.round((sessionExpiry.getTime() - loginTime.getTime()) / 60000)
       : 0;
-    const sessionHours = Math.floor(sessionMins / 60);
+    const sessionLabel = sessionMins >= 60
+      ? `${Math.floor(sessionMins / 60)}h ${sessionMins % 60}m`
+      : `${sessionMins}m`;
 
     const locationStr = location
       ? [location.city, location.region, location.country].filter(Boolean).join(', ')
@@ -196,7 +231,7 @@ const AuthConfirmationScreen: React.FC = () => {
             <Ionicons name="checkmark-circle" size={48} color="#22c55e" />
           </View>
           <Text style={styles.successTitle}>Authenticated</Text>
-          <Text style={styles.successSubtitle}>Session active for {sessionHours}h</Text>
+          <Text style={styles.successSubtitle}>Session active for {sessionLabel}</Text>
         </Animated.View>
 
         {/* Session card */}

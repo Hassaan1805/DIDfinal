@@ -11,6 +11,8 @@ export interface WalletCredentialRecordV1 {
   issuerDid?: string;
   subjectDid?: string;
   employeeId?: string;
+  employeeName?: string;
+  badge?: string;
   issuedAt?: string;
   expiresAt?: string;
   importedAt: string;

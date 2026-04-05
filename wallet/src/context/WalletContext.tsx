@@ -36,6 +36,9 @@ interface WalletContextType {
   importWallet: (privateKey: string) => Promise<void>;
   clearWallet: () => Promise<void>;
   refreshWallet: () => Promise<void>;
+  syncCredentials: () => Promise<void>;
+  getZKPrivateKey: () => string | null;
+  submitZKWalletProve: (challengeId: string, requiredBadge: string, apiEndpoint: string) => Promise<void>;
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
@@ -146,6 +149,26 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     await initializeWallet();
   };
 
+  const syncCredentials = async () => {
+    await walletService.syncCredentialsFromBackend();
+    setCredentials(walletService.getCredentials());
+  };
+
+  const getZKPrivateKey = (): string | null => {
+    return walletService.getZKPrivateKey();
+  };
+
+  const submitZKWalletProve = async (challengeId: string, requiredBadge: string, apiEndpoint: string): Promise<void> => {
+    return await walletService.submitZKWalletProve(challengeId, requiredBadge, apiEndpoint);
+  };
+
+  // Background poll — picks up newly issued credentials without needing a restart
+  useEffect(() => {
+    if (!isInitialized) return;
+    const id = setInterval(syncCredentials, 30_000);
+    return () => clearInterval(id);
+  }, [isInitialized]);
+
   return (
     <WalletContext.Provider
       value={{
@@ -165,6 +188,9 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         importWallet,
         clearWallet,
         refreshWallet,
+        syncCredentials,
+        getZKPrivateKey,
+        submitZKWalletProve,
       }}
     >
       {children}

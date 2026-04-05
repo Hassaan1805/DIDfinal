@@ -14,11 +14,19 @@ config.resolver.extraNodeModules = {
   ),
 };
 
-// Force axios to use its browser-compatible build instead of the Node.js build
+// Force browser-compatible builds for packages that import Node.js built-ins
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName === 'axios') {
     return {
       filePath: path.resolve(__dirname, 'node_modules/axios/dist/browser/axios.cjs'),
+      type: 'sourceFile',
+    };
+  }
+  // snarkjs main.cjs imports readline/crypto/fastfile (Node-only).
+  // The UMD bundle (snarkjs.min.js) is pre-bundled and has no Node deps.
+  if (moduleName === 'snarkjs') {
+    return {
+      filePath: path.resolve(__dirname, 'node_modules/snarkjs/build/snarkjs.min.js'),
       type: 'sourceFile',
     };
   }

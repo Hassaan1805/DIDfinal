@@ -1,9 +1,9 @@
-import { networkService } from './network';
+import { StorageService } from './storage';
 
 export interface AuthTimelineEvent {
   eventId: string;
   createdAt: string;
-  eventType: 
+  eventType:
     | 'challenge_created'
     | 'challenge_expired'
     | 'verification_attempted'
@@ -57,33 +57,53 @@ export const timelineService = {
     eventType?: string,
     status?: string
   ): Promise<TimelineResponse> {
-    const apiUrl = networkService.getApiUrl();
-    
-    const params = new URLSearchParams();
-    params.append('limit', limit.toString());
-    if (cursor !== undefined) {
-      params.append('cursor', cursor.toString());
-    }
+    const history = await StorageService.getAuthHistory();
+
+    // Map local auth records to the AuthTimelineEvent shape
+    let events: AuthTimelineEvent[] = history.map((record: any, index: number) => ({
+      eventId: record.challengeId || `local-${index}`,
+      createdAt: record.timestamp || new Date().toISOString(),
+      eventType: (record.success ? 'verification_succeeded' : 'verification_failed') as AuthTimelineEvent['eventType'],
+      status: (record.success ? 'success' : 'failure') as AuthTimelineEvent['status'],
+      challengeId: record.challengeId,
+      did: record.employeeDID,
+    }));
+
+    // Apply optional filters
     if (eventType) {
-      params.append('eventType', eventType);
+      events = events.filter(e => e.eventType === eventType);
     }
     if (status) {
-      params.append('status', status);
+      events = events.filter(e => e.status === status);
     }
 
-    const url = `${apiUrl}/auth/timeline/me?${params.toString()}`;
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
+    const startIndex = cursor ?? 0;
+    const paginated = events.slice(startIndex, startIndex + limit);
+
+    const summary = {
+      total: events.length,
+      success: events.filter(e => e.status === 'success').length,
+      failure: events.filter(e => e.status === 'failure').length,
+      info: events.filter(e => e.status === 'info').length,
+      lastEventAt: events.length > 0 ? events[0].createdAt : null,
+    };
+
+    return {
+      success: true,
+      data: {
+        filters: { eventType, status },
+        events: paginated,
+        pagination: {
+          limit,
+          cursor: startIndex,
+          returned: paginated.length,
+          total: events.length,
+          hasMore: startIndex + limit < events.length,
+          nextCursor: startIndex + limit,
+        },
+        summary,
       },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch timeline: ${response.status} ${response.statusText}`);
-    }
-
-    return (await response.json()) as TimelineResponse;
+      timestamp: new Date().toISOString(),
+    };
   },
 };

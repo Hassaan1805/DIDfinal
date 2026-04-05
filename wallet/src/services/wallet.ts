@@ -7,6 +7,7 @@ import {
   WalletCredentialSource,
   WalletCredentialStatusHint,
 } from '../types/credentials';
+import { zkProver } from './zkp/zkProver';
 
 export interface Employee {
   id: string;
@@ -236,6 +237,12 @@ class WalletService {
       || (typeof options?.employeeId === 'string' && options.employeeId.trim())
       || undefined;
 
+    const employeeName =
+      (typeof credentialSubject?.name === 'string' && credentialSubject.name.trim()) || undefined;
+
+    const badge =
+      (typeof credentialSubject?.badge === 'string' && credentialSubject.badge.trim()) || undefined;
+
     const issuedAt =
       (typeof decodedPayload?.nbf === 'number' && toIsoFromEpochSeconds(decodedPayload.nbf))
       || (typeof decodedPayload?.iat === 'number' && toIsoFromEpochSeconds(decodedPayload.iat))
@@ -263,6 +270,8 @@ class WalletService {
       expiresAt,
       importedAt: now,
       updatedAt: now,
+      employeeName,
+      badge,
       source,
       statusHint: resolveStatusHint(expiresAt),
     };
@@ -330,7 +339,7 @@ class WalletService {
     }
   }
 
-  private async syncCredentialsFromBackend(): Promise<void> {
+  async syncCredentialsFromBackend(): Promise<void> {
     const did = this.getDID();
     if (!did) return;
 
@@ -597,7 +606,12 @@ class WalletService {
         : `Challenge: ${challengeId}\nDID: ${employeeDID}`;
       const challengeDigest = hashUtf8(challengeText);
       const claimDigest = computeClaimDigest(disclosedClaims);
-      const credentialDigest = credential ? hashUtf8(credential) : undefined;
+      // Only include credentialDigest when the credential will actually be sent in the body.
+      // The backend recomputes the binding from what it receives — if no credential is sent,
+      // it uses 'no-credential' as the placeholder. Including a digest here without sending
+      // the credential causes a bindingDigest mismatch.
+      const willSendCredential = Boolean(credential && (verifierCredentialRequired || requiredClaims.length === 0));
+      const credentialDigest = willSendCredential ? hashUtf8(credential!) : undefined;
       const bindingDigest = computeBindingDigest({
         challengeId,
         challengeDigest,
@@ -650,9 +664,9 @@ class WalletService {
       console.log('🔒 Submitting selective presentation with disclosed claims only:', Object.keys(disclosedClaims));
     }
 
-    // Always use the wallet's own config URL — never trust the host in the QR's
-    // apiEndpoint since it may contain 'localhost' or a stale IP from the portal.
-    const verifyUrl = `${config.apiUrl}/api/auth/verify`;
+    // Use the network service's current URL (auto-discovered working URL), not the
+    // static config which may have a stale IP from .env. Never trust the QR's apiEndpoint.
+    const verifyUrl = `${networkService.getApiUrl()}/api/auth/verify`;
     console.log('📡 Submitting auth to:', verifyUrl, '(apiEndpoint from QR was:', apiEndpoint, ')');
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000); // 30 seconds for network latency
@@ -702,7 +716,7 @@ class WalletService {
       console.log('📷 QR platform:', parsed.platform);
       console.log('📷 QR type:', parsed.type);
       // Accept both portal format (domain) and legacy format (platform)
-      if (parsed.challengeId && (parsed.platform || parsed.domain || parsed.type === 'did-auth-request')) {
+      if (parsed.challengeId && (parsed.platform || parsed.domain || parsed.type === 'did-auth-request' || parsed.type === 'zk-wallet-prove')) {
         return {
           ...parsed,
           platform: parsed.platform || parsed.domain || 'Enterprise Portal',
@@ -714,6 +728,85 @@ class WalletService {
       console.log('📷 QR parse error:', e);
       return null;
     }
+  }
+
+  /**
+   * Submit a ZK wallet-prove request.
+   *
+   * Preferred mode (true ZKP): generates the Groth16 proof ON-DEVICE using snarkjs,
+   * then sends only {proof, publicSignals} to the backend. The private key never
+   * leaves the wallet.
+   *
+   * Fallback (legacy): if WebAssembly is unavailable or local proof generation fails,
+   * sends zkPrivKey to the backend for server-side proof generation.
+   */
+  async submitZKWalletProve(
+    challengeId: string,
+    requiredBadge: string,
+    apiEndpoint: string,
+  ): Promise<void> {
+    if (!this.wallet) throw new Error('Wallet not initialized');
+
+    const zkPrivKey = this.getZKPrivateKey();
+    if (!zkPrivKey) throw new Error('Could not derive ZK private key');
+
+    const address = this.wallet.address;
+    const message = `zk-wallet-prove:${challengeId}`;
+    const signature = await this.wallet.signMessage(message);
+
+    const baseUrl = apiEndpoint.replace(/\/+$/, '');
+    const url = `${baseUrl}/auth/zk-wallet-prove`;
+    let body: Record<string, any>;
+
+    // Try client-side proof generation (true ZKP)
+    if (zkProver.isSupported()) {
+      try {
+        console.log('[Wallet] WebAssembly available — generating proof on-device (true ZKP)');
+        await zkProver.ensureArtifacts(baseUrl);
+        const { proof, publicSignals } = await zkProver.generateProof(zkPrivKey, requiredBadge);
+        body = { challengeId, address, signature, message, proof, publicSignals };
+        console.log('[Wallet] Client-side proof ready — private key stays on device');
+      } catch (err: any) {
+        console.warn('[Wallet] Client-side proof failed, falling back to server-side:', err.message);
+        body = { challengeId, address, signature, message, zkPrivKey };
+      }
+    } else {
+      console.warn('[Wallet] WebAssembly not available — using server-side proof generation');
+      body = { challengeId, address, signature, message, zkPrivKey };
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90000); // 90s for on-device proof
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal as any,
+      });
+      clearTimeout(timeout);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'ZK proof submission failed');
+    } catch (err: any) {
+      clearTimeout(timeout);
+      if (err.name === 'AbortError') throw new Error('Request timed out — proof generation can take up to 90s on device');
+      throw err;
+    }
+  }
+
+  /**
+   * Derive a ZK-specific private key from the Ethereum private key.
+   * Uses keccak256(pkBytes || ':zk-identity:v1') so leaking the ZK key
+   * does NOT expose the Ethereum private key.
+   * Returns 64 lowercase hex characters (no 0x prefix) — paste directly into ZKRoleGate.
+   */
+  getZKPrivateKey(): string | null {
+    if (!this.wallet) return null;
+    const pkBytes = ethers.getBytes(this.wallet.privateKey); // 32 bytes
+    const derived = ethers.keccak256(
+      ethers.concat([pkBytes, ethers.toUtf8Bytes(':zk-identity:v1')])
+    );
+    return derived.slice(2); // strip 0x → 64 hex chars
   }
 
   /**

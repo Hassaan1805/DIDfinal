@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useWallet } from '../context/WalletContext';
@@ -25,7 +26,7 @@ const ACCENT = '#3b82f6';
 const ACCENT_LIGHT = '#60a5fa';
 
 const IdentityProfileScreen: React.FC = () => {
-  const { did, address, signMessage } = useWallet();
+  const { did, address, signMessage, getZKPrivateKey } = useWallet();
   const { isConnected, currentUrl } = useNetwork();
 
   const [displayName, setDisplayName] = useState('');
@@ -39,6 +40,8 @@ const IdentityProfileScreen: React.FC = () => {
   const [encryptedProfileUri, setEncryptedProfileUri] = useState('');
   const [cipherHash, setCipherHash] = useState('');
   const [encryptionScheme, setEncryptionScheme] = useState('xchacha20-poly1305');
+
+  const [zkKeyVisible, setZkKeyVisible] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
@@ -215,6 +218,39 @@ const IdentityProfileScreen: React.FC = () => {
               Last updated: {new Date(lastUpdated).toLocaleString()}
             </Text>
           )}
+        </View>
+
+        {/* ── ZK Identity Key ── */}
+        <View style={[styles.sectionCard, { borderColor: 'rgba(139,92,246,0.25)', backgroundColor: 'rgba(139,92,246,0.04)' }]}>
+          <View style={styles.sectionHeader}>
+            <View style={[styles.sectionIconWrap, { backgroundColor: 'rgba(139,92,246,0.12)' }]}>
+              <Ionicons name="finger-print-outline" size={15} color="#a78bfa" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.sectionTitle, { color: '#a78bfa' }]}>ZK Identity Key</Text>
+            </View>
+          </View>
+          <Text style={styles.sectionDesc}>Paste into the portal's ZK proof gate. Derived from your wallet — deterministic and unique. Does not expose your Ethereum key.</Text>
+          <Text style={styles.fieldLabel}>Derived ZK Private Key</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={[styles.input, { flex: 1, justifyContent: 'center', minHeight: 42, paddingVertical: 10 }]}>
+              <Text style={{ color: zkKeyVisible ? '#f1f5f9' : '#475569', fontFamily: 'monospace', fontSize: 11 }} numberOfLines={2}>
+                {zkKeyVisible ? (getZKPrivateKey() ?? 'Wallet not ready') : '••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setZkKeyVisible(v => !v)}
+              style={{ padding: 8, borderRadius: 8, backgroundColor: 'rgba(139,92,246,0.1)' }}
+            >
+              <Ionicons name={zkKeyVisible ? 'eye-off-outline' : 'eye-outline'} size={18} color="#a78bfa" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => { const key = getZKPrivateKey(); if (key) Share.share({ message: key, title: 'ZK Identity Key' }); }}
+              style={{ padding: 8, borderRadius: 8, backgroundColor: 'rgba(139,92,246,0.1)' }}
+            >
+              <Ionicons name="copy-outline" size={18} color="#a78bfa" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* ── Status / Error Message ── */}

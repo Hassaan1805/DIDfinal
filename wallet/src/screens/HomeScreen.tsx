@@ -33,7 +33,7 @@ const ACCENT_LIGHT = '#60a5fa';
 
 const HomeScreen: React.FC = () => {
   const navigation = useNavigation<HomeScreenNavigationProp>();
-  const { address, did, employees, credentials, isInitialized } = useWallet();
+  const { address, did, employees, credentials, isInitialized, syncCredentials } = useWallet();
   const { currentUrl, isConnected, refreshConnection } = useNetwork();
   const [refreshing, setRefreshing] = React.useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -50,7 +50,7 @@ const HomeScreen: React.FC = () => {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await refreshConnection();
+    await Promise.all([refreshConnection(), syncCredentials()]);
     setRefreshing(false);
   };
 
@@ -248,27 +248,70 @@ const HomeScreen: React.FC = () => {
             <View style={styles.emptyState}>
               <Ionicons name="ribbon-outline" size={36} color="#334155" />
               <Text style={styles.emptyText}>No credentials yet</Text>
-              <Text style={styles.emptySubtext}>
-                Issue one from the admin portal after enrolling
-              </Text>
+              <Text style={styles.emptySubtext}>Issue one from the admin portal after enrolling</Text>
             </View>
           ) : (
-            credentials.map((cred, i) => (
-              <View key={cred.recordId || i} style={styles.credRow}>
-                <View style={styles.credIconWrap}>
-                  <Ionicons name="shield-checkmark-outline" size={16} color="#22c55e" />
+            credentials.map((cred, i) => {
+              const isExpired = cred.statusHint === 'expired';
+              const badgeLabel = cred.badge ? cred.badge.toUpperCase() : null;
+              const BADGE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
+                ADMIN:    { bg: 'rgba(37,99,235,0.15)',  border: 'rgba(37,99,235,0.35)',  text: '#60a5fa' },
+                AUDITOR:  { bg: 'rgba(217,119,6,0.15)',  border: 'rgba(217,119,6,0.35)',  text: '#fbbf24' },
+                MANAGER:  { bg: 'rgba(124,58,237,0.15)', border: 'rgba(124,58,237,0.35)', text: '#a78bfa' },
+                EMPLOYEE: { bg: 'rgba(34,197,94,0.1)',   border: 'rgba(34,197,94,0.25)',  text: '#86efac' },
+              };
+              const bc = (badgeLabel && BADGE_COLORS[badgeLabel]) || BADGE_COLORS.EMPLOYEE;
+              const fmtDate = (iso?: string) => iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : null;
+
+              return (
+                <View key={cred.recordId || i} style={[styles.credCard, isExpired && styles.credCardExpired]}>
+                  {/* Top row: type + status */}
+                  <View style={styles.credTopRow}>
+                    <View style={styles.credIconWrap}>
+                      <Ionicons name="shield-checkmark-outline" size={18} color={isExpired ? '#94a3b8' : '#22c55e'} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.credType}>Employment Credential</Text>
+                      {cred.employeeName && (
+                        <Text style={styles.credName}>{cred.employeeName}</Text>
+                      )}
+                    </View>
+                    <View style={[styles.credStatusBadge, isExpired && styles.credStatusExpired]}>
+                      <Text style={[styles.credStatusText, isExpired && styles.credStatusTextExpired]}>
+                        {isExpired ? 'EXPIRED' : 'ACTIVE'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Badge pill + employee ID */}
+                  <View style={styles.credMeta}>
+                    {badgeLabel && (
+                      <View style={[styles.badgePill, { backgroundColor: bc.bg, borderColor: bc.border }]}>
+                        <Ionicons name="ribbon-outline" size={10} color={bc.text} style={{ marginRight: 4 }} />
+                        <Text style={[styles.badgePillText, { color: bc.text }]}>{badgeLabel}</Text>
+                      </View>
+                    )}
+                    {cred.employeeId && (
+                      <Text style={styles.credEmployeeId}>{cred.employeeId}</Text>
+                    )}
+                  </View>
+
+                  {/* Dates */}
+                  {(cred.issuedAt || cred.expiresAt) && (
+                    <View style={styles.credDates}>
+                      {cred.issuedAt && (
+                        <Text style={styles.credDateText}>Issued {fmtDate(cred.issuedAt)}</Text>
+                      )}
+                      {cred.expiresAt && (
+                        <Text style={[styles.credDateText, isExpired && { color: '#f87171' }]}>
+                          {isExpired ? 'Expired' : 'Expires'} {fmtDate(cred.expiresAt)}
+                        </Text>
+                      )}
+                    </View>
+                  )}
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.credType}>
-                    {cred.credentialJwt ? 'Employment VC' : 'Credential'}
-                  </Text>
-                  <Text style={styles.credSource}>{cred.source || 'unknown'}</Text>
-                </View>
-                <View style={styles.credActiveBadge}>
-                  <Text style={styles.credActiveBadgeText}>ACTIVE</Text>
-                </View>
-              </View>
-            ))
+              );
+            })
           )}
         </View>
 
@@ -581,36 +624,75 @@ const styles = StyleSheet.create({
   emptySubtext: { fontSize: 12, color: TEXT_DIM, textAlign: 'center' },
 
   // Credentials
-  credRow: {
+  credCard: {
+    backgroundColor: 'rgba(34,197,94,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(34,197,94,0.18)',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 8,
+    gap: 10,
+  },
+  credCardExpired: {
+    backgroundColor: 'rgba(100,116,139,0.06)',
+    borderColor: 'rgba(100,116,139,0.2)',
+  },
+  credTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: 'rgba(34,197,94,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.16)',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
   },
   credIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: 'rgba(34,197,94,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  credType: { fontSize: 13, fontWeight: '600', color: TEXT },
-  credSource: { fontSize: 11, color: TEXT_MUTED, marginTop: 1 },
-  credActiveBadge: {
+  credType: { fontSize: 13, fontWeight: '700', color: TEXT },
+  credName: { fontSize: 11, color: TEXT_MUTED, marginTop: 1 },
+  credStatusBadge: {
     backgroundColor: 'rgba(34,197,94,0.14)',
     borderWidth: 1,
     borderColor: 'rgba(34,197,94,0.28)',
     borderRadius: 6,
     paddingHorizontal: 7,
-    paddingVertical: 2,
+    paddingVertical: 3,
   },
-  credActiveBadgeText: { fontSize: 9, color: '#86efac', fontWeight: '800' },
+  credStatusExpired: {
+    backgroundColor: 'rgba(100,116,139,0.1)',
+    borderColor: 'rgba(100,116,139,0.22)',
+  },
+  credStatusText: { fontSize: 9, color: '#86efac', fontWeight: '800', letterSpacing: 0.5 },
+  credStatusTextExpired: { color: '#94a3b8' },
+  credMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  badgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 99,
+    borderWidth: 1,
+  },
+  badgePillText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+  credEmployeeId: {
+    fontSize: 11,
+    color: TEXT_DIM,
+    fontFamily: 'monospace',
+  },
+  credDates: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.05)',
+    paddingTop: 8,
+  },
+  credDateText: { fontSize: 10, color: TEXT_DIM },
 
   // Employees
   empRow: {

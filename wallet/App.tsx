@@ -31,6 +31,7 @@ export type RootStackParamList = {
     challengeId: string;
     platform: string;
     timestamp: string | number;
+    type?: string;
     challenge?: string;
     apiEndpoint?: string;
     employeeName?: string;
