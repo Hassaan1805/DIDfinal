@@ -1,3 +1,6 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { join } from 'path';
+
 export type CredentialLifecycleStatus = 'active' | 'revoked' | 'expired' | 'unknown';
 
 // ── Credential delivery store ──────────────────────────────────────────────────
@@ -11,6 +14,34 @@ interface IssuedCredentialDelivery {
 }
 
 const deliveryStore = new Map<string, IssuedCredentialDelivery>();
+
+const DATA_DIR = join(process.cwd(), 'data');
+const DELIVERY_FILE = join(DATA_DIR, 'credential-delivery.json');
+
+function saveDeliveryStore(): void {
+  try {
+    if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+    const entries = Array.from(deliveryStore.entries()).map(([did, delivery]) => ({ did, ...delivery }));
+    writeFileSync(DELIVERY_FILE, JSON.stringify(entries, null, 2), 'utf8');
+  } catch (err: any) {
+    console.warn('⚠️ Failed to persist credential delivery store:', err.message);
+  }
+}
+
+function loadDeliveryStore(): void {
+  if (!existsSync(DELIVERY_FILE)) return;
+  try {
+    const entries: Array<{ did: string } & IssuedCredentialDelivery> = JSON.parse(readFileSync(DELIVERY_FILE, 'utf8'));
+    for (const { did, ...delivery } of entries) {
+      deliveryStore.set(did, delivery);
+    }
+    console.log(`✅ Loaded ${entries.length} credential deliveries from disk`);
+  } catch (err: any) {
+    console.warn('⚠️ Failed to load credential delivery store:', err.message);
+  }
+}
+
+loadDeliveryStore();
 
 export function storeIssuedCredentialJwt(input: {
   subjectDid: string;
@@ -27,10 +58,16 @@ export function storeIssuedCredentialJwt(input: {
     issuedAt: input.issuedAt,
     expiresAt: input.expiresAt,
   });
+  saveDeliveryStore();
 }
 
 export function getLatestCredentialJwtForDid(did: string): IssuedCredentialDelivery | undefined {
   return deliveryStore.get(did.toLowerCase());
+}
+
+export function clearDeliveryForDid(did: string): void {
+  deliveryStore.delete(did.toLowerCase());
+  saveDeliveryStore();
 }
 // ─────────────────────────────────────────────────────────────────────────────
 

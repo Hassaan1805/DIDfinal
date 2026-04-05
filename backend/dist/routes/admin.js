@@ -111,6 +111,17 @@ router.get('/badges', requireAdminPermissions, (_req, res) => {
 router.get('/employees', requireAdminPermissions, async (_req, res) => {
     try {
         const employees = await Promise.all((0, employeeDirectory_1.listEmployees)().map(async (employee) => {
+            const delivery = (0, credentialStatus_service_1.getLatestCredentialJwtForDid)(employee.did);
+            const credStatus = delivery ? (0, credentialStatus_service_1.getCredentialStatus)(delivery.credentialId) : null;
+            const credential = delivery
+                ? {
+                    issued: true,
+                    credentialId: delivery.credentialId,
+                    issuedAt: delivery.issuedAt,
+                    expiresAt: delivery.expiresAt,
+                    status: credStatus?.status ?? 'unknown',
+                }
+                : { issued: false };
             try {
                 const onChain = await (0, employeeOnChainRegistry_1.enrichEmployeeWithOnChainProfile)(employee);
                 return {
@@ -119,6 +130,7 @@ router.get('/employees', requireAdminPermissions, async (_req, res) => {
                     adminGasPayerAddress: SepoliaService_1.sepoliaService.getGasPayerAddress(),
                     adminGasPayerEtherscanUrl: SepoliaService_1.sepoliaService.getGasPayerEtherscanUrl(),
                     onChainStatus: 'ready',
+                    credential,
                 };
             }
             catch (error) {
@@ -129,6 +141,7 @@ router.get('/employees', requireAdminPermissions, async (_req, res) => {
                     adminGasPayerEtherscanUrl: SepoliaService_1.sepoliaService.getGasPayerEtherscanUrl(),
                     onChainStatus: 'pending',
                     onChainError: error?.message || 'On-chain registration unavailable',
+                    credential,
                 };
             }
         }));
@@ -178,6 +191,37 @@ router.get('/directory', async (_req, res) => {
         res.status(500).json(response);
     }
 });
+router.get('/credential-for-did', (req, res) => {
+    const did = typeof req.query.did === 'string' ? req.query.did.trim() : '';
+    if (!did) {
+        res.status(400).json({
+            success: false,
+            error: 'did query parameter is required',
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+    const delivery = (0, credentialStatus_service_1.getLatestCredentialJwtForDid)(did);
+    if (!delivery) {
+        res.status(404).json({
+            success: false,
+            error: 'No credential issued for this DID',
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+    res.json({
+        success: true,
+        data: {
+            jwt: delivery.jwt,
+            credentialId: delivery.credentialId,
+            employeeId: delivery.employeeId,
+            issuedAt: delivery.issuedAt,
+            expiresAt: delivery.expiresAt,
+        },
+        timestamp: new Date().toISOString(),
+    });
+});
 router.post('/employees', requireAdminPermissions, async (req, res) => {
     try {
         const { id, name, department, email, address, did, badge, registerOnChain, } = req.body;
@@ -214,43 +258,29 @@ router.post('/employees', requireAdminPermissions, async (req, res) => {
             did,
             badge,
         });
-        let data = {
-            employee: createdEmployee,
-            onChainRegistration: {
-                attempted: false,
-                success: false,
-                reason: 'Skipped by request',
-            },
-        };
-        if (registerOnChain) {
-            try {
-                const onChainEmployee = await (0, employeeOnChainRegistry_1.enrichEmployeeWithOnChainProfile)(createdEmployee);
-                data = {
-                    employee: onChainEmployee,
-                    onChainRegistration: {
-                        attempted: true,
-                        success: true,
-                        txHash: onChainEmployee.didRegistrationTxHash,
-                    },
-                };
-            }
-            catch (error) {
-                data = {
-                    employee: createdEmployee,
-                    onChainRegistration: {
-                        attempted: true,
-                        success: false,
-                        reason: error?.message || 'On-chain registration failed',
-                    },
-                };
-            }
-        }
         res.status(201).json({
             success: true,
-            data,
+            data: {
+                employee: createdEmployee,
+                onChainRegistration: {
+                    attempted: registerOnChain,
+                    pending: registerOnChain,
+                    success: false,
+                    reason: registerOnChain ? 'DID registration submitted in background' : 'Skipped by request',
+                },
+            },
             message: `Employee ${createdEmployee.id} created successfully`,
             timestamp: new Date().toISOString(),
         });
+        if (registerOnChain) {
+            (0, employeeOnChainRegistry_1.enrichEmployeeWithOnChainProfile)(createdEmployee)
+                .then((onChainEmployee) => {
+                console.log(`✅ On-chain DID registered for ${createdEmployee.id}: ${onChainEmployee.didRegistrationTxHash}`);
+            })
+                .catch((err) => {
+                console.warn(`⚠️ On-chain registration failed for ${createdEmployee.id}:`, err?.message);
+            });
+        }
     }
     catch (error) {
         const message = error?.message || 'Failed to create employee';
@@ -446,6 +476,45 @@ router.post('/employees/:employeeId/reactivate', requireAdminPermissions, async 
         res.status(status).json(response);
     }
 });
+router.delete('/employees/:employeeId', requireAdminPermissions, (req, res) => {
+    try {
+        const { employeeId } = req.params;
+        (0, employeeDirectory_1.deleteEmployee)(employeeId);
+        res.json({
+            success: true,
+            message: `Employee ${employeeId.toUpperCase()} has been permanently deleted`,
+            timestamp: new Date().toISOString(),
+        });
+    }
+    catch (error) {
+        const status = error?.message === 'Employee not found' ? 404 : 400;
+        res.status(status).json({
+            success: false,
+            error: error?.message || 'Failed to delete employee',
+            timestamp: new Date().toISOString(),
+        });
+    }
+});
+router.post('/employees/:employeeId/revoke-credential', requireAdminPermissions, (req, res) => {
+    const { employeeId } = req.params;
+    const employee = (0, employeeDirectory_1.getEmployeeById)(employeeId);
+    if (!employee) {
+        res.status(404).json({ success: false, error: 'Employee not found', timestamp: new Date().toISOString() });
+        return;
+    }
+    const delivery = (0, credentialStatus_service_1.getLatestCredentialJwtForDid)(employee.did);
+    if (!delivery) {
+        res.status(404).json({ success: false, error: 'No credential found for this employee', timestamp: new Date().toISOString() });
+        return;
+    }
+    (0, credentialStatus_service_1.revokeCredential)({ credentialId: delivery.credentialId, revokedBy: 'admin' });
+    (0, credentialStatus_service_1.clearDeliveryForDid)(employee.did);
+    res.json({
+        success: true,
+        message: `Credential revoked for ${employee.id}`,
+        timestamp: new Date().toISOString(),
+    });
+});
 router.post('/employees/:employeeId/register-onchain', requireAdminPermissions, async (req, res) => {
     try {
         const { employeeId } = req.params;
@@ -505,23 +574,33 @@ router.post('/issue-credential', requireAdminPermissions, async (req, res) => {
         }
         const selectedBadge = (badge || 'employee');
         const updatedEmployee = (0, employeeDirectory_1.assignBadge)(targetEmployeeId, selectedBadge);
-        const onChainEmployee = await (0, employeeOnChainRegistry_1.enrichEmployeeWithOnChainProfile)(updatedEmployee);
+        const cachedProfile = (0, employeeOnChainRegistry_1.getEmployeeOnChainProfile)(targetEmployeeId);
+        const hashId = cachedProfile?.hashId ?? updatedEmployee.hashId;
+        const didRegistrationTxHash = cachedProfile?.didRegistrationTxHash ?? '';
         const expiresAt = new Date(Date.now() + (365 * 24 * 60 * 60 * 1000)).toISOString();
         const vcJwt = (0, vcJwt_service_1.issueEmploymentVcJwt)({
             issuerDid: 'did:ethr:enterprise-admin',
-            subjectDid: onChainEmployee.did,
-            employeeId: onChainEmployee.id,
-            name: onChainEmployee.name,
-            badge: onChainEmployee.badge,
-            permissions: onChainEmployee.permissions,
-            hashId: onChainEmployee.hashId,
-            didRegistrationTxHash: onChainEmployee.didRegistrationTxHash,
+            subjectDid: updatedEmployee.did,
+            employeeId: updatedEmployee.id,
+            name: updatedEmployee.name,
+            badge: updatedEmployee.badge,
+            permissions: updatedEmployee.permissions,
+            hashId,
+            didRegistrationTxHash,
             expiresAt,
         });
         (0, credentialStatus_service_1.registerIssuedCredential)({
             credentialId: vcJwt.credentialId,
             issuer: 'did:ethr:enterprise-admin',
-            subjectDid: onChainEmployee.did,
+            subjectDid: updatedEmployee.did,
+            issuedAt: vcJwt.issuanceDate,
+            expiresAt,
+        });
+        (0, credentialStatus_service_1.storeIssuedCredentialJwt)({
+            subjectDid: updatedEmployee.did,
+            jwt: vcJwt.jwt,
+            credentialId: vcJwt.credentialId,
+            employeeId: updatedEmployee.id,
             issuedAt: vcJwt.issuanceDate,
             expiresAt,
         });
@@ -535,21 +614,24 @@ router.post('/issue-credential', requireAdminPermissions, async (req, res) => {
                     issuanceDate: vcJwt.issuanceDate,
                     expirationDate: expiresAt,
                     credentialSubject: {
-                        id: onChainEmployee.did,
-                        employeeId: onChainEmployee.id,
-                        name: onChainEmployee.name,
-                        badge: onChainEmployee.badge,
-                        permissions: onChainEmployee.permissions,
-                        hashId: onChainEmployee.hashId,
-                        didRegistrationTxHash: onChainEmployee.didRegistrationTxHash,
+                        id: updatedEmployee.did,
+                        employeeId: updatedEmployee.id,
+                        name: updatedEmployee.name,
+                        badge: updatedEmployee.badge,
+                        permissions: updatedEmployee.permissions,
+                        hashId,
+                        didRegistrationTxHash,
                     },
                 },
-                employee: onChainEmployee,
+                employee: updatedEmployee,
             },
             message: 'Digital badge credential issued successfully',
             timestamp: new Date().toISOString(),
         };
         res.json(response);
+        (0, employeeOnChainRegistry_1.enrichEmployeeWithOnChainProfile)(updatedEmployee)
+            .then((e) => console.log(`✅ On-chain DID registered for credential ${updatedEmployee.id}: ${e.didRegistrationTxHash}`))
+            .catch((err) => console.warn(`⚠️ Background on-chain registration failed for ${updatedEmployee.id}:`, err?.message));
     }
     catch (error) {
         const response = {

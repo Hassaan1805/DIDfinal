@@ -9,6 +9,7 @@ import {
   createEmployee,
   CreateEmployeeInput,
   deactivateEmployee,
+  deleteEmployee,
   getEmployeeById,
   isValidDID,
   isValidEthereumAddress,
@@ -23,6 +24,7 @@ import {
 } from '../services/employeeOnChainRegistry';
 import { sepoliaService } from '../services/SepoliaService';
 import {
+  clearDeliveryForDid,
   getCredentialStatus,
   getLatestCredentialJwtForDid,
   registerIssuedCredential,
@@ -178,6 +180,19 @@ router.get('/employees', requireAdminPermissions, async (_req: Request, res: Res
   try {
     const employees = await Promise.all(
       listEmployees().map(async (employee) => {
+        // Attach credential metadata (synchronous — no network call)
+        const delivery = getLatestCredentialJwtForDid(employee.did);
+        const credStatus = delivery ? getCredentialStatus(delivery.credentialId) : null;
+        const credential = delivery
+          ? {
+              issued: true,
+              credentialId: delivery.credentialId,
+              issuedAt: delivery.issuedAt,
+              expiresAt: delivery.expiresAt,
+              status: credStatus?.status ?? 'unknown',
+            }
+          : { issued: false };
+
         try {
           const onChain = await enrichEmployeeWithOnChainProfile(employee);
           return {
@@ -186,6 +201,7 @@ router.get('/employees', requireAdminPermissions, async (_req: Request, res: Res
             adminGasPayerAddress: sepoliaService.getGasPayerAddress(),
             adminGasPayerEtherscanUrl: sepoliaService.getGasPayerEtherscanUrl(),
             onChainStatus: 'ready',
+            credential,
           };
         } catch (error: any) {
           return {
@@ -195,6 +211,7 @@ router.get('/employees', requireAdminPermissions, async (_req: Request, res: Res
             adminGasPayerEtherscanUrl: sepoliaService.getGasPayerEtherscanUrl(),
             onChainStatus: 'pending',
             onChainError: error?.message || 'On-chain registration unavailable',
+            credential,
           };
         }
       })
@@ -604,6 +621,48 @@ router.post('/employees/:employeeId/reactivate', requireAdminPermissions, async 
 
     res.status(status).json(response);
   }
+});
+
+// DELETE /api/admin/employees/:employeeId - Permanently remove an employee
+router.delete('/employees/:employeeId', requireAdminPermissions, (req: Request, res: Response): void => {
+  try {
+    const { employeeId } = req.params;
+    deleteEmployee(employeeId);
+    res.json({
+      success: true,
+      message: `Employee ${employeeId.toUpperCase()} has been permanently deleted`,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    const status = error?.message === 'Employee not found' ? 404 : 400;
+    res.status(status).json({
+      success: false,
+      error: error?.message || 'Failed to delete employee',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// POST /api/admin/employees/:employeeId/revoke-credential - Revoke the active credential for an employee
+router.post('/employees/:employeeId/revoke-credential', requireAdminPermissions, (req: Request, res: Response): void => {
+  const { employeeId } = req.params;
+  const employee = getEmployeeById(employeeId);
+  if (!employee) {
+    res.status(404).json({ success: false, error: 'Employee not found', timestamp: new Date().toISOString() });
+    return;
+  }
+  const delivery = getLatestCredentialJwtForDid(employee.did);
+  if (!delivery) {
+    res.status(404).json({ success: false, error: 'No credential found for this employee', timestamp: new Date().toISOString() });
+    return;
+  }
+  revokeCredential({ credentialId: delivery.credentialId, revokedBy: 'admin' });
+  clearDeliveryForDid(employee.did);
+  res.json({
+    success: true,
+    message: `Credential revoked for ${employee.id}`,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // POST /api/admin/employees/:employeeId/register-onchain - Register employee DID on-chain

@@ -1,4 +1,21 @@
 export type CredentialLifecycleStatus = 'active' | 'revoked' | 'expired' | 'unknown';
+interface IssuedCredentialDelivery {
+    jwt: string;
+    credentialId: string;
+    employeeId: string;
+    issuedAt: string;
+    expiresAt: string;
+}
+export declare function storeIssuedCredentialJwt(input: {
+    subjectDid: string;
+    jwt: string;
+    credentialId: string;
+    employeeId: string;
+    issuedAt: string;
+    expiresAt: string;
+}): void;
+export declare function getLatestCredentialJwtForDid(did: string): IssuedCredentialDelivery | undefined;
+export declare function clearDeliveryForDid(did: string): void;
 export interface CredentialRegistryRecord {
     credentialId: string;
     issuer?: string;
@@ -36,4 +53,5 @@ export declare function revokeCredential(input: {
     revokedBy?: string;
 }): CredentialRegistryRecord;
 export declare function getCredentialStatus(credentialId?: string | null): CredentialStatusEvaluation;
+export {};
 //# sourceMappingURL=credentialStatus.service.d.ts.map
