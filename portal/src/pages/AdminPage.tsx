@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AdminAPI } from '../utils/api';
+import { AdminAPI, AIAPI } from '../utils/api';
 import {
   UserPlusIcon,
   UsersIcon,
@@ -15,6 +15,11 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   NoSymbolIcon,
+  SparklesIcon,
+  MagnifyingGlassIcon,
+  BoltIcon,
+  ClipboardDocumentListIcon,
+  ChevronRightIcon,
 } from '@heroicons/react/24/outline';
 import GlassSurface from '../components/GlassSurface';
 
@@ -69,7 +74,36 @@ interface EnrollmentRequest {
 
 type BadgeType = 'employee' | 'manager' | 'admin' | 'auditor';
 type AdminLoginStage = 'welcome' | 'form';
-type ActiveTab = 'list' | 'enroll' | 'enrollments';
+type ActiveTab = 'list' | 'enroll' | 'enrollments' | 'ai-security' | 'ai-query';
+
+interface AnomalyResult {
+  riskScore: number;
+  anomalies: Array<{
+    pattern: string;
+    count: number;
+    affectedDIDs: string[];
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+    explanation: string;
+  }>;
+  summary: string;
+  analyzedAt: string;
+}
+
+interface QueryResult {
+  parsedFilters: Record<string, string>;
+  events: Array<{
+    eventId: string;
+    createdAt: string;
+    eventType: string;
+    status: string;
+    reason?: string;
+    did?: string;
+    userAddress?: string;
+    employeeId?: string;
+  }>;
+  naturalLanguageSummary: string;
+  totalCount: number;
+}
 
 const BADGE_STYLES: Record<string, { bg: string; border: string; text: string }> = {
   admin:    { bg: 'rgba(37,99,235,0.12)',   border: 'rgba(37,99,235,0.28)',   text: '#60a5fa' },
@@ -91,6 +125,17 @@ const AdminPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('list');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [badgeEdits, setBadgeEdits] = useState<Record<string, BadgeType>>({});
+
+  // AI Security — anomaly detection
+  const [aiLoading, setAiLoading] = useState(false);
+  const [anomalyResult, setAnomalyResult] = useState<AnomalyResult | null>(null);
+  const [windowMinutes, setWindowMinutes] = useState(60);
+
+  // AI Query — natural language search
+  const [queryLoading, setQueryLoading] = useState(false);
+  const [queryText, setQueryText] = useState('');
+  const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -343,6 +388,35 @@ const AdminPage: React.FC = () => {
       showToast(err.message || 'Failed to revoke credential', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAnalyzeTimeline = async () => {
+    setAiLoading(true);
+    try {
+      const res = await AIAPI.analyzeTimeline({ windowMinutes });
+      if (res.success && res.data) setAnomalyResult(res.data);
+      else showToast(res.error || 'Analysis failed', 'error');
+    } catch (err: any) {
+      showToast(err.message || 'Analysis failed', 'error');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleNLQuery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!queryText.trim()) return;
+    setQueryLoading(true);
+    setQueryResult(null);
+    try {
+      const res = await AIAPI.queryTimeline(queryText.trim());
+      if (res.success && res.data) setQueryResult(res.data);
+      else showToast(res.error || 'Query failed', 'error');
+    } catch (err: any) {
+      showToast(err.message || 'Query failed', 'error');
+    } finally {
+      setQueryLoading(false);
     }
   };
 
@@ -746,6 +820,20 @@ const AdminPage: React.FC = () => {
               >
                 <UserPlusIcon style={{ width: 14, height: 14 }} />
                 Enroll User
+              </button>
+              <button
+                onClick={() => setActiveTab('ai-security')}
+                className={`tab-btn${activeTab === 'ai-security' ? ' active' : ''}`}
+              >
+                <SparklesIcon style={{ width: 14, height: 14 }} />
+                AI Security
+              </button>
+              <button
+                onClick={() => setActiveTab('ai-query')}
+                className={`tab-btn${activeTab === 'ai-query' ? ' active' : ''}`}
+              >
+                <MagnifyingGlassIcon style={{ width: 14, height: 14 }} />
+                AI Query
               </button>
             </div>
           </div>
@@ -1231,6 +1319,292 @@ const AdminPage: React.FC = () => {
                   </button>
                 </div>
               </form>
+            </div>
+          </GlassSurface>
+        )}
+
+        {/* ── AI Security Tab ──────────────────────────────────────────────── */}
+        {activeTab === 'ai-security' && (
+          <GlassSurface
+            width="100%" height="auto" borderRadius={14} borderWidth={0.08}
+            backgroundOpacity={0.08} saturation={1.2} displace={0.38}
+            distortionScale={-140} redOffset={0} greenOffset={6} blueOffset={10}
+            brightness={54} opacity={0.94} blur={9} mixBlendMode="screen"
+            className="admin-panel-glass"
+            style={{ animation: 'fadeUp 0.4s ease both' }}
+          >
+            <div className="admin-panel-glass__body">
+              <div style={{ marginBottom: 20 }}>
+                <h2 style={{ color: '#f8fafc', fontSize: 16, fontWeight: 700, margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <SparklesIcon style={{ width: 17, height: 17, color: '#a78bfa' }} />
+                  AI Anomaly Detection
+                </h2>
+                <p style={{ color: '#64748b', fontSize: 13, margin: 0 }}>
+                  Rule-based pattern detection with Gemini-generated explanations.
+                </p>
+              </div>
+
+              {/* Controls */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ color: '#94a3b8', fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                    Look back
+                  </label>
+                  <input
+                    type="number"
+                    min={1} max={1440}
+                    value={windowMinutes}
+                    onChange={e => setWindowMinutes(Math.max(1, Math.min(1440, Number(e.target.value))))}
+                    className="input-field"
+                    style={{ width: 80, padding: '6px 10px', fontSize: 13, textAlign: 'center' }}
+                  />
+                  <span style={{ color: '#64748b', fontSize: 12 }}>minutes</span>
+                </div>
+                <button
+                  onClick={handleAnalyzeTimeline}
+                  disabled={aiLoading}
+                  className="btn-primary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 18px', fontSize: 13 }}
+                >
+                  {aiLoading
+                    ? <ArrowPathIcon style={{ width: 14, height: 14, animation: 'spin 0.8s linear infinite' }} />
+                    : <BoltIcon style={{ width: 14, height: 14 }} />}
+                  {aiLoading ? 'Analyzing…' : 'Run Analysis'}
+                </button>
+              </div>
+
+              {/* Results */}
+              {anomalyResult && (() => {
+                const score = anomalyResult.riskScore;
+                const scoreColor = score === 0 ? '#34d399' : score <= 30 ? '#34d399' : score <= 60 ? '#fbbf24' : score <= 85 ? '#f97316' : '#f87171';
+                const scoreBg = score === 0 ? 'rgba(5,150,105,0.1)' : score <= 30 ? 'rgba(5,150,105,0.1)' : score <= 60 ? 'rgba(217,119,6,0.1)' : score <= 85 ? 'rgba(249,115,22,0.1)' : 'rgba(220,38,38,0.1)';
+                const scoreBorder = score === 0 ? 'rgba(5,150,105,0.25)' : score <= 30 ? 'rgba(5,150,105,0.25)' : score <= 60 ? 'rgba(217,119,6,0.25)' : score <= 85 ? 'rgba(249,115,22,0.25)' : 'rgba(220,38,38,0.25)';
+                const riskColors: Record<string, { bg: string; border: string; text: string }> = {
+                  CRITICAL: { bg: 'rgba(220,38,38,0.12)', border: 'rgba(220,38,38,0.3)', text: '#f87171' },
+                  HIGH:     { bg: 'rgba(249,115,22,0.12)', border: 'rgba(249,115,22,0.3)', text: '#fb923c' },
+                  MEDIUM:   { bg: 'rgba(217,119,6,0.12)', border: 'rgba(217,119,6,0.3)', text: '#fbbf24' },
+                  LOW:      { bg: 'rgba(5,150,105,0.1)', border: 'rgba(5,150,105,0.25)', text: '#34d399' },
+                };
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    {/* Risk score + summary row */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 16, alignItems: 'start' }}>
+                      <div style={{ padding: '16px 24px', background: scoreBg, border: `1px solid ${scoreBorder}`, borderRadius: 12, textAlign: 'center', minWidth: 110 }}>
+                        <div style={{ color: scoreColor, fontSize: 36, fontWeight: 800, lineHeight: 1, fontFamily: 'var(--font-mono)' }}>
+                          {score}
+                        </div>
+                        <div style={{ color: scoreColor, fontSize: 11, fontWeight: 600, marginTop: 4, opacity: 0.8, letterSpacing: '0.05em' }}>
+                          RISK SCORE
+                        </div>
+                        <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>out of 100</div>
+                      </div>
+                      <div style={{ padding: '14px 18px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12 }}>
+                        <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 600, letterSpacing: '0.05em', marginBottom: 6 }}>
+                          AI SUMMARY
+                        </div>
+                        <p style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 1.6, margin: 0 }}>
+                          {anomalyResult.summary}
+                        </p>
+                        <div style={{ color: '#475569', fontSize: 11, marginTop: 8 }}>
+                          Analyzed at {new Date(anomalyResult.analyzedAt).toLocaleTimeString()} · {anomalyResult.anomalies.length} pattern{anomalyResult.anomalies.length !== 1 ? 's' : ''} detected
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Anomaly cards */}
+                    {anomalyResult.anomalies.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <div style={{ color: '#64748b', fontSize: 12, fontWeight: 600, letterSpacing: '0.05em' }}>DETECTED PATTERNS</div>
+                        {anomalyResult.anomalies.map((a, i) => {
+                          const rc = riskColors[a.riskLevel] || riskColors.LOW;
+                          return (
+                            <div key={i} style={{ padding: '14px 16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, borderLeft: `3px solid ${rc.text}` }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                                <ExclamationTriangleIcon style={{ width: 15, height: 15, color: rc.text, flexShrink: 0 }} />
+                                <span style={{ color: '#f1f5f9', fontSize: 13, fontWeight: 600, flex: 1 }}>{a.pattern}</span>
+                                <span style={{ padding: '2px 8px', background: rc.bg, border: `1px solid ${rc.border}`, borderRadius: 99, color: rc.text, fontSize: 11, fontWeight: 700 }}>
+                                  {a.riskLevel}
+                                </span>
+                                <span style={{ color: '#64748b', fontSize: 12 }}>×{a.count}</span>
+                              </div>
+                              <p style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.5, margin: '0 0 8px 25px' }}>{a.explanation}</p>
+                              {a.affectedDIDs.length > 0 && (
+                                <div style={{ marginLeft: 25, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                  {a.affectedDIDs.slice(0, 3).map((did, j) => (
+                                    <span key={j} style={{ padding: '2px 8px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, color: '#64748b', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+                                      {did.length > 28 ? `${did.slice(0, 28)}…` : did}
+                                    </span>
+                                  ))}
+                                  {a.affectedDIDs.length > 3 && (
+                                    <span style={{ color: '#475569', fontSize: 11 }}>+{a.affectedDIDs.length - 3} more</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {!anomalyResult && !aiLoading && (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: '#475569' }}>
+                  <SparklesIcon style={{ width: 32, height: 32, margin: '0 auto 12px', opacity: 0.4 }} />
+                  <p style={{ fontSize: 13, margin: 0 }}>Run an analysis to detect suspicious auth patterns</p>
+                </div>
+              )}
+            </div>
+          </GlassSurface>
+        )}
+
+        {/* ── AI Query Tab ─────────────────────────────────────────────────── */}
+        {activeTab === 'ai-query' && (
+          <GlassSurface
+            width="100%" height="auto" borderRadius={14} borderWidth={0.08}
+            backgroundOpacity={0.08} saturation={1.2} displace={0.38}
+            distortionScale={-140} redOffset={0} greenOffset={6} blueOffset={10}
+            brightness={54} opacity={0.94} blur={9} mixBlendMode="screen"
+            className="admin-panel-glass"
+            style={{ animation: 'fadeUp 0.4s ease both' }}
+          >
+            <div className="admin-panel-glass__body">
+              <div style={{ marginBottom: 20 }}>
+                <h2 style={{ color: '#f8fafc', fontSize: 16, fontWeight: 700, margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <MagnifyingGlassIcon style={{ width: 17, height: 17, color: '#60a5fa' }} />
+                  Natural Language Query
+                </h2>
+                <p style={{ color: '#64748b', fontSize: 13, margin: 0 }}>
+                  Ask anything about your auth history in plain English.
+                </p>
+              </div>
+
+              {/* Search form */}
+              <form onSubmit={handleNLQuery} style={{ marginBottom: 24 }}>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <input
+                    type="text"
+                    value={queryText}
+                    onChange={e => setQueryText(e.target.value)}
+                    placeholder='e.g. "Show failed logins last 24 hours" or "Any replay attacks this week?"'
+                    className="input-field"
+                    style={{ flex: 1, fontSize: 13 }}
+                    maxLength={500}
+                  />
+                  <button
+                    type="submit"
+                    disabled={queryLoading || !queryText.trim()}
+                    className="btn-primary"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 18px', fontSize: 13, flexShrink: 0 }}
+                  >
+                    {queryLoading
+                      ? <ArrowPathIcon style={{ width: 14, height: 14, animation: 'spin 0.8s linear infinite' }} />
+                      : <MagnifyingGlassIcon style={{ width: 14, height: 14 }} />}
+                    {queryLoading ? 'Querying…' : 'Ask'}
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                  {['Show all failed logins this week', 'Were there any replay attacks?', 'Show successful logins after midnight'].map(ex => (
+                    <button
+                      key={ex}
+                      type="button"
+                      onClick={() => setQueryText(ex)}
+                      style={{ padding: '4px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 99, color: '#64748b', fontSize: 11, cursor: 'pointer' }}
+                    >
+                      {ex}
+                    </button>
+                  ))}
+                </div>
+              </form>
+
+              {/* Results */}
+              {queryResult && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* AI Summary */}
+                  <div style={{ padding: '12px 16px', background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 10 }}>
+                    <div style={{ color: '#60a5fa', fontSize: 11, fontWeight: 600, letterSpacing: '0.05em', marginBottom: 6 }}>AI SUMMARY</div>
+                    <p style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 1.5, margin: 0 }}>
+                      {queryResult.naturalLanguageSummary}
+                    </p>
+                    <div style={{ color: '#475569', fontSize: 11, marginTop: 6 }}>
+                      {queryResult.totalCount} event{queryResult.totalCount !== 1 ? 's' : ''} matched
+                    </div>
+                  </div>
+
+                  {/* Parsed filters toggle */}
+                  <button
+                    onClick={() => setFiltersExpanded(x => !x)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#475569', fontSize: 12 }}
+                  >
+                    <ChevronRightIcon style={{ width: 13, height: 13, transform: filtersExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                    Interpreted as
+                  </button>
+                  {filtersExpanded && (
+                    <div style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, fontFamily: 'var(--font-mono)', fontSize: 12, color: '#94a3b8' }}>
+                      {Object.entries(queryResult.parsedFilters).length === 0
+                        ? <span style={{ color: '#475569' }}>No filters extracted (returning all events)</span>
+                        : Object.entries(queryResult.parsedFilters).map(([k, v]) => (
+                          <div key={k}><span style={{ color: '#60a5fa' }}>{k}</span>: <span style={{ color: '#fbbf24' }}>"{String(v)}"</span></div>
+                        ))}
+                    </div>
+                  )}
+
+                  {/* Events table */}
+                  {queryResult.events.length > 0 ? (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table className="data-table admin-data-table">
+                        <thead>
+                          <tr>
+                            <th>Time</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>DID / Employee</th>
+                            <th>Reason</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {queryResult.events.map(ev => {
+                            const statusColor = ev.status === 'success' ? '#34d399' : ev.status === 'failure' ? '#f87171' : '#60a5fa';
+                            return (
+                              <tr key={ev.eventId}>
+                                <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#64748b', whiteSpace: 'nowrap' }}>
+                                  {new Date(ev.createdAt).toLocaleString()}
+                                </td>
+                                <td style={{ fontSize: 12 }}>
+                                  {ev.eventType.replace(/_/g, ' ')}
+                                </td>
+                                <td>
+                                  <span style={{ padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 600, color: statusColor, background: `${statusColor}18`, border: `1px solid ${statusColor}30` }}>
+                                    {ev.status}
+                                  </span>
+                                </td>
+                                <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#94a3b8' }}>
+                                  {ev.employeeId || (ev.did ? `${ev.did.slice(0, 20)}…` : '—')}
+                                </td>
+                                <td style={{ fontSize: 12, color: '#64748b' }}>
+                                  {ev.reason || '—'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '20px 0', color: '#475569', fontSize: 13 }}>
+                      No events matched your query.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!queryResult && !queryLoading && (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: '#475569' }}>
+                  <ClipboardDocumentListIcon style={{ width: 32, height: 32, margin: '0 auto 12px', opacity: 0.4 }} />
+                  <p style={{ fontSize: 13, margin: 0 }}>Ask a question to search your authentication history</p>
+                </div>
+              )}
             </div>
           </GlassSurface>
         )}

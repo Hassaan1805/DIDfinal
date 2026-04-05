@@ -1777,6 +1777,23 @@ router.post('/verify', authRateLimiter, validateBody(authSchemas.verify), async 
       // ── End role-proof branch ──────────────────────────────────────────────
 
       const challengeEmployee = challengeData.employeeId ? getEmployeeById(challengeData.employeeId) : undefined;
+
+      // SECURITY: Verify the signing wallet belongs to the employee this challenge was issued for
+      if (challengeEmployee && challengeEmployee.address.toLowerCase() !== address.toLowerCase()) {
+        auditReason = 'address_employee_mismatch';
+        auditHttpStatus = 401;
+        auditResolvedEmployeeId = challengeData.employeeId;
+        auditResolvedDid = challengeEmployee.did;
+        auditResolvedAddress = address;
+        console.warn(`⚠️ Address mismatch: challenge for ${challengeData.employeeId} (${challengeEmployee.address}) signed by ${address}`);
+        res.status(401).json({
+          success: false,
+          error: 'Signing address does not match the employee registered for this challenge',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
       const resolvedEmployee = employeeId ? getEmployeeById(employeeId) : challengeEmployee;
       const resolvedAddress = address; // Always use verified address
       const resolvedDid = resolvedEmployee?.did || `did:ethr:${resolvedAddress}`;

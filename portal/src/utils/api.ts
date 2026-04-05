@@ -437,6 +437,43 @@ export class AdminAPI {
   }
 }
 
+export class AIAPI {
+  static async analyzeTimeline(options?: { companyId?: string; verifierId?: string; windowMinutes?: number }) {
+    return ApiClient.post<{
+      riskScore: number;
+      anomalies: Array<{
+        pattern: string;
+        count: number;
+        affectedDIDs: string[];
+        riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+        explanation: string;
+      }>;
+      summary: string;
+      analyzedAt: string;
+    }>('/ai/analyze-timeline', options ?? {});
+  }
+
+  static async queryTimeline(question: string, context?: { companyId?: string; verifierId?: string }) {
+    return ApiClient.post<{
+      parsedFilters: Record<string, string>;
+      events: Array<{
+        eventId: string;
+        createdAt: string;
+        eventType: string;
+        status: string;
+        reason?: string;
+        did?: string;
+        userAddress?: string;
+        employeeId?: string;
+        companyId?: string;
+        verifierId?: string;
+      }>;
+      naturalLanguageSummary: string;
+      totalCount: number;
+    }>('/ai/query', { question, context });
+  }
+}
+
 /**
  * Connection status checker
  * Useful for debugging network issues
@@ -483,6 +520,7 @@ export default {
   AuthAPI,
   AuditAPI,
   AdminAPI,
+  AIAPI,
   ConnectionChecker,
   ApiError,
 };

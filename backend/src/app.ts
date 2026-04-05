@@ -38,6 +38,7 @@ import simpleTestRoutes from './routes/simple-test';
 import blockchainRoutes from './routes/blockchain';
 import { identityRoutes } from './routes/identity';
 import zkpAccessRoutes from './routes/zkpAccess.routes';
+import aiRoutes from './routes/ai.routes';
 import { initializeRedis, closeRedis } from './services/redis.service';
 import { initializeChallengeStorage } from './services/challengeStorage.service';
 
@@ -132,6 +133,7 @@ app.use('/api/simple-test', simpleTestRoutes); // Simple blockchain testing
 app.use('/api/blockchain', blockchainRoutes); // Blockchain data viewer routes
 app.use('/api/identity', identityRoutes); // User identity profile and consent enrollment routes
 app.use('/api/zkp', zkpAccessRoutes); // ZK-proof access control routes
+app.use('/api/ai', aiRoutes);         // AI anomaly detection + NL query
 app.use('/api/zkp/artifacts', express.static(path.join(__dirname, 'zkp'))); // Serve circuit artifacts (wasm, zkey) for client-side proof generation
 
 // Error handling middleware

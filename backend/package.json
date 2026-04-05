@@ -24,6 +24,7 @@
     "wallet:generate": "node scripts/generate-wallet.js"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "bcryptjs": "^2.4.3",
     "circomlibjs": "^0.1.7",
     "cors": "^2.8.5",
