@@ -13,9 +13,13 @@ exports.getBadgeDefinition = getBadgeDefinition;
 exports.updateEmployee = updateEmployee;
 exports.deactivateEmployee = deactivateEmployee;
 exports.reactivateEmployee = reactivateEmployee;
+exports.setEmployeeZkData = setEmployeeZkData;
+exports.deleteEmployee = deleteEmployee;
 exports.getEmployeeByDID = getEmployeeByDID;
 exports.listActiveEmployees = listActiveEmployees;
 const crypto_1 = require("crypto");
+const fs_1 = require("fs");
+const path_1 = require("path");
 const employeeWallets_1 = require("./employeeWallets");
 const DID_ETHR_REGEX = /^did:ethr:0x[a-fA-F0-9]{40}$/;
 const ETHEREUM_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
@@ -63,6 +67,35 @@ const baseEmployees = Array.from(employeeWallets_1.EMPLOYEE_WALLETS.values()).ma
     permissions: [...exports.BADGE_DEFINITIONS.employee.permissions],
 }));
 const employeeStore = new Map(baseEmployees.map((employee) => [employee.id, employee]));
+const DATA_DIR = (0, path_1.join)(process.cwd(), 'data');
+const EMPLOYEES_FILE = (0, path_1.join)(DATA_DIR, 'employees.json');
+function saveStore() {
+    try {
+        if (!(0, fs_1.existsSync)(DATA_DIR))
+            (0, fs_1.mkdirSync)(DATA_DIR, { recursive: true });
+        const records = Array.from(employeeStore.values());
+        (0, fs_1.writeFileSync)(EMPLOYEES_FILE, JSON.stringify(records, null, 2), 'utf8');
+    }
+    catch (err) {
+        console.warn('⚠️ Failed to persist employee store:', err.message);
+    }
+}
+function loadPersistedEmployees() {
+    if (!(0, fs_1.existsSync)(EMPLOYEES_FILE))
+        return;
+    try {
+        const raw = (0, fs_1.readFileSync)(EMPLOYEES_FILE, 'utf8');
+        const records = JSON.parse(raw);
+        for (const record of records) {
+            employeeStore.set(record.id, record);
+        }
+        console.log(`✅ Loaded ${records.length} employees from disk`);
+    }
+    catch (err) {
+        console.warn('⚠️ Failed to load persisted employees:', err.message);
+    }
+}
+loadPersistedEmployees();
 function cloneEmployee(employee) {
     return {
         ...employee,
@@ -135,7 +168,7 @@ function createEmployee(input) {
     if (!badgeDefinition) {
         throw new Error(`Invalid badge. Allowed: ${Object.keys(exports.BADGE_DEFINITIONS).join(', ')}`);
     }
-    const did = (input.did && input.did.trim()) || `did:ethr:${input.address.trim()}`;
+    const did = (input.did && input.did.trim().toLowerCase()) || `did:ethr:${normalizedAddress}`;
     if (!isValidDID(did)) {
         throw new Error('Invalid DID format. Must be did:ethr:0x followed by 40 hex characters');
     }
@@ -155,6 +188,7 @@ function createEmployee(input) {
         permissions: [...badgeDefinition.permissions],
     };
     employeeStore.set(normalizedId, employee);
+    saveStore();
     const cloned = cloneEmployee(employee);
     return { ...cloned, hashId: getEmployeeHashId(cloned) };
 }
@@ -171,6 +205,7 @@ function assignBadge(employeeId, badge) {
     employee.badge = badge;
     employee.permissions = [...badgeDef.permissions];
     employeeStore.set(id, employee);
+    saveStore();
     const cloned = cloneEmployee(employee);
     return { ...cloned, hashId: getEmployeeHashId(cloned) };
 }
@@ -217,6 +252,7 @@ function updateEmployee(employeeId, input) {
         employee.permissions = [...badgeDef.permissions];
     }
     employeeStore.set(id, employee);
+    saveStore();
     const cloned = cloneEmployee(employee);
     return { ...cloned, hashId: getEmployeeHashId(cloned) };
 }
@@ -231,6 +267,7 @@ function deactivateEmployee(employeeId) {
     }
     employee.active = false;
     employeeStore.set(id, employee);
+    saveStore();
     const cloned = cloneEmployee(employee);
     return { ...cloned, hashId: getEmployeeHashId(cloned) };
 }
@@ -245,8 +282,29 @@ function reactivateEmployee(employeeId) {
     }
     employee.active = true;
     employeeStore.set(id, employee);
+    saveStore();
     const cloned = cloneEmployee(employee);
     return { ...cloned, hashId: getEmployeeHashId(cloned) };
+}
+function setEmployeeZkData(employeeId, zkAddress, merkleRoots) {
+    const id = employeeId.toUpperCase();
+    const employee = employeeStore.get(id);
+    if (!employee)
+        throw new Error('Employee not found');
+    employee.zkAddress = zkAddress;
+    employee.merkleRoots = merkleRoots;
+    employeeStore.set(id, employee);
+    saveStore();
+    const cloned = cloneEmployee(employee);
+    return { ...cloned, hashId: getEmployeeHashId(cloned) };
+}
+function deleteEmployee(employeeId) {
+    const id = employeeId.toUpperCase();
+    if (!employeeStore.has(id)) {
+        throw new Error('Employee not found');
+    }
+    employeeStore.delete(id);
+    saveStore();
 }
 function getEmployeeByDID(did) {
     const normalizedDid = did.toLowerCase();

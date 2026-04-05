@@ -15,6 +15,8 @@ export interface EmployeeRecord {
     active: boolean;
     badge: BadgeType;
     permissions: string[];
+    zkAddress?: string;
+    merkleRoots?: Partial<Record<BadgeType, string>>;
 }
 export interface CreateEmployeeInput {
     id: string;
@@ -60,6 +62,10 @@ export declare function deactivateEmployee(employeeId: string): EmployeeRecord &
 export declare function reactivateEmployee(employeeId: string): EmployeeRecord & {
     hashId: string;
 };
+export declare function setEmployeeZkData(employeeId: string, zkAddress: string, merkleRoots: Partial<Record<BadgeType, string>>): EmployeeRecord & {
+    hashId: string;
+};
+export declare function deleteEmployee(employeeId: string): void;
 export declare function getEmployeeByDID(did: string): (EmployeeRecord & {
     hashId: string;
 }) | undefined;

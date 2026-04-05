@@ -22,6 +22,8 @@ export interface EmployeeRecord {
   active: boolean;
   badge: BadgeType;
   permissions: string[];
+  zkAddress?: string;
+  merkleRoots?: Partial<Record<BadgeType, string>>;
 }
 
 export interface CreateEmployeeInput {
@@ -219,7 +221,7 @@ export function createEmployee(input: CreateEmployeeInput): EmployeeRecord & { h
   }
 
   // Validate DID format if provided
-  const did = (input.did && input.did.trim()) || `did:ethr:${input.address.trim()}`;
+  const did = (input.did && input.did.trim().toLowerCase()) || `did:ethr:${normalizedAddress}`;
   if (!isValidDID(did)) {
     throw new Error('Invalid DID format. Must be did:ethr:0x followed by 40 hex characters');
   }
@@ -364,6 +366,31 @@ export function reactivateEmployee(employeeId: string): EmployeeRecord & { hashI
   saveStore();
   const cloned = cloneEmployee(employee);
   return { ...cloned, hashId: getEmployeeHashId(cloned) };
+}
+
+export function setEmployeeZkData(
+  employeeId: string,
+  zkAddress: string,
+  merkleRoots: Partial<Record<BadgeType, string>>,
+): EmployeeRecord & { hashId: string } {
+  const id = employeeId.toUpperCase();
+  const employee = employeeStore.get(id);
+  if (!employee) throw new Error('Employee not found');
+  employee.zkAddress = zkAddress;
+  employee.merkleRoots = merkleRoots;
+  employeeStore.set(id, employee);
+  saveStore();
+  const cloned = cloneEmployee(employee);
+  return { ...cloned, hashId: getEmployeeHashId(cloned) };
+}
+
+export function deleteEmployee(employeeId: string): void {
+  const id = employeeId.toUpperCase();
+  if (!employeeStore.has(id)) {
+    throw new Error('Employee not found');
+  }
+  employeeStore.delete(id);
+  saveStore();
 }
 
 export function getEmployeeByDID(did: string): (EmployeeRecord & { hashId: string }) | undefined {
