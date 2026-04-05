@@ -6,6 +6,7 @@ import { saveTokens, clearAuth as clearPortalAuth, getCurrentUser } from './util
 import type { BadgeType } from './utils/auth';
 import { RoleGate } from './components/RoleGate';
 import { ZKRoleGate } from './components/ZKRoleGate';
+import GlassSurface from './components/GlassSurface';
 import { PROJECT_DATASET } from './constants/projectDataset';
 import {
   ShieldCheckIcon,
@@ -40,6 +41,7 @@ type VerifierRequestType = 'portal_access' | 'general_auth';
 type VerifierClaimKey = 'subjectDid' | 'employeeId' | 'name' | 'role' | 'department' | 'email';
 type EnrollmentRequestStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 type AuthStep = 'login' | 'qr' | 'authenticated';
+type LoginPanelStage = 'welcome' | 'form';
 type PortalSection = 'dashboard' | 'projects' | 'security' | 'blockchain' | 'analytics' | 'audit';
 
 interface RequestedClaimsData {
@@ -385,6 +387,7 @@ const EnterprisePortalProfessional: React.FC = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [employeeId, setEmployeeId] = useState('');
   const [authStep, setAuthStep] = useState<AuthStep>('login');
+  const [loginPanelStage, setLoginPanelStage] = useState<LoginPanelStage>('welcome');
   const [challengeData, setChallengeData] = useState<ChallengeData | null>(null);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [authStatus, setAuthStatus] = useState<StatusData | null>(null);
@@ -618,6 +621,7 @@ const EnterprisePortalProfessional: React.FC = () => {
 
   const logout = () => {
     setAuthStep('login'); setChallengeData(null); setQrCodeUrl(''); setAuthStatus(null);
+    setLoginPanelStage('welcome');
     setEmployeeId(''); clearPortalAuth(); localStorage.removeItem('authToken');
     setPortalSection('dashboard'); navigate('/login');
   };
@@ -633,15 +637,17 @@ const EnterprisePortalProfessional: React.FC = () => {
   const renderTopNav = () => (
     <nav style={{
       position: 'relative', zIndex: 20,
-      borderBottom: '1px solid rgba(255,255,255,0.06)',
-      background: 'rgba(5,5,5,0.85)',
-      backdropFilter: 'blur(24px)',
+      borderBottom: '1px solid rgba(148,163,184,0.22)',
+      background: 'linear-gradient(120deg, rgba(15,23,42,0.58) 0%, rgba(15,23,42,0.44) 46%, rgba(30,64,175,0.26) 100%)',
+      backdropFilter: 'blur(18px) saturate(145%)',
+      WebkitBackdropFilter: 'blur(18px) saturate(145%)',
+      boxShadow: '0 8px 28px rgba(2,6,23,0.3), inset 0 1px 0 rgba(255,255,255,0.08)',
     }}>
       <div style={{ maxWidth: 1280, margin: '0 auto', padding: '0 24px', height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <FingerPrintIcon style={{ width: 18, height: 18, color: '#2563eb' }} />
           <span style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 13, letterSpacing: '-0.02em' }}>DID Auth Platform</span>
-          <span style={{ marginLeft: 8, color: '#334155', fontSize: 12 }}>Enterprise</span>
+          <span style={{ marginLeft: 8, color: '#93c5fd', fontSize: 12 }}>Enterprise</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{
@@ -1132,105 +1138,190 @@ const EnterprisePortalProfessional: React.FC = () => {
 
     if (authStep === 'qr') return (
       <div style={{ maxWidth: 520, margin: '0 auto', padding: '40px 24px', animation: 'fadeUp 0.4s ease' }}>
-        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: '36px 32px', textAlign: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 6 }}>
-            <QrCodeIcon style={{ width: 18, height: 18, color: '#60a5fa' }} />
-            <span style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 18, letterSpacing: '-0.02em' }}>Challenge Ready</span>
-          </div>
-          <p style={{ color: '#64748b', fontSize: 13, marginBottom: 28 }}>
-            {challengeData?.employee?.name} · {challengeData?.employee?.id}
-          </p>
-
-          {qrCodeUrl && (
-            <div style={{ display: 'inline-block', position: 'relative', marginBottom: 20 }}>
-              <div className="qr-wrapper" style={{ padding: 16, background: '#ffffff', display: 'inline-block' }}>
-                <img src={qrCodeUrl} alt="Authentication QR" style={{ width: 240, height: 240, display: 'block' }} />
-                <div className="qr-scan-line" />
-              </div>
-              <style>{`@keyframes scanLine { 0% { top: 2%; opacity: 0; } 5% { opacity: 1; } 95% { opacity: 1; } 100% { top: 94%; opacity: 0; } }`}</style>
+        <GlassSurface
+          width="100%"
+          height="auto"
+          borderRadius={20}
+          borderWidth={0.09}
+          backgroundOpacity={0.08}
+          saturation={1.25}
+          displace={0.6}
+          distortionScale={-165}
+          redOffset={0}
+          greenOffset={8}
+          blueOffset={16}
+          brightness={56}
+          opacity={0.94}
+          blur={12}
+          mixBlendMode="screen"
+          className="portal-qr-glass"
+        >
+          <div className="portal-qr-glass__body">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 6 }}>
+              <QrCodeIcon style={{ width: 18, height: 18, color: '#60a5fa' }} />
+              <span style={{ color: '#f8fafc', fontWeight: 700, fontSize: 18, letterSpacing: '-0.02em' }}>Challenge Ready</span>
             </div>
-          )}
+            <p style={{ color: '#cbd5e1', fontSize: 13, marginBottom: 28 }}>
+              {challengeData?.employee?.name} · {challengeData?.employee?.id}
+            </p>
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#2563eb', animation: 'pulseDot 1.8s ease-in-out infinite', display: 'inline-block' }} />
-            <span style={{ color: '#94a3b8', fontSize: 13 }}>Waiting for wallet scan</span>
-            <style>{`@keyframes pulseDot { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.5; } }`}</style>
-          </div>
-
-          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '12px 16px', marginBottom: 20, textAlign: 'left' }}>
-            {[
-              ['Verifier', challengeData?.verifier?.organizationName || authStatus?.verifierOrganizationName || 'Default'],
-              ['Claims', (challengeData?.requestedClaims?.requiredClaims || ['employeeId']).map(c => CLAIM_LABELS[c] || c).join(', ')],
-              ['Hash ID', challengeData?.employee?.hashId || '—'],
-            ].map(([k, v]) => (
-              <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                <span style={{ color: '#475569', fontSize: 12 }}>{k}</span>
-                <span style={{ color: '#94a3b8', fontSize: 12, fontFamily: k === 'Hash ID' ? 'var(--font-mono)' : undefined, wordBreak: 'break-all', textAlign: 'right' }}>{v}</span>
+            {qrCodeUrl && (
+              <div style={{ display: 'inline-block', position: 'relative', marginBottom: 20 }}>
+                <div className="qr-wrapper" style={{ padding: 16, background: '#ffffff', display: 'inline-block' }}>
+                  <img src={qrCodeUrl} alt="Authentication QR" style={{ width: 240, height: 240, display: 'block' }} />
+                  <div className="qr-scan-line" />
+                </div>
+                <style>{`@keyframes scanLine { 0% { top: 2%; opacity: 0; } 5% { opacity: 1; } 95% { opacity: 1; } 100% { top: 94%; opacity: 0; } }`}</style>
               </div>
-            ))}
-          </div>
+            )}
 
-          <button onClick={logout} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 18px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#64748b', fontSize: 13, cursor: 'pointer' }}>
-            <XCircleIcon style={{ width: 14, height: 14 }} />Cancel
-          </button>
-        </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#2563eb', animation: 'pulseDot 1.8s ease-in-out infinite', display: 'inline-block' }} />
+              <span style={{ color: '#dbeafe', fontSize: 13, fontWeight: 500 }}>Waiting for wallet scan</span>
+              <style>{`@keyframes pulseDot { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.5; } }`}</style>
+            </div>
+
+            <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: 10, padding: '12px 16px', marginBottom: 20, textAlign: 'left' }}>
+              {[
+                ['Verifier', challengeData?.verifier?.organizationName || authStatus?.verifierOrganizationName || 'Default'],
+                ['Claims', (challengeData?.requestedClaims?.requiredClaims || ['employeeId']).map(c => CLAIM_LABELS[c] || c).join(', ')],
+                ['Hash ID', challengeData?.employee?.hashId || '—'],
+              ].map(([k, v], idx, list) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '4px 0', borderBottom: idx < list.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
+                  <span style={{ color: '#94a3b8', fontSize: 12 }}>{k}</span>
+                  <span style={{ color: '#e2e8f0', fontSize: 12, fontFamily: k === 'Hash ID' ? 'var(--font-mono)' : undefined, wordBreak: 'break-all', textAlign: 'right' }}>{v}</span>
+                </div>
+              ))}
+            </div>
+
+            <button onClick={logout} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 18px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(148,163,184,0.22)', borderRadius: 10, color: '#cbd5e1', fontSize: 13, cursor: 'pointer' }}>
+              <XCircleIcon style={{ width: 14, height: 14 }} />Cancel
+            </button>
+          </div>
+        </GlassSurface>
       </div>
     );
 
     // ── Login Step ───────────────────────────────────────────────────────────
 
     return (
-      <div style={{ minHeight: 'calc(100vh - 52px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px' }}>
+      <div style={{ minHeight: 'calc(100vh - 52px)', display: 'grid', placeItems: 'center', padding: '24px' }}>
         <div style={{ width: '100%', maxWidth: 420, animation: 'fadeUp 0.5s ease' }}>
-          {/* Brand mark */}
-          <div style={{ textAlign: 'center', marginBottom: 32 }}>
-            <div style={{ width: 56, height: 56, borderRadius: 16, background: 'rgba(37,99,235,0.15)', border: '1px solid rgba(37,99,235,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-              <FingerPrintIcon style={{ width: 28, height: 28, color: '#60a5fa' }} />
-            </div>
-            <h1 style={{ color: '#f8fafc', fontWeight: 800, fontSize: 22, letterSpacing: '-0.03em', margin: '0 0 6px' }}>Enterprise Portal</h1>
-            <p style={{ color: '#475569', fontSize: 13, margin: 0 }}>Decentralized identity authentication</p>
-          </div>
 
           {/* Login card */}
-          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: '28px 28px 24px', backdropFilter: 'blur(20px)' }}>
-            <div style={{ marginBottom: 18 }}>
-              <label style={{ display: 'block', color: '#64748b', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Employee ID</label>
-              <input
-                value={employeeId}
-                onChange={e => setEmployeeId(e.target.value.toUpperCase())}
-                className="input-field"
-                placeholder="EMP001"
-                onKeyDown={e => e.key === 'Enter' && startLogin()}
-                style={{ fontSize: 15, letterSpacing: '0.04em' }}
-              />
-            </div>
-
-            <div style={{ marginBottom: 22 }}>
-              <label style={{ display: 'block', color: '#64748b', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Verification Profile</label>
-              <select value={selectedVerifierId} onChange={e => setSelectedVerifierId(e.target.value)} className="input-field">
-                {verifierProfiles.length === 0 ? (
-                  <option value="dtp_portal_primary">dtp_portal_primary (default)</option>
-                ) : (
-                  verifierProfiles.map(p => <option key={p.verifierId} value={p.verifierId}>{p.organizationName} ({p.verifierId})</option>)
-                )}
-              </select>
-              {verifierProfiles.length > 0 && (
-                <div style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(37,99,235,0.08)', border: '1px solid rgba(37,99,235,0.2)', borderRadius: 8 }}>
-                  <p style={{ color: '#60a5fa', fontSize: 11, margin: 0 }}>Claims: {requestedPortalClaimsPreview.map(c => CLAIM_LABELS[c] || c).join(', ')}</p>
-                </div>
-              )}
-            </div>
-
-            <button
-              onClick={startLogin}
-              disabled={!isConnected}
-              className="btn-primary"
-              style={{ width: '100%', padding: '13px 20px', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+          {loginPanelStage === 'welcome' ? (
+            <GlassSurface
+              width="100%"
+              height="auto"
+              borderRadius={20}
+              borderWidth={0.1}
+              backgroundOpacity={0.12}
+              saturation={1.3}
+              displace={0.75}
+              distortionScale={-175}
+              redOffset={0}
+              greenOffset={10}
+              blueOffset={18}
+              brightness={60}
+              opacity={0.94}
+              blur={14}
+              mixBlendMode="screen"
+              className="portal-welcome-glass"
             >
-              <QrCodeIcon style={{ width: 16, height: 16 }} />
-              {!isConnected ? 'Backend Offline' : 'Generate Challenge'}
-            </button>
-          </div>
+              <div className="portal-welcome-glass__body">
+                <p className="portal-welcome-glass__eyebrow">Welcome</p>
+                <h2 className="portal-welcome-glass__title">Login To Continue</h2>
+                <p className="portal-welcome-glass__description">
+                  Access your enterprise DID workspace with secure wallet-based authentication and policy-aware verification.
+                </p>
+
+                <button
+                  onClick={() => setLoginPanelStage('form')}
+                  className="btn-primary"
+                  style={{ width: '100%', padding: '13px 20px', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                >
+                  <ArrowRightOnRectangleIcon style={{ width: 16, height: 16 }} />
+                  Open Login
+                </button>
+              </div>
+            </GlassSurface>
+          ) : (
+            <GlassSurface
+              width="100%"
+              height="auto"
+              borderRadius={20}
+              borderWidth={0.09}
+              backgroundOpacity={0.08}
+              saturation={1.25}
+              displace={0.6}
+              distortionScale={-165}
+              redOffset={0}
+              greenOffset={8}
+              blueOffset={16}
+              brightness={56}
+              opacity={0.94}
+              blur={12}
+              mixBlendMode="screen"
+              className="portal-login-glass"
+            >
+              <div className="portal-login-glass__body">
+                <div style={{ marginBottom: 18 }}>
+                  <label style={{ display: 'block', color: '#94a3b8', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Employee ID</label>
+                  <input
+                    value={employeeId}
+                    onChange={e => setEmployeeId(e.target.value.toUpperCase())}
+                    className="input-field"
+                    placeholder="EMP001"
+                    onKeyDown={e => e.key === 'Enter' && startLogin()}
+                    style={{ fontSize: 15, letterSpacing: '0.04em' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 22 }}>
+                  <label style={{ display: 'block', color: '#94a3b8', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Verification Profile</label>
+                  <select value={selectedVerifierId} onChange={e => setSelectedVerifierId(e.target.value)} className="input-field">
+                    {verifierProfiles.length === 0 ? (
+                      <option value="dtp_portal_primary">dtp_portal_primary (default)</option>
+                    ) : (
+                      verifierProfiles.map(p => <option key={p.verifierId} value={p.verifierId}>{p.organizationName} ({p.verifierId})</option>)
+                    )}
+                  </select>
+                  {verifierProfiles.length > 0 && (
+                    <div style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(37,99,235,0.08)', border: '1px solid rgba(37,99,235,0.2)', borderRadius: 8 }}>
+                      <p style={{ color: '#93c5fd', fontSize: 11, margin: 0 }}>Claims: {requestedPortalClaimsPreview.map(c => CLAIM_LABELS[c] || c).join(', ')}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={() => setLoginPanelStage('welcome')}
+                    style={{
+                      padding: '13px 16px',
+                      fontSize: 13,
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      color: '#94a3b8',
+                      borderRadius: 12,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Back
+                  </button>
+
+                  <button
+                    onClick={startLogin}
+                    disabled={!isConnected}
+                    className="btn-primary"
+                    style={{ width: '100%', padding: '13px 20px', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                  >
+                    <QrCodeIcon style={{ width: 16, height: 16 }} />
+                    {!isConnected ? 'Backend Offline' : 'Generate Challenge'}
+                  </button>
+                </div>
+              </div>
+            </GlassSurface>
+          )}
 
           {/* Security footer */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 20 }}>
@@ -1459,7 +1550,7 @@ const EnterprisePortalProfessional: React.FC = () => {
   // ── Root Render ───────────────────────────────────────────────────────────
 
   return (
-    <div style={{ minHeight: '100vh', background: '#050505', position: 'relative', overflow: 'hidden' }}>
+    <div style={{ minHeight: '100vh', background: 'transparent', position: 'relative', overflow: 'hidden' }}>
       {renderTopNav()}
 
       {/* Error and offline banners */}

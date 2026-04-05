@@ -347,6 +347,13 @@ export class AdminAPI {
   }
 
   /**
+   * Permanently delete an employee
+   */
+  static async deleteEmployee(employeeId: string) {
+    return this.adminRequest(`/admin/employees/${employeeId}`, { method: 'DELETE' });
+  }
+
+  /**
    * Deactivate an employee
    */
   static async deactivateEmployee(employeeId: string) {
@@ -384,6 +391,13 @@ export class AdminAPI {
   }
 
   /**
+   * Revoke the active credential for an employee
+   */
+  static async revokeCredential(employeeId: string) {
+    return this.adminRequest(`/admin/employees/${employeeId}/revoke-credential`, { method: 'POST' });
+  }
+
+  /**
    * Get badge definitions
    */
   static async getBadges() {
@@ -395,6 +409,31 @@ export class AdminAPI {
    */
   static async getBlockchainStatus() {
     return ApiClient.get('/did/status/unified');
+  }
+
+  /**
+   * Send an enrollment request to a user's wallet
+   */
+  static async sendEnrollmentRequest(data: {
+    did: string;
+    requesterOrganizationId: string;
+    requesterOrganizationName: string;
+    purpose: string;
+    employeeData: { id: string; name: string; department: string; email: string; badge: string };
+    expiresInHours?: number;
+  }) {
+    return ApiClient.post('/identity/enrollment-requests', data);
+  }
+
+  /**
+   * List enrollment requests (admin-authenticated)
+   */
+  static async listEnrollmentRequests(filters?: { status?: string; did?: string }) {
+    const params = new URLSearchParams();
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.did) params.append('did', filters.did);
+    const qs = params.toString();
+    return this.adminRequest(`/identity/enrollment-requests${qs ? `?${qs}` : ''}`);
   }
 }
 

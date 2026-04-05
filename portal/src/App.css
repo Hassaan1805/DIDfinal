@@ -1,12 +1,40 @@
 /* Import utility classes */
 @import './utils/tailwind-utilities.css';
 
-/* App Container */
+/* App Shell */
+.app-shell {
+  position: relative;
+  min-height: 100vh;
+  isolation: isolate;
+  background:
+    radial-gradient(1200px circle at 18% -12%, rgba(37, 99, 235, 0.28), transparent 60%),
+    radial-gradient(900px circle at 80% 0%, rgba(6, 182, 212, 0.2), transparent 55%),
+    #020617;
+}
+
+.app-background {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.app-background-vignette {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 15%, rgba(59, 130, 246, 0.08), transparent 45%),
+    radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.07), transparent 40%),
+    linear-gradient(180deg, rgba(2, 6, 23, 0.1), rgba(2, 6, 23, 0.68));
+}
+
 .app-container {
+  position: relative;
+  z-index: 1;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background-color: #f8fafc;
+  background: transparent;
 }
 
 /* Navigation Styles */
@@ -78,8 +106,183 @@
 .app-main {
   flex: 1;
   width: 100%;
-  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  background: linear-gradient(180deg, rgba(2, 6, 23, 0.3) 0%, rgba(2, 6, 23, 0.68) 100%);
   min-height: calc(100vh - 92px);
+}
+
+.portal-login-glass {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  box-shadow:
+    0 18px 45px rgba(2, 6, 23, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+}
+
+.portal-welcome-glass {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  box-shadow:
+    0 20px 52px rgba(2, 6, 23, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+}
+
+.portal-welcome-glass .glass-surface__content {
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+}
+
+.portal-welcome-glass__body {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 30px 28px 26px;
+}
+
+.portal-welcome-glass__eyebrow {
+  margin: 0;
+  color: #60a5fa;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.portal-welcome-glass__title {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.portal-welcome-glass__description {
+  margin: 0 0 14px;
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.portal-login-glass .glass-surface__content {
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+}
+
+.portal-login-glass__body {
+  width: 100%;
+  padding: 28px 28px 24px;
+}
+
+.portal-qr-glass {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  box-shadow:
+    0 18px 45px rgba(2, 6, 23, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+}
+
+.portal-qr-glass .glass-surface__content {
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+}
+
+.portal-qr-glass__body {
+  width: 100%;
+  padding: 32px 28px 26px;
+  text-align: center;
+}
+
+.admin-panel-glass {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  box-shadow:
+    0 16px 40px rgba(2, 6, 23, 0.42),
+    0 0 0 1px rgba(255, 255, 255, 0.07) inset;
+}
+
+.admin-panel-glass .glass-surface__content {
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+}
+
+.admin-panel-glass__body {
+  width: 100%;
+  padding: 20px 24px;
+}
+
+.admin-panel-glass__body--compact {
+  padding: 14px 18px;
+}
+
+.admin-table-glass .admin-panel-glass__body {
+  padding: 0;
+  overflow: hidden;
+}
+
+.admin-tab-nav {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(148, 163, 184, 0.24);
+}
+
+.admin-tab-nav .tab-btn {
+  color: #a8b6cc;
+  font-weight: 600;
+}
+
+.admin-tab-nav .tab-btn:hover {
+  color: #f1f5f9;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.admin-tab-nav .tab-btn.active {
+  background: rgba(37, 99, 235, 0.24);
+  color: #dbeafe;
+}
+
+.admin-data-table th {
+  color: #94a3b8;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.admin-data-table td {
+  color: #e2e8f0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.admin-data-table tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+@media (max-width: 768px) {
+  .app-background-vignette {
+    background:
+      radial-gradient(circle at 20% 15%, rgba(59, 130, 246, 0.08), transparent 52%),
+      linear-gradient(180deg, rgba(2, 6, 23, 0.16), rgba(2, 6, 23, 0.78));
+  }
+
+  .admin-panel-glass__body {
+    padding: 18px 16px;
+  }
+
+  .admin-panel-glass__body--compact {
+    padding: 12px 14px;
+  }
+
+  .portal-login-glass__body {
+    padding: 22px 20px 20px;
+  }
+
+  .portal-qr-glass__body {
+    padding: 24px 20px 20px;
+  }
+
+  .portal-welcome-glass__body {
+    padding: 24px 20px 20px;
+  }
+
+  .portal-welcome-glass__title {
+    font-size: 20px;
+  }
 }
 
 /* Original styles */
